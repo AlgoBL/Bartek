@@ -59,3 +59,49 @@ def display_analysis_report():
 
         > **Finalna Myśl**: Celem tego portfela nie jest bycie najlepszym każdego dnia, ale przetrwanie każdego krachu i czerpanie zysków z nieuchronnej zmienności rynku. Jesteś teraz "Antykruchy".
         """)
+
+def display_scanner_methodology():
+     with st.expander("🧩 METODOLOGIA SKANERA (Szczegóły Modelu)", expanded=True):
+        st.markdown("""
+        ### Specyfikacja Techniczna: Barbell Convexity Scanner (BCS)
+
+        #### 1. Cel Systemu
+        Automatyczna identyfikacja aktywów charakteryzujących się matematycznie potwierdzoną "anty-kruchością" (dodatnia wypukłość, grube prawe ogony), przy jednoczesnym odrzuceniu aktywów o ukrytym ryzyku. Skaner nie zgaduje cen, lecz poluje na **wypukłość**.
+
+        ---
+
+        #### 2. Moduł I: Filtr Matematyczny (Fundament EVT)
+        Odpowiada za selekcję kandydatów spełniających rygorystyczne kryteria statystyczne.
+
+        *   **Kryterium 1: Estymator Hilla (Tail Index)**
+            *   **Zasada**: Szukamy rozdładów potęgowych (Power Laws), a nie normalnych.
+            *   **Wzór**: Wykorzystujemy estymator Hilla do oceny grubości ogona.
+            *   **Cel**: $\\alpha < 3.0$ (ideał $1 < \\alpha < 2$). Oznacza to wysokie prawdopodobieństwo ekstremalnie pozytywnych zwrotów ("To The Moon" events).
+
+        *   **Kryterium 2: Dodatnia Skośność (Positive Skewness)**
+            *   **Zasada**: Preferujemy "długi prawy ogon".
+            *   **Warunek**: $Skew > 0$. Unikamy aktywów z ujemną skośnością (jak sprzedaż opcji), gdzie zyski są częste ale małe, a straty rzadkie ale totalne.
+
+        *   **Kryterium 3: Potencjał "Demona Shannona"**
+            *   **Zasada**: Zmienność ($\sigma$) jest zasobem.
+            *   **Cel**: Aktywo musi mieć wysoką zmienność, aby "karmić" mechanizm rebalansowania. W strategii sztangi zmienność nie jest ryzykiem, lecz paliwem dla wzrostu geometrycznego.
+
+        ---
+
+        #### 3. Moduł II: Warstwa AI i Detekcja Reżimów
+        Ten moduł decyduje "CZY" inwestować, w oparciu o stan rynku.
+
+        *   **Ukryte Modele Markowa (HMM)**: Aplikacja analizuje rynek, aby wykryć, czy jesteśmy w reżimie "Risk-On" (Hossa/Spokój) czy "Risk-Off" (Chaos/Krach). W zależności od tego algorytm sugeruje zwiększenie lub zmniejszenie ekspozycji (Kelly Fraction).
+
+        ---
+
+        #### 4. Moduł III: Money Management (Egzekucja)
+        Bezpiecznik systemu, chroniący przed ruiną.
+
+        *   **Ułamkowy Kelly z "Kurczeniem" (Shrinkage)**:
+            *   Estymacje matematyczne są obarczone błędem. Dlatego stosujemy wzór Bakera-McHale'a, który automatycznie redukuje wielkość pozycji (np. o 50%), gdy pewność statystyczna jest niska. To zapobiega "przelicytowaniu".
+        *   **Rebalansowanie Progowe (Threshold Rebalancing)**:
+            *   Implementujemy pasma Davisa-Normana (No-Trade Zone). Nie rebalansujemy codziennie, lecz tylko po przekroczeniu progu (zależnego od zmienności i kosztów). To maksymalizuje efekt Shannona.
+
+        > **Wniosek**: Ten skaner to narzędzie inżynierii finansowej. Odrzuca intuicję na rzecz twardej statystyki, szukając asymetrii w świecie losowości.
+        """)
