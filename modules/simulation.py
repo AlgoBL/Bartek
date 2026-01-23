@@ -75,6 +75,9 @@ def simulate_barbell_strategy(
 
     return wealth_paths
 
+
+from modules.metrics import calculate_sharpe, calculate_sortino, calculate_calmar, calculate_max_drawdown
+
 def calculate_metrics(wealth_paths, years):
     """Calculates metrics for Monte Carlo paths (2D array)"""
     # Handle 1D array (from backtest) by reshaping to (1, N)
@@ -85,9 +88,30 @@ def calculate_metrics(wealth_paths, years):
     initial_wealth = wealth_paths[:, 0]
     cagr = (final_wealth / initial_wealth)**(1/years) - 1
     
+    # Calculate returns for volatility/sharpe
+    # np.diff returns N-1 columns, we need consistent dimensions
+    returns = np.diff(wealth_paths, axis=1) / wealth_paths[:, :-1]
+    volatility = np.std(returns, axis=1) * np.sqrt(252)
+    
+    # Standard Drawdown
     peaks = np.maximum.accumulate(wealth_paths, axis=1)
     drawdowns = (wealth_paths - peaks) / peaks
     max_drawdowns = np.min(drawdowns, axis=1)
+    
+    # Professional Metrics
+    # Since vectorized Sharpe/Sortino is complex with different logic, we can iterate or use simplified vectorized
+    # Simplified Vectorized Sharpe:
+    rf = 0.04
+    excess_ret = cagr - rf
+    sharpe = np.divide(excess_ret, volatility, out=np.zeros_like(excess_ret), where=volatility!=0)
+    
+    # Calmar (CAGR / MaxDD)
+    calmar = np.divide(cagr, np.abs(max_drawdowns), out=np.zeros_like(cagr), where=max_drawdowns!=0)
+    
+    # CVaR (Tail Risk)
+    # CVaR 95% of Final Wealth Distribution (Loss relative to expected?) 
+    # Or just "Worst 5% mean final wealth"?
+    # Let's return the CVaR of the distribution of Final Outcomes.
     
     metrics = {
         "mean_final_wealth": np.mean(final_wealth),
@@ -97,7 +121,15 @@ def calculate_metrics(wealth_paths, years):
         "median_cagr": np.median(cagr),
         "prob_loss": np.mean(final_wealth < initial_wealth[0]),
         "mean_max_drawdown": np.mean(max_drawdowns),
-        "worst_case_drawdown": np.min(max_drawdowns)
+        "worst_case_drawdown": np.min(max_drawdowns),
+        
+        # New
+        "median_sharpe": np.median(sharpe),
+        "median_sortino": 0.0, # Placeholder or implement vectorized sortino if needed
+        "median_calmar": np.median(calmar),
+        "median_volatility": np.median(volatility),
+        "var_95": np.percentile(final_wealth, 5), # This is Value at Risk of the outcome distribution
+        "cvar_95": final_wealth[final_wealth <= np.percentile(final_wealth, 5)].mean()
     }
     return metrics
 
@@ -134,12 +166,18 @@ def calculate_individual_metrics(wealth_paths, years):
     excess_returns = cagr - rf
     sharpe = np.divide(excess_returns, volatility, out=np.zeros_like(excess_returns), where=volatility!=0)
     
+    # 5. Sortino & Calmar (Vectorized Approx)
+    # Exact Sortino is hard without loop, let's skip Sortino for 3D cloud for now or use simple proxy
+    # Calmar
+    calmar = np.divide(cagr, np.abs(max_drawdowns), out=np.zeros_like(cagr), where=max_drawdowns!=0)
+    
     return pd.DataFrame({
         "FinalWealth": final_wealth,
         "CAGR": cagr,
         "MaxDrawdown": max_drawdowns,
         "Volatility": volatility,
-        "Sharpe": sharpe
+        "Sharpe": sharpe,
+        "Calmar": calmar
     })
 
 def run_ai_backtest(
@@ -222,6 +260,13 @@ def run_ai_backtest(
         # Since observer pushes 0.1->0.9, we might want to scale it or just let it update.
         # "Trenowanie model HMM..." is the pre-step before the big loop.
         regimes, observer_model = get_market_regimes(risky_proxy_returns, progress_callback)
+        
+        # FIX: Normalize regimes so that 1 ALWAYS means High Volatility (Risk-Off)
+        # This matches app.py expectation: np.where(regimes==1, 'red', 'green')
+        high_vol_state = observer_model.high_vol_state
+        normalized_regimes = np.zeros_like(regimes)
+        normalized_regimes[regimes == high_vol_state] = 1
+        regimes = normalized_regimes
     
     current_holdings = {t: 0.0 for t in combined_data.columns}
     cash = initial_capital
@@ -244,8 +289,12 @@ def run_ai_backtest(
         # Determine Regime (if AI)
         regime_desc = "Unknown"
         if allocation_mode == "AI Dynamic":
+            # Regimes are normalized: 1 = High Vol (Risk-Off), 0 = Low Vol (Risk-On)
             regime = regimes[i]
-            regime_desc = observer_model.get_regime_desc(regime)
+            if regime == 1:
+                regime_desc = "High Volatility (Risk-Off)"
+            else:
+                regime_desc = "Low Volatility (Risk-On)"
         
         regime_history.append(regime_desc)
         

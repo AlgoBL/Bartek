@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import skew, kurtosis
 import streamlit as st
+from modules.metrics import calculate_sharpe, calculate_sortino, calculate_max_drawdown
 
 def hill_estimator(returns, tail_fraction=0.05):
     """
@@ -59,6 +60,11 @@ def calculate_convecity_metrics(ticker, price_series, benchmark_series=None):
     skew_val = skew(returns)
     kurt_val = kurtosis(returns) # Excess kurtosis (Fisher)
     
+    # 3. Professional Metrics
+    sharpe = calculate_sharpe(returns)
+    sortino = calculate_sortino(returns)
+    max_dd = calculate_max_drawdown(price_series)
+    
     # 3. Estymator Hilla (Prawy Ogon - Zyski)
     alpha_hill = hill_estimator(returns.values)
     
@@ -83,6 +89,11 @@ def calculate_convecity_metrics(ticker, price_series, benchmark_series=None):
         "Skewness": skew_val,
         "Kurtosis": kurt_val,
         "Hill Alpha (Tail)": alpha_hill,
+        
+        "Sharpe": sharpe,
+        "Sortino": sortino,
+        "Max Drawdown": max_dd,
+        
         "Variance Drag": var_drag,
         "Kelly Full": kelly_full,
         "Kelly Safe (50%)": kelly_safe

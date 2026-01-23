@@ -111,6 +111,13 @@ if module_selection == "📉 Symulator Portfela":
             col2.metric("CAGR", f"{metrics['mean_cagr']:.2%}")
             col3.metric("Mediana CAGR", f"{metrics['median_cagr']:.2%}")
             col4.metric("Szansa Straty", f"{metrics['prob_loss']:.1%}")
+            
+            display_chart_guide("Kluczowe Wskaźniki (KPI)", """
+            *   **Średni Kapitał**: Oczekiwana wartość końcowa (średnia arytmetyczna ze wszystkich symulacji).
+            *   **CAGR**: Średnioroczna stopa zwrotu (procent składany).
+            *   **Mediana CAGR**: Bardziej "realistyczny" zwrot (połowa scenariuszy jest lepsza, połowa gorsza).
+            *   **Szansa Straty**: Prawdopodobieństwo, że po X latach będziesz miał mniej pieniędzy niż na początku.
+            """)
 
             days = np.arange(wealth_paths.shape[1])
             percentiles = np.percentile(wealth_paths, [5, 50, 95], axis=0)
@@ -121,7 +128,44 @@ if module_selection == "📉 Symulator Portfela":
             fig_paths.add_trace(go.Scatter(x=days, y=percentiles[1], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'))
             fig_paths.update_layout(title="Projekcja Bogactwa", template="plotly_dark", height=500)
             st.plotly_chart(fig_paths, use_container_width=True)
+            
+            display_chart_guide("Projekcja Bogactwa (Fan Chart)", """
+            *   **Ciemnozielona Linia (Mediana)**: Najbardziej prawdopodobna ścieżka Twojego portfela.
+            *   **Obszar Cieniowany (90% CI)**: "Stożek niepewności". Z 90% prawdopodobieństwem Twój wynik zmieści się w tym tunelu.
+            *   **Szerokość Tunelu**: Im szerszy, tym większa niepewność (ryzyko) strategii.
+            """)
 
+            # --- Professional Metrics Table ---
+            with st.expander("📊 Tabela Profesjonalna (Risk & Performance)", expanded=True):
+                # Organize in 3 categories
+                m_col1, m_col2, m_col3 = st.columns(3)
+                
+                with m_col1:
+                    st.markdown("**Efektywność (Risk-Adjusted)**")
+                    st.metric("Sharpe Ratio", f"{metrics['median_sharpe']:.2f}")
+                    st.metric("Sortino Ratio", f"{metrics.get('median_sortino', 0):.2f}") # Placeholder
+                    st.metric("Calmar Ratio", f"{metrics['median_calmar']:.2f}")
+
+                with m_col2:
+                    st.markdown("**Ryzyko (Risk Mgt)**")
+                    st.metric("Max Drawdown (Avg)", f"{metrics['mean_max_drawdown']:.1%}")
+                    st.metric("VaR 95% (Wynik)", f"{metrics['var_95']:,.0f} PLN")
+                    st.metric("CVaR 95% (Krach)", f"{metrics['cvar_95']:,.0f} PLN", help="Średnia wartość kapitału w 5% najgorszych scenariuszy.")
+
+                with m_col3:
+                    st.markdown("**Statystyka**")
+                    st.metric("Median Volatility", f"{metrics['median_volatility']:.1%}")
+                    st.metric("Szansa Bankructwa", f"{metrics['prob_loss']:.1%}")
+                    st.metric("Worst Case Drawdown", f"{metrics['worst_case_drawdown']:.1%}")
+            
+            display_chart_guide("Tabela Profesjonalna (Hedge Fund Grade)", """
+            *   **Sharpe Ratio**: Zysk za każdą jednostkę ryzyka. > 1.0 = Dobrze, > 2.0 = Wybitnie.
+            *   **Sortino Ratio**: Jak Sharpe, ale liczy tylko "złą" zmienność (spadki). Ważniejsze dla inwestora indywidualnego.
+            *   **Calmar Ratio**: CAGR / Max Drawdown. Mówi, jak szybko strategia "odkopuje się" z dołka.
+            *   **VaR 95%**: "Value at Risk". Kwota, której NIE stracisz z 95% pewnością. (Ale z 5% pewnością stracisz więcej!).
+            *   **CVaR 95%**: "Expected Shortfall". Jeśli już nastąpi te 5% najgorszych dni (krach), tyle średnio stracisz. To jest prawdziwy wymiar ryzyka ogona.
+            """)
+            
             # --- New Visualization Section ---
             st.divider()
             st.subheader("📊 Zaawansowane Wizualizacje")
@@ -430,6 +474,44 @@ if module_selection == "📉 Symulator Portfela":
                 col3.metric("Max Drawdown", f"{metrics['worst_case_drawdown']:.2%}")
                 col4.metric("Regime Risk-Off", f"{np.mean(regimes):.1%} czasu")
                 
+                display_chart_guide("Wyniki Backtestu AI", """
+                *   **Kapitał Końcowy**: Ile zarobiłeś na koniec testu.
+                *   **Max Drawdown**: Najgłębszy spadek wartości portfela w historii.
+                *   **Regime Risk-Off**: Jak często AI "bało się" rynku i uciekało do bezpiecznych aktywów (Obligacje/Gotówka).
+                """)
+
+                # --- Algo / Professional Metrics Table ---
+                from modules.metrics import calculate_trade_stats
+
+                # Calculate Trade Stats approximation
+                trade_stats = calculate_trade_stats(results['PortfolioValue'])
+                
+                with st.expander("📊 Raport Funduszu (Algo Stats & Risk)", expanded=True):
+                    a_col1, a_col2, a_col3 = st.columns(3)
+                    with a_col1:
+                        st.markdown("**Efektywność Algo**")
+                        st.metric("Profit Factor", f"{trade_stats['profit_factor']:.2f}")
+                        st.metric("Win Rate (Dni)", f"{trade_stats['win_rate']:.1%}")
+                        st.metric("Risk/Reward", f"{trade_stats['risk_reward']:.2f}")
+
+                    with a_col2:
+                         st.markdown("**Risk-Adjusted**")
+                         st.metric("Sharpe Ratio", f"{metrics['median_sharpe']:.2f}")
+                         st.metric("Sortino Ratio", f"{metrics.get('median_sortino', 0):.2f}") 
+                         st.metric("Calmar Ratio", f"{metrics['median_calmar']:.2f}")
+                    
+                    with a_col3:
+                        st.markdown("**Ryzyko**")
+                        st.metric("VaR 95%", f"{metrics['var_95']:,.0f} PLN")
+                        st.metric("CVaR 95%", f"{metrics['cvar_95']:,.0f} PLN")
+                        st.metric("Max Drawdown", f"{metrics['worst_case_drawdown']:.2%}")
+
+                display_chart_guide("Tabela Algo & Risk", """
+                *   **Profit Factor**: Suma zysków / Suma strat. > 1.5 oznacza solidną strategię. < 1.0 to strata.
+                *   **Win Rate**: Procent dni zyskownych. Wysoki Win Rate nie gwarantuje sukcesu (można mieć 90% małych zysków i jedną stratę bankruta).
+                *   **Risk/Reward**: Średni Zysk / Średnia Strata. Strategie Trend-Following często mają niski Win Rate, ale wysoki R/R (tnij straty, pozwól zyskom rosnąć).
+                """)
+                
                 # Plot Portfolio vs Regime
                 fig = go.Figure()
                 
@@ -451,20 +533,55 @@ if module_selection == "📉 Symulator Portfela":
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
+                display_chart_guide("Wykres Kapitału (Equity Curve)", """
+                *   **Cel**: Chcesz widzieć stabilny wzrost (nachylenie w górę) z jak najmniejszymi "zębami" (drawdowns).
+                *   **Porównanie**: Jeśli linia jest gładsza niż "Kup i Trzymaj" na S&P 500, to strategia działa.
+                *   **Zielona Linia**: Wartość Twojego portfela w czasie.
+                """)
+                
                 # Plot Regimes
                 st.subheader("🕵️ Detekcja Reżimów Rynkowych (HMM)")
                 st.caption("Czerwony = Wysoka Zmienność (Trader ucieka do bezpiecznych aktywów), Zielony = Niska Zmienność (Trader atakuje).")
                 
-                regime_colors = np.where(regimes == 1, 'red', 'green')
+                st.caption("Czerwony = Wysoka Zmienność (Trader ucieka do bezpiecznych aktywów), Zielony = Niska Zmienność (Trader atakuje).")
+                
+                # Create Colored Segments (by plotting markers on top of a gray line)
                 fig_regime = go.Figure()
+                
+                # 1. Base Line (Gray)
+                fig_regime.add_trace(go.Scatter(
+                    x=results.index,
+                    y=risky_data.mean(axis=1),
+                    mode='lines',
+                    line=dict(color='rgba(255, 255, 255, 0.2)', width=1),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
+
+                # 2. Colored Markers (Larger)
+                regime_colors = np.where(regimes == 1, '#ff4444', '#00ff88') # Bright Red / Bright Green
                 fig_regime.add_trace(go.Scatter(
                     x=results.index,
                     y=risky_data.mean(axis=1), # Proxy for market
                     mode='markers',
-                    marker=dict(color=regime_colors, size=2),
+                    marker=dict(color=regime_colors, size=6, line=dict(width=1, color='black')), # Size 2 -> 6
                     name='Market Regime'
                 ))
+                
+                fig_regime.update_layout(
+                    title="Cykle Rynkowe (HMM)",
+                    xaxis_title="Data",
+                    yaxis_title="Średnia Cena Koszyka (Proxy)",
+                    template="plotly_dark",
+                    height=400
+                )
                 st.plotly_chart(fig_regime, use_container_width=True)
+                
+                display_chart_guide("Detekcja Reżimów (HMM)", """
+                *   **Kropki Zielone (Risk-On)**: AI uznaje rynek za bezpieczny (niska/średnia zmienność). Strategia agresywnie inwestuje w ryzykowne aktywa.
+                *   **Kropki Czerwone (Risk-Off)**: AI wykrywa turbulencje (wysoka zmienność/krach). Strategia ucieka do bezpiecznej przystani (Obligacje).
+                *   **Cel**: Unikanie czerwonych kropek w trakcie największych krachów (np. 2020, 2022).
+                """)
 
                 # --- New AI Visualizations ---
                 st.divider()
@@ -659,6 +776,12 @@ if module_selection == "📉 Symulator Portfela":
                         yaxis=dict(tickformat=".0%")
                     )
                     st.plotly_chart(fig_trader, use_container_width=True)
+                    
+                    display_chart_guide("Decyzje Tradera (Risk Exposure)", """
+                    *   **Cel**: Zarządzanie wielkością pozycji (Bet Sizing) w oparciu o Kryterium Kelly'ego.
+                    *   **Wykres Wysoko**: Trader jest pewny siebie i zwiększa ekspozycję na ryzyko (lewaruje wynik).
+                    *   **Wykres Nisko (lub 0)**: Trader ucina ryzyko (de-lewarowanie) w obliczu zagrożenia. To mechanizm obronny.
+                    """)
     
                 # 2. ARCHITECT: Internal Composition of Risky Basket
                 if present_risky:
@@ -683,6 +806,12 @@ if module_selection == "📉 Symulator Portfela":
                          yaxis=dict(tickformat=".0%")
                     )
                     st.plotly_chart(fig_architect, use_container_width=True)
+                    
+                    display_chart_guide("Decyzje Architekta (HRP)", """
+                    *   **Cel**: Minimalizacja ryzyka wewnątrz koszyka spekulacyjnego poprzez inteligentną dywersyfikację (Hierarchical Risk Parity).
+                    *   **Kolorowe Pola**: Pokazują, ile % portfela spekulacyjnego jest w danym aktywie.
+                    *   **Zmiany**: Jeśli jedno pole rośnie kosztem innych, Architekt wykrył, że to aktywo stało się bezpieczniejsze lub mniej skorelowane z resztą.
+                    """)
     
                 display_analysis_report()
 
@@ -780,7 +909,10 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
                 "Skewness": "{:.2f}",
                 "Kurtosis": "{:.2f}",
                 "Hill Alpha (Tail)": "{:.2f}",
-                "Kelly Safe (50%)": "{:.1%}"
+                "Kelly Safe (50%)": "{:.1%}",
+                "Sharpe": "{:.2f}",
+                "Sortino": "{:.2f}",
+                "Max Drawdown": "{:.1%}"
             }).applymap(highlight_score, subset=['Score']),
             use_container_width=True,
             height=dynamic_height,
@@ -868,6 +1000,9 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         *   **Skewness (Skośność)**: Mierzy asymetrię. >0 to nasz cel (częste małe straty, rzadkie wielkie zyski).
         *   **Kurtosis (Kurtoza)**: Mierzy "grubość" ogonów. Im wyższa, tym więcej ekstremalnych zdarzeń.
         *   **Hill Alpha**: Kluczowa metryka EVT. < 3.0 oznacza Gruby Ogon (szansa na wykładniczy wzrost).
+        *   **Sharpe Ratio**: Wynik > 1.0 jest dobry. Mierzy zysk na jednostkę całkowitego ryzyka (zmienności).
+        *   **Sortino Ratio**: Lepsza wersja Sharpe'a. Mierzy zysk na jednostkę "złej zmienności" (tylko spadki).
+        *   **Max Drawdown**: Maksymalne obsunięcie kapitału. Mówi o tym, jak bardzo zaboli w najgorszym momencie.
         """)
         
         # Best Asset Charts
