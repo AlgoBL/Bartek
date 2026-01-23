@@ -855,21 +855,19 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         )
         st.plotly_chart(fig_3d_scan, use_container_width=True)
         
+        display_chart_guide("Mapa Antykruchości 3D", """
+        *   **Szukaj Baniek**: Szukamy aktywów w prawym górnym rogu (Wysoka Skośność, Wysoka Kurtoza).
+        *   **Rozmiar Bańki**: Większa bańka = Bardziej "Gruby Ogon" (Mniejsze Hill Alpha). To są potencjalne "rakiety".
+        """)
+        
         st.markdown("""
         ### 📖 Legenda Metryk (Słownik)
-
+        
         *   **Annual Return**: Średni roczny zwrot geometryczny.
-        *   **Volatility (Zmienność)**: Zmienność roczna. W strategii sztangi traktujemy ją jako **zasób** (paliwo dla Demona Shannona), a nie tylko jako ryzyko. Wysoka zmienność przy braku korelacji umożliwia generowanie "premii z rebalansowania".
-        *   **Skewness (Skośność)**: Mierzy asymetrię rozkładu zwrotów.
-            *   **> 0 (Pozytywna)**: Rozkład ma "długi prawy ogon". Oznacza częste małe straty i rzadkie, ale ogromne zyski (Profil Antykruchy). **To jest nasz cel.**
-            *   **< 0 (Negatywna)**: Rozkład ma "długi lewy ogon". Oznacza częste małe zyski i rzadkie katastrofalne straty (Profil Kruchy - np. sprzedaż opcji). Unikaj tego.
-        *   **Kurtosis (Kurtoza)**: Mierzy "grubość" ogonów. Wysoka kurtoza oznacza, że ekstremalne zdarzenia (krachy lub rakiety) zdarzają się częściej niż przewiduje rozkład normalny Gaussa.
-        *   **Hill Alpha (Indeks Ogonowy)**: Kluczowa metryka EVT (Extreme Value Theory).
-            *   **< 3.0**: Gruby ogon (Fat Tail). Aktywo ma potencjał do wykładniczych wzrostów.
-            *   **< 2.0**: Ekstremalna wypukłość (Infinite Variance). Najbardziej pożądane aktywa w części ryzykownej (np. Krypto, Opcje).
-            *   **> 4.0**: Rozkład zbliżony do normalnego (Brak potencjału Black Swan).
-        *   **Kelly Safe (50%)**: Sugerowana wielkość alokacji kapitału w dane aktywo wg kryterium Kelly'ego, zredukowana o 50% (tzw. Half-Kelly) dla bezpieczeństwa. Uwzględnia relację zysku do ryzyka. Ujemna wartość oznacza, że nie należy inwestować.
-        *   **Score**: Syntetyczna ocena algorytmu, który promuje aktywa o niskim Hill Alpha i wysokiej dodatniej skośności.
+        *   **Volatility (Zmienność)**: Zmienność roczna. W strategii sztangi traktujemy ją jako **zasób**.
+        *   **Skewness (Skośność)**: Mierzy asymetrię. >0 to nasz cel (częste małe straty, rzadkie wielkie zyski).
+        *   **Kurtosis (Kurtoza)**: Mierzy "grubość" ogonów. Im wyższa, tym więcej ekstremalnych zdarzeń.
+        *   **Hill Alpha**: Kluczowa metryka EVT. < 3.0 oznacza Gruby Ogon (szansa na wykładniczy wzrost).
         """)
         
         # Best Asset Charts
@@ -887,6 +885,35 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         cum_ret = (1 + asset_data).cumprod()
         fig_line = px.line(cum_ret, log_y=True, title=f"Wzrost Kapitału (Skala Log) {best_asset['Ticker']}")
         col_chart2.plotly_chart(fig_line, use_container_width=True)
+        
+        display_chart_guide("Wykresy Najlepszego Aktywa", """
+        *   **Histogram**: Szukamy prawego "długiego ogona" (wiele słupków po prawej stronie zera).
+        *   **Skala Logarytmiczna**: Linia prosta oznacza stabilne tempo wzrostu procentowego ($CAGR$).
+        """)
+
+        # 2a. Correlation Heatmap (Scanner)
+        if len(data.columns) > 1:
+            st.divider()
+            st.subheader("🔥 Mapa Korelacji (Skaner)")
+            st.caption("Sprawdź, czy wybrane aktywa są ze sobą powiązane.")
+            
+            # Calculate correlation matrix
+            corr_matrix_scan = data.pct_change().corr()
+            
+            fig_corr_scan = px.imshow(
+                corr_matrix_scan, 
+                text_auto=".2f", 
+                color_continuous_scale='RdBu_r', 
+                zmin=-1, zmax=1,
+                title="Macierz Korelacji"
+            )
+            fig_corr_scan.update_layout(template="plotly_dark", height=500)
+            st.plotly_chart(fig_corr_scan, use_container_width=True)
+            
+            display_chart_guide("Mapa Korelacji (Skaner)", """
+            *   **Cel**: Budowa portfela wymaga niskiej korelacji. Jeśli wszystko jest czerwone (kor > 0.8), dywersyfikacja nie działa.
+            *   **Szukaj Błękitu**: Wartości bliskie 0 lub ujemne to idealni kandydaci do pary w strategii Barbell.
+            """)
 
         # 3. Log-Log Tail Plot (Power Law Visualizer)
         st.markdown("**Analiza Ogonów (Log-Log Plot)**")
@@ -917,6 +944,12 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
                 height=400
             )
             st.plotly_chart(fig_loglog, use_container_width=True)
+            
+            display_chart_guide("Log-Log Tail Plot", """
+            *   **Test Potęgowy**: To najważniejszy test "Antykruchości".
+            *   **Linia Prosta**: Oznacza, że ryzyko nie maleje wykładniczo. Krachy i Rakiety są bardziej prawdopodobne niż sądzisz (Mandlebrot/Taleb).
+            *   **Parabola w dół**: Oznacza "Bezpieczny" rozkład normalny (mało niespodzianek).
+            """)
         else:
             st.info("Za mało danych do wygenerowania wykresu Log-Log.")
 
