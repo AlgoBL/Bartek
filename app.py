@@ -5,10 +5,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from modules.styling import apply_styling
-from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest
+from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
 from modules.ai.data_loader import load_data
-from modules.analysis_content import display_analysis_report, display_scanner_methodology
+from modules.analysis_content import display_analysis_report, display_scanner_methodology, display_chart_guide
 from modules.scanner import calculate_convecity_metrics, score_asset
+
+# ... existsing code ...
 
 # 1. Page Configuration
 st.set_page_config(
@@ -119,6 +121,145 @@ if module_selection == "📉 Symulator Portfela":
             fig_paths.add_trace(go.Scatter(x=days, y=percentiles[1], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'))
             fig_paths.update_layout(title="Projekcja Bogactwa", template="plotly_dark", height=500)
             st.plotly_chart(fig_paths, use_container_width=True)
+
+            # --- New Visualization Section ---
+            st.divider()
+            st.subheader("📊 Zaawansowane Wizualizacje")
+            
+            # A. 3D Risk-Reward Cloud (Scatter)
+            st.markdown("### ☁️ Chmura Ryzyka i Zysku (Hedge Fund View)")
+            
+            # Calculate metrics for every simulation
+            sim_metrics_df = calculate_individual_metrics(wealth_paths, years)
+            
+            fig_cloud = px.scatter_3d(
+                sim_metrics_df,
+                x='MaxDrawdown',
+                y='FinalWealth',
+                z='Volatility',
+                color='Sharpe',
+                hover_data=['CAGR'],
+                color_continuous_scale='RdYlGn',
+                opacity=0.6,
+                title="Każda kropka to inna symulowana przyszłość"
+            )
+            fig_cloud.update_layout(
+                scene=dict(
+                    xaxis_title='Max Drawdown (Ból)',
+                    yaxis_title='Kapitał (Zysk)',
+                    zaxis_title='Zmienność (Emocje)'
+                ),
+                template="plotly_dark",
+                height=600
+            )
+            st.plotly_chart(fig_cloud, use_container_width=True)
+            
+            display_chart_guide("Chmura Ryzyka i Zysku", """
+            *   **Cel**: Pokazuje relację między "Bólem" (Max Drawdown - oś X) a "Zyskiem" (Kapitał - oś Y).
+            *   **Oś Z (Pionowa)**: Zmienność. Im wyżej, tym bardziej "szarpie" portfelem.
+            *   **Kolor (Sharpe)**: Zielone kropki to "Dobre Ryzyko" (duży zysk przy małym ryzyku). Czerwone to "Złe Ryzyko".
+            *   **Gdzie patrzeć?**: Szukamy skupisk kropek w **lewym, górnym rogu** (Mały Drawdown, Duży Zysk). Jeśli chmura jest płaska i szeroka, wynik jest loterią.
+            """)
+
+            st.divider()
+            
+            # B. Histogram of Final Wealth
+            final_wealths = wealth_paths[:, -1]
+            fig_hist = px.histogram(
+                final_wealths, 
+                nbins=50, 
+                title="Rozkład Kapitału Końcowego",
+                labels={'value': 'Kapitał (PLN)'},
+                color_discrete_sequence=['#00ff88']
+            )
+            
+            # Add VaR lines
+            var_95 = np.percentile(final_wealths, 5)
+            fig_hist.add_vline(x=var_95, line_dash="dash", line_color="red", annotation_text="VaR 95%")
+            fig_hist.update_layout(template="plotly_dark", showlegend=False)
+            st.plotly_chart(fig_hist, use_container_width=True)
+            
+            display_chart_guide("Histogram i VaR", """
+            *   **VaR 95% (Value at Risk)**: Czerwona linia oznacza "Pesymistyczny Scenariusz". Z 95% pewnością Twój wynik będzie lepszy niż ta linia.
+            *   **Gruby Ogon**: Jeśli histogram ma "długi ogon" w prawo, masz szansę na ogromne zyski (Black Swan).
+            """)
+
+            # C. 3D Sensitivity Analysis (On Demand)
+            st.subheader("🧊 Mapa Wrażliwości 3D")
+            st.caption("Sprawdź jak wynik zależy od Volatility (Ryzyka) i % Alokacji.")
+            
+            if st.button("Generuj Mapę 3D (Może potrwać chwilę)", key="mc_3d_btn"):
+                st.session_state['mc_3d_data'] = None # Clear old
+                
+                with st.status("Symulowanie wariantów (Grid 10x10)...", expanded=True) as status:
+                    # Define grid
+                    vol_range = np.linspace(0.10, 0.80, 10) # 10 steps
+                    alloc_range = np.linspace(0.10, 1.0, 10) # 10 steps
+                    
+                    z_data = []
+                    
+                    total_steps = len(vol_range) * len(alloc_range)
+                    step_count = 0
+                    
+                    # Create a placeholder for progress
+                    progress_text = st.empty()
+                    
+                    for v in vol_range:
+                        row = []
+                        for a in alloc_range:
+                            step_count += 1
+                            if step_count % 10 == 0:
+                                progress_text.text(f"Symulacja: {step_count}/{total_steps}")
+                                
+                            w_paths = simulate_barbell_strategy(
+                                n_years=years,
+                                n_simulations=100, 
+                                initial_captial=initial_capital,
+                                safe_rate=safe_rate,
+                                risky_mean=risky_mean,
+                                risky_vol=v, 
+                                risky_kurtosis=risky_kurtosis,
+                                alloc_safe=1.0 - a, 
+                                rebalance_strategy=rebalance_strategy.split(" ")[0],
+                                threshold_percent=threshold_percent
+                            )
+                            metric = np.median(w_paths[:, -1])
+                            row.append(metric)
+                            
+                        z_data.append(row)
+                    
+                    st.session_state['mc_3d_data'] = {
+                        'z': z_data,
+                        'x': alloc_range,
+                        'y': vol_range
+                    }
+                    progress_text.empty()
+                    status.update(label="Mapa wygenerowana!", state="complete", expanded=False)
+
+            # Render if data exists
+            if 'mc_3d_data' in st.session_state and st.session_state['mc_3d_data'] is not None:
+                data_3d = st.session_state['mc_3d_data']
+                fig_3d = go.Figure(data=[go.Surface(
+                    z=data_3d['z'], 
+                    x=data_3d['x'], 
+                    y=data_3d['y']
+                )])
+                fig_3d.update_layout(
+                    title="Mediana Kapitału Końcowego",
+                    scene = dict(
+                        xaxis_title='Alokacja w Ryzyko (%)',
+                        yaxis_title='Zmienność (Vol)',
+                        zaxis_title='Kapitał (PLN)'
+                    ),
+                    template="plotly_dark",
+                    height=600
+                )
+                st.plotly_chart(fig_3d, use_container_width=True)
+             
+            display_chart_guide("Mapa Wrażliwości 3D", """
+            *   **Płaskowyż**: Szukamy "płaskiego szczytu" (stabilne zyski). Jeśli mapa przypomina "iglicę", strategia jest niestabilna.
+            *   **Oś Alokacji**: Zobacz, przy jakim % wkładzie w ryzyko, zyski zaczynają spadać (nadmierne ryzyko niszczy portfel - Variance Drag).
+            """)
             
             display_analysis_report()
 
@@ -324,6 +465,165 @@ if module_selection == "📉 Symulator Portfela":
                     name='Market Regime'
                 ))
                 st.plotly_chart(fig_regime, use_container_width=True)
+
+                # --- New AI Visualizations ---
+                st.divider()
+                st.divider()
+                st.subheader("🔮 Zaawansowana Analityka (Hedge Fund View)")
+                
+                # --- 1. Monthly Returns Heatmap ---
+                st.markdown("### 🗓️ Mapa Zwrotów Miesięcznych (Monthly Heatmap)")
+                
+                # Calculate monthly returns
+                res_monthly = results['PortfolioValue'].resample('M').last().pct_change()
+                res_monthly_df = pd.DataFrame(res_monthly)
+                res_monthly_df['Year'] = res_monthly_df.index.year
+                res_monthly_df['Month'] = res_monthly_df.index.month_name()
+                
+                # Pivot
+                heatmap_data = res_monthly_df.pivot(index='Year', columns='Month', values='PortfolioValue')
+                # Sort months correctly
+                months_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+                heatmap_data = heatmap_data.reindex(columns=months_order)
+                
+                # Calculate centered range for Heatmap
+                max_val = heatmap_data.abs().max().max() if not heatmap_data.empty else 0.1
+                
+                fig_heat = px.imshow(
+                    heatmap_data, 
+                    text_auto=".1%", 
+                    color_continuous_scale='RdYlGn',
+                    range_color=[-max_val, max_val],
+                    title="Miesięczne Stopy Zwrotu"
+                )
+                fig_heat.update_layout(template="plotly_dark", height=400)
+                st.plotly_chart(fig_heat, use_container_width=True)
+                
+                display_chart_guide("Mapa Ciepła (Heatmap)", """
+                *   **Cel**: Szybka ocena sezonowości i spójności wyników.
+                *   **Kolory**: Czerwień to strata, Zieleń to zysk.
+                *   **Co jest dobre?**: Dużo zieleni, brak długich "czerwonych pasów" (serii strat).
+                """)
+
+                col_viz_1, col_viz_2 = st.columns(2)
+                
+                with col_viz_1:
+                    # 2. 3D Phase Space Trajectory
+                    st.markdown("**Trajektoria Fazowa Portfela (Phase Space)**")
+                    ret_roll = results['PortfolioValue'].pct_change().rolling(21).mean() * 252
+                    vol_roll = results['PortfolioValue'].pct_change().rolling(21).std() * np.sqrt(252)
+                    
+                    fig_3d_phase = go.Figure(data=go.Scatter3d(
+                        x=ret_roll,
+                        y=vol_roll,
+                        z=np.arange(len(results)),
+                        mode='lines',
+                        line=dict(
+                            color=np.where(regimes==1, 1.0, 0.0), # Map to colorscale
+                            colorscale='RdYlGn_r',
+                            width=4
+                        ),
+                        name='Trajektoria'
+                    ))
+                    fig_3d_phase.update_layout(
+                        scene=dict(
+                            xaxis_title='Zwrot (Rolling)',
+                            yaxis_title='Ryzyko (Vol)',
+                            zaxis_title='Czas'
+                        ),
+                        margin=dict(l=0, r=0, b=0, t=0),
+                        template="plotly_dark",
+                        height=400
+                    )
+                    st.plotly_chart(fig_3d_phase, use_container_width=True)
+                    
+                    display_chart_guide("Trajektoria Fazowa", """
+                    *   **Spirala**: Portfel "oddycha". Zwróć uwagę, czy w okresach wysokiego ryzyka (oś Y) zwroty (oś X) są dodatnie.
+                    *   **Kolor**: Czerwony = Reżim Wysokiej Zmienności (Risk-Off). Zielony = Hossa.
+                    """)
+
+                with col_viz_2:
+                    # 3. Rolling Sharpe Ratio
+                    st.markdown("**Stabilność Wyników (Rolling Sharpe)**")
+                    
+                    # Rolling 6-month Sharpe
+                    window = 126
+                    rolling_sharpe = (ret_roll.rolling(window).mean() / vol_roll.rolling(window).mean()) * np.sqrt(252) # Approximation
+                    
+                    fig_sharpe = go.Figure()
+                    fig_sharpe.add_trace(go.Scatter(
+                        x=rolling_sharpe.index,
+                        y=rolling_sharpe,
+                        mode='lines',
+                        fill='tozeroy',
+                        line=dict(color='#00d4ff', width=2),
+                        name='Rolling Sharpe'
+                    ))
+                    fig_sharpe.add_hline(y=1.0, line_dash="dash", line_color="green", annotation_text="Dobre (1.0)")
+                    fig_sharpe.add_hline(y=0.0, line_dash="dot", line_color="red", annotation_text="Krytyczne (0.0)")
+                    
+                    fig_sharpe.update_layout(
+                        yaxis_title='Sharpe Ratio (6M)',
+                        template="plotly_dark",
+                        height=400
+                    )
+                    st.plotly_chart(fig_sharpe, use_container_width=True)
+                    
+                    display_chart_guide("Rolling Sharpe", """
+                    *   **Powyżej 1.0**: Strategia generuje zysk nieproporcjonalnie duży do ryzyka.
+                    *   **Poniżej 0**: Portfel nie zarabia nawet na pokrycie ryzyka.
+                    """)
+                
+                # 4. Underwater Plot dedicated
+                st.markdown("### ⚓ Wykres Obsunięć (Underwater Plot)")
+                wealth = results['PortfolioValue']
+                peaks = wealth.cummax()
+                drawdowns = (wealth - peaks) / peaks
+                
+                fig_underwater = go.Figure()
+                fig_underwater.add_trace(go.Scatter(
+                    x=drawdowns.index,
+                    y=drawdowns,
+                    mode='lines',
+                    fill='tozeroy',
+                    line=dict(color='#ff4444', width=1),
+                    name='Drawdown'
+                ))
+                fig_underwater.update_layout(
+                    yaxis_title='Obsunięcie (%)',
+                    template="plotly_dark",
+                    height=300,
+                    yaxis=dict(tickformat=".1%")
+                )
+                st.plotly_chart(fig_underwater, use_container_width=True)
+
+                display_chart_guide("Underwater Plot", """
+                *   **Głębokość**: Jak mocno bolało (oś Y).
+                *   **Szerokość**: Jak długo trwało odrabianie strat (oś X). Długie płaskie dna to "Zombie Markets".
+                """)
+                
+                # 5. Volatility Cone (Future implementation requires distinct windows logic but we add Rolling Vol here)
+                # Let's add Rolling Volatility vs Market Proxy if feasible, or just standalone Rolling Vol
+                st.divider()
+                
+                # 6. Rolling Correlation Heatmap (If multiple risky assets)
+                if len(risky_data.columns) > 1:
+                    st.subheader("🔥 Mapa Korelacji (Rolling)")
+                    
+                    corr_matrix = risky_data.tail(60).corr()
+                    fig_corr = px.imshow(
+                        corr_matrix, 
+                        text_auto=True, 
+                        color_continuous_scale='RdBu_r', 
+                        zmin=-1, zmax=1,
+                        title="Macierz Korelacji (Ostatnie 60 dni)"
+                    )
+                    st.plotly_chart(fig_corr, use_container_width=True)
+                    display_chart_guide("Korelacja", """
+                    *   **Czerwień (Blisko 1.0)**: Aktywa chodzą razem. Niebezpieczne w krachu.
+                    *   **Niebieski (Blisko -1.0)**: Aktywa chodzą przeciwnie. Idealne do hedgingu.
+                    *   **Biel (0.0)**: Brak korelacji. Święty Graal dywersyfikacji.
+                    """)
                 
                 # --- AI Insights Visualizations ---
                 st.subheader("🧠 Analityka AI: Architect & Trader")
@@ -410,14 +710,15 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         else:
             start_date = pd.Timestamp.now() - pd.DateOffset(years=scan_years)
             
-            with st.spinner(f"Analiza EVT dla {len(tickers)} aktywów..."):
+            with st.status(f"Analiza EVT dla {len(tickers)} aktywów...", expanded=True) as status:
                 final_metrics = []
                 
-                # Use load_data but maybe iteratively or batch? Load data handles batches.
+                # Use load_data
                 data = load_data(tickers, start_date=start_date.strftime("%Y-%m-%d"))
                 
                 if data.empty:
                     st.error("Brak danych.")
+                    status.update(label="Błąd pobierania danych", state="error")
                 else:
                     # Creating progress
                     progress_scan = st.progress(0)
@@ -425,7 +726,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
                     for i, t in enumerate(tickers):
                         if t in data.columns:
                             series = data[t]
-                        elif len(tickers) == 1 and isinstance(data, pd.DataFrame): # Single ticker case handled in load_data usually returns df with ticker col
+                        elif len(tickers) == 1 and isinstance(data, pd.DataFrame): 
                              series = data[t] if t in data.columns else data.iloc[:, 0]
                         else:
                             continue
@@ -439,6 +740,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
                         progress_scan.progress((i + 1) / len(tickers))
                         
                     progress_scan.empty()
+                    status.update(label="Skanowanie zakończone!", state="complete", expanded=False)
                     
                     if not final_metrics:
                         st.warning("Nie udało się obliczyć metryk dla żadnego aktywa (zbyt krótka historia?).")
@@ -512,6 +814,46 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
                 st.session_state["ai_risky_mode"] = "Manualne Wagi"
                 
                 st.rerun()
+
+        # --- New Visualization: 3D Antifragile Scatter ---
+        st.divider()
+        st.subheader("🧊 Mapa Antykruchości 3D")
+        st.caption("Szukamy aktywów w prawym górnym rogu (Wysoki Skew, Wysoka Kurtoza, Niskie Hill Alpha jako duży bąbel).")
+        
+        # Prepare Data for 3D Plot
+        # X: Skewness, Y: Kurtosis, Z: Annual Return
+        # Color: Score, Size: Inverse Hill Alpha (or just fixed if nan)
+        
+        plot_df = df_res.copy()
+        # Handle NaNs for plot
+        plot_df['Hill Alpha (Tail)'] = plot_df['Hill Alpha (Tail)'].fillna(4.0) 
+        # Create Size dimension: Inverse related to Hill Alpha (Lower Alpha = Bigger Bubble)
+        # Avoid division by zero close to 1
+        plot_df['Size'] = 10 / np.log(plot_df['Hill Alpha (Tail)'] + 0.1)
+        plot_df['Size'] = plot_df['Size'].clip(upper=30, lower=5)
+        
+        fig_3d_scan = px.scatter_3d(
+            plot_df,
+            x='Skewness',
+            y='Kurtosis',
+            z='Annual Return',
+            color='Score',
+            size='Size', # Dynamic size
+            hover_name='Ticker',
+            hover_data=['Hill Alpha (Tail)', 'Kelly Safe (50%)'],
+            color_continuous_scale='Viridis',
+            title='Przestrzeń Wypukłości (Convexity Space)'
+        )
+        fig_3d_scan.update_layout(
+             scene=dict(
+                xaxis_title='Skośność (Skew)',
+                yaxis_title='Kurtoza (Kurt)',
+                zaxis_title='Zwrot Roczny'
+            ),
+            template="plotly_dark",
+            height=600
+        )
+        st.plotly_chart(fig_3d_scan, use_container_width=True)
         
         st.markdown("""
         ### 📖 Legenda Metryk (Słownik)
@@ -545,6 +887,38 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         cum_ret = (1 + asset_data).cumprod()
         fig_line = px.line(cum_ret, log_y=True, title=f"Wzrost Kapitału (Skala Log) {best_asset['Ticker']}")
         col_chart2.plotly_chart(fig_line, use_container_width=True)
+
+        # 3. Log-Log Tail Plot (Power Law Visualizer)
+        st.markdown("**Analiza Ogonów (Log-Log Plot)**")
+        st.caption("Jeśli linia jest prosta (opada liniowo na skali log-log), mamy do czynienia z Rozkładem Potęgowym (Power Law) i Grubymi Ogonami. Krzywa opadająca szybko (jak parabola) to rozkład Normalny (Gaussa).")
+        
+        # Calculate Tail Survival Function
+        # We look at right tail (positive returns)
+        pos_rets = asset_data[asset_data > 0].sort_values(ascending=False)
+        if len(pos_rets) > 10:
+            rank = np.arange(1, len(pos_rets) + 1)
+            prob = rank / len(pos_rets)
+            
+            fig_loglog = go.Figure()
+            fig_loglog.add_trace(go.Scatter(
+                x=pos_rets,
+                y=prob,
+                mode='markers',
+                name='Empiryczne Dane',
+                marker=dict(color='#00ff88', size=5)
+            ))
+            fig_loglog.update_layout(
+                title=f"Ogon Prawy: {best_asset['Ticker']} (Log-Log)",
+                xaxis_title="Zwrot Dzienny (Log)",
+                yaxis_title="P(X > x) (Log)",
+                xaxis_type="log",
+                yaxis_type="log",
+                template="plotly_dark",
+                height=400
+            )
+            st.plotly_chart(fig_loglog, use_container_width=True)
+        else:
+            st.info("Za mało danych do wygenerowania wykresu Log-Log.")
 
     st.markdown("---")
     display_scanner_methodology()

@@ -1,6 +1,14 @@
 
 import streamlit as st
 
+def display_chart_guide(title, content):
+    """
+    Wyświetla ujednolicony panel edukacyjny 'Jak czytać ten wykres?'.
+    """
+    with st.expander(f"🎓 Jak czytać wykres: {title}?", expanded=False):
+        st.markdown(content)
+        st.caption("💡 *Zrozumienie metryk to klucz do przewagi rynkowej.*")
+
 def display_analysis_report():
     with st.expander("📊 AUTOMATYCZNY RAPORT ANALITYCZNY I REKOMENDACJE (AI)", expanded=True):
         st.markdown("""

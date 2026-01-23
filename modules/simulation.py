@@ -101,6 +101,47 @@ def calculate_metrics(wealth_paths, years):
     }
     return metrics
 
+def calculate_individual_metrics(wealth_paths, years):
+    """
+    Calculates metrics for EACH simulation path separately for 3D Scatter plots.
+    Returns a DataFrame with columns: FinalWealth, CAGR, MaxDrawdown, Volatility, Sharpe.
+    """
+    if wealth_paths.ndim == 1:
+        wealth_paths = wealth_paths.reshape(1, -1)
+        
+    n_sims, n_days = wealth_paths.shape
+    dt = 1/252
+    
+    # 1. Final Wealth & CAGR
+    final_wealth = wealth_paths[:, -1]
+    initial_wealth = wealth_paths[:, 0]
+    cagr = (final_wealth / initial_wealth)**(1/years) - 1
+    
+    # 2. Max Drawdown
+    peaks = np.maximum.accumulate(wealth_paths, axis=1)
+    drawdowns = (wealth_paths - peaks) / peaks
+    max_drawdowns = np.min(drawdowns, axis=1) # Negative values
+    
+    # 3. Volatility (Annualized)
+    # Calculate daily returns
+    # We can do diff / shift, but for matrix it's easier:
+    # returns = (paths[:, 1:] - paths[:, :-1]) / paths[:, :-1]
+    returns = np.diff(wealth_paths, axis=1) / wealth_paths[:, :-1]
+    volatility = np.std(returns, axis=1) * np.sqrt(252)
+    
+    # 4. Sharpe Ratio (assuming 4% risk free approx or just 0 for raw ratio)
+    rf = 0.04
+    excess_returns = cagr - rf
+    sharpe = np.divide(excess_returns, volatility, out=np.zeros_like(excess_returns), where=volatility!=0)
+    
+    return pd.DataFrame({
+        "FinalWealth": final_wealth,
+        "CAGR": cagr,
+        "MaxDrawdown": max_drawdowns,
+        "Volatility": volatility,
+        "Sharpe": sharpe
+    })
+
 def run_ai_backtest(
     safe_data, 
     risky_data, 
