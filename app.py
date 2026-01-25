@@ -9,6 +9,8 @@ from modules.simulation import simulate_barbell_strategy, calculate_metrics, run
 from modules.ai.data_loader import load_data
 from modules.analysis_content import display_analysis_report, display_scanner_methodology, display_chart_guide
 from modules.scanner import calculate_convecity_metrics, score_asset
+from modules.ai.scanner_engine import ScannerEngine
+from modules.ai.asset_universe import get_sp500_tickers, get_euro_etfs
 
 # ... existsing code ...
 
@@ -824,62 +826,103 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
     
     # Scanner Inputs
     col_scan1, col_scan2 = st.columns([3, 1])
+    
     with col_scan1:
-        default_tickers = "TQQQ, SOXL, UPRO, TMF, SPY, QQQ, BTC-USD, ETH-USD, ARKK, UVXY, COIN, NVDA, TSLA, MSTR"
-        scan_tickers_str = st.text_area("Lista do przeskanowania (Tickery oddzielone przecinkami)", default_tickers)
+        scan_mode = st.radio("Tryb Skanowania", ["Manualny (Lista)", "AI Auto-Select (S&P 500 + ETF)"], horizontal=True)
+        
+        scan_tickers_str = ""
+        max_ai_tickers = 10
+        api_key = ""
+        
+        if scan_mode == "Manualny (Lista)":
+            default_tickers = "TQQQ, SOXL, UPRO, TMF, SPY, QQQ, BTC-USD, ETH-USD, ARKK, UVXY, COIN, NVDA, TSLA, MSTR"
+            scan_tickers_str = st.text_area("Lista do przeskanowania (Tickery oddzielone przecinkami)", default_tickers)
+        else:
+            st.info("🤖 AI przeszuka S&P 500 oraz wybrane Europejskie ETFy, obliczy metryki wypukłości, a następnie Gemini wybierze najlepszych kandydatów.")
+            
+            col_ai1, col_ai2 = st.columns(2)
+            with col_ai1:
+                max_ai_tickers = st.slider("Ile tickerów ma wybrać AI?", 3, 20, 10)
+            with col_ai2:
+                api_key = st.text_input("Klucz API Gemini (opcjonalny, brak = Math Score)", type="password", help="Wpisz klucz, aby AI dokonało selekcji jakościowej. Bez klucza decyduje matematyczny wynik.")
+    
     with col_scan2:
         scan_years = st.number_input("Historia (Lat)", value=3, step=1)
+        st.markdown("###") # spacer
         scan_btn = st.button("🔎 Skanuj Wypukłość", type="primary")
         
     if scan_btn:
-        tickers = [x.strip().upper() for x in scan_tickers_str.split(",") if x.strip()]
+        final_tickers = []
         
-        if not tickers:
+        # 1. Determine Tickers Universe
+        if scan_mode == "Manualny (Lista)":
+            final_tickers = [x.strip().upper() for x in scan_tickers_str.split(",") if x.strip()]
+        else:
+            with st.spinner("Pobieranie listy aktywów (S&P 500 + Euro ETF)..."):
+                sp500 = get_sp500_tickers()
+                etfs = get_euro_etfs()
+                final_tickers = sp500 + etfs
+                st.toast(f"Znaleziono {len(final_tickers)} aktywów do analizy.")
+        
+        if not final_tickers:
             st.error("Podaj przynajmniej jeden ticker.")
         else:
             start_date = pd.Timestamp.now() - pd.DateOffset(years=scan_years)
             
-            with st.status(f"Analiza EVT dla {len(tickers)} aktywów...", expanded=True) as status:
-                final_metrics = []
+            # 2. Run Scan Engine
+            engine = ScannerEngine()
+            
+            with st.status(f"Analiza EVT dla {len(final_tickers)} aktywów...", expanded=True) as status:
+                # Progress bar inside status
+                progress_scan = st.progress(0)
                 
-                # Use load_data
-                data = load_data(tickers, start_date=start_date.strftime("%Y-%m-%d"))
+                # Scan Markets (Metrics Calculation)
+                # Engine handles data fetching internally now for bulk efficiency
+                # but scan_markets expects a list of tickers, it will fetch inside.
+                # Actually scan_markets implementation in my head fetches inside.
                 
-                if data.empty:
-                    st.error("Brak danych.")
-                    status.update(label="Błąd pobierania danych", state="error")
+                # Let's adjust logic:
+                # If we pass hundreds of tickers, we rely on scan_markets bulk handling.
+                
+                df_candidates = engine.scan_markets(final_tickers, progress_bar=progress_scan)
+                
+                if df_candidates.empty:
+                    st.error("Nie udało się obliczyć metryk (brak danych lub błędne tickery).")
+                    status.update(label="Błąd", state="error")
                 else:
-                    # Creating progress
-                    progress_scan = st.progress(0)
+                    progress_scan.progress(1.0, "Analiza matematyczna zakończona.")
                     
-                    for i, t in enumerate(tickers):
-                        if t in data.columns:
-                            series = data[t]
-                        elif len(tickers) == 1 and isinstance(data, pd.DataFrame): 
-                             series = data[t] if t in data.columns else data.iloc[:, 0]
-                        else:
-                            continue
-                            
-                        # Calculate Metrics
-                        m = calculate_convecity_metrics(t, series)
-                        if m:
-                            m["Score"] = score_asset(m)
-                            final_metrics.append(m)
-                            
-                        progress_scan.progress((i + 1) / len(tickers))
+                    # 3. AI Selection (if applicable)
+                    if scan_mode == "AI Auto-Select (S&P 500 + ETF)":
+                        st.write("🧠 Uruchamianie agenta Gemini do selekcji...")
+                        # Filter top 50 first by Math Score to save tokens/context
+                        top_candidates = df_candidates.sort_values("Score", ascending=False).head(50)
                         
-                    progress_scan.empty()
-                    status.update(label="Skanowanie zakończone!", state="complete", expanded=False)
-                    
-                    if not final_metrics:
-                        st.warning("Nie udało się obliczyć metryk dla żadnego aktywa (zbyt krótka historia?).")
-                    else:
-                        df_res = pd.DataFrame(final_metrics)
+                        selected_tickers = engine.select_with_gemini(top_candidates, api_key, max_count=max_ai_tickers)
                         
-                        # Sort by Score descending
+                        # Filter results to show only selected
+                        df_res = df_candidates[df_candidates['Ticker'].isin(selected_tickers)]
+                        
+                        # Sort by Score again for display logic or keep AI order?
+                        # Let's stick to Score for table sorting
                         df_res = df_res.sort_values("Score", ascending=False)
-                        st.session_state['scanner_results'] = df_res
-                        st.session_state['scanner_data'] = data # store raw data for charts
+                        st.toast(f"AI wybrało {len(df_res)} najlepszych kandydatów!")
+                        
+                    else:
+                        df_res = df_candidates.sort_values("Score", ascending=False)
+
+                    st.session_state['scanner_results'] = df_res
+                    
+                    # Fetch full data for charts (re-fetch only for results to be safe/full history or use data from engine?)
+                    # Engine fetched bulk, but didn't return series.
+                    # We need series for detailed charts.
+                    # Let's simple fetch data for the Final Result Tickers to ensure we have it for charts.
+                    final_result_tickers = df_res['Ticker'].tolist()
+                    status.write("Pobieranie danych do wykresów...")
+                    chart_data = load_data(final_result_tickers, start_date=start_date.strftime("%Y-%m-%d"))
+                    st.session_state['scanner_data'] = chart_data
+                    
+                    status.update(label="Skanowanie zakończone!", state="complete", expanded=False)
                         
     # Display results if they exist in session state
     if 'scanner_results' in st.session_state:

@@ -10,3 +10,5 @@ shimmy
 scikit-learn
 matplotlib
 gym
+google-generativeai
+lxml
