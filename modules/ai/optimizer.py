@@ -15,8 +15,8 @@ class GeneticOptimizer:
     
     def fitness_func(self, ga_instance, solution, solution_idx):
         """
-        Fitness function: Maximize Skewness and Return, Minimize Volatility and Kurtosis.
-        Fitness = Mean - Lambda*Vol + Gamma*Skew - Delta*Kurt
+        Fitness function: Maximize Sortino Ratio.
+        Sortino = (Mean_Return - Threshold) / Downside_Deviation
         """
         # Normalize weights to sum to 1
         weights = np.array(solution)
@@ -27,21 +27,36 @@ class GeneticOptimizer:
         # Portfolio Returns
         port_returns = np.dot(self.returns_data, weights)
         
-        # Metrics
-        mean_ret = np.mean(port_returns) * 252
-        vol = np.std(port_returns) * np.sqrt(252)
-        sk = skew(port_returns)
-        kt = kurtosis(port_returns)
+        # Parameters
+        rf = self.risk_free_rate / 252 # Daily RF
+        target_return = 0 # Can be set to RF or 0
         
-        # Hyperparameters (Barbell Preference)
-        # We want high return, high skewness (right tail), low kurtosis (no left tail risk ideally, but barbell accepts some)
-        # However, Barbell seeks "Good" Kurtosis (convexity). 
-        # Let's focus on simple equation from research.
+        # Average Daily Return
+        mean_daily_ret = np.mean(port_returns)
         
-        # Fitness = Returns + 0.5 * Skewness - 1.0 * Volatility
-        fitness = mean_ret + 2.0 * sk - 0.5 * vol - 0.1 * kt
+        # Downside Deviation calculation
+        # Filter only returns below target
+        negative_returns = port_returns[port_returns < target_return]
         
-        return fitness
+        if len(negative_returns) == 0:
+            downside_std = 0.000001 # Avoid division by zero if no losses
+        else:
+            downside_std = np.std(negative_returns)
+            
+        # Annualized Measures
+        # Note: Sortino scaling is debated, but commonly sqrt(252) applied to the ratio or individually
+        annualized_return = mean_daily_ret * 252
+        annualized_downside_std = downside_std * np.sqrt(252)
+        
+        if annualized_downside_std == 0:
+            sortino = 9999 # Excellent portfolio
+        else:
+            sortino = (annualized_return - self.risk_free_rate) / annualized_downside_std
+            
+        # Add a penalty for extreme kurtosis if desired, or just trust Sortino
+        # Barbell strategy loves 'good' convexity, so we stick to Sortino which allows upside vol.
+        
+        return sortino
 
     def optimize_portfolio(self, returns_df):
         """

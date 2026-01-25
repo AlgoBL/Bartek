@@ -18,15 +18,56 @@ class PortfolioArchitect:
         ivp /= ivp.sum()
         return ivp
 
-    def getClusterVar(self, cov, cItems):
-        """Compute variance per cluster"""
-        cov_slice = cov.loc[cItems, cItems] # matrix slice
-        w = self.getIVP(cov_slice).reshape(-1, 1)
-        cVar = np.dot(np.dot(w.T, cov_slice), w)[0, 0]
-        return cVar
+    def getCVaR(self, returns, alpha=0.05):
+        """Compute Conditional Value at Risk (Expected Shortfall) at alpha confidence level"""
+        sorted_returns = np.sort(returns)
+        index = int(alpha * len(sorted_returns))
+        cvar = np.abs(sorted_returns[:index].mean())
+        return cvar
+
+    def getClusterRisk(self, returns, cItems, metric='variance'):
+        """Compute risk per cluster (Variance or CVaR)"""
+        if metric == 'cvar':
+            # Calculate portfolio returns for uniformity assuming equal weights within cluster for risk est
+            # A better approach for HRP is often to treat the cluster as a single unit.
+            # Here we estimate risk of the cluster formed by equal weighting
+            cluster_returns = returns[cItems].mean(axis=1)
+            return self.getCVaR(cluster_returns.values)
+        else:
+            # Standard Variance
+            cov = returns.cov()
+            cov_slice = cov.loc[cItems, cItems]
+            w = self.getIVP(cov_slice).reshape(-1, 1)
+            return np.dot(np.dot(w.T, cov_slice), w)[0, 0]
+
+    def getRecBipart(self, returns, sortIx, metric='variance'):
+        """Compute HRP alloc using specific risk metric"""
+        w = pd.Series(1.0, index=sortIx)
+        cItems = [sortIx] # initialize all items in one cluster
+        
+        while len(cItems) > 0:
+            cItems = [i[j:k] for i in cItems for j, k in ((0, len(i) // 2), (len(i) // 2, len(i))) if len(i) > 1]
+            for i in range(0, len(cItems), 2):
+                cItems0 = cItems[i] # cluster 1
+                cItems1 = cItems[i + 1] # cluster 2
+                
+                cVar0 = self.getClusterRisk(returns, pd.Index(cItems0), metric=metric)
+                cVar1 = self.getClusterRisk(returns, pd.Index(cItems1), metric=metric)
+                
+                # Protect against zero division
+                if cVar0 + cVar1 == 0:
+                    alpha = 0.5
+                else:
+                    alpha = 1 - cVar0 / (cVar0 + cVar1)
+                
+                w[cItems0] *= alpha # weight 1
+                w[cItems1] *= 1 - alpha # weight 2
+        return w
 
     def getQuasiDiag(self, link):
-        """Sort clustered items by distance"""
+        """
+        Sort clustered items by distance
+        """
         link = link.astype(int)
         sortIx = pd.Series([link[-1, 0], link[-1, 1]])
         numItems = link[-1, 3] # number of original items
@@ -38,39 +79,21 @@ class PortfolioArchitect:
             j = df0.values - numItems
             sortIx[i] = link[j, 0] # item 1
             df0 = pd.Series(link[j, 1], index=i + 1)
-            sortIx = pd.concat([sortIx, df0]) # reorder
-            sortIx = sortIx.sort_index()
-            sortIx.index = range(sortIx.shape[0])
+            sortIx = pd.concat([sortIx, df0]) # item 2
+            sortIx = sortIx.sort_index() # re-sort
+            sortIx.index = range(sortIx.shape[0]) # re-index
             
         return sortIx.tolist()
 
-    def getRecBipart(self, cov, sortIx):
-        """Compute HRP alloc"""
-        w = pd.Series(1, index=sortIx)
-        cItems = [sortIx] # initialize all items in one cluster
-        
-        while len(cItems) > 0:
-            cItems = [i[j:k] for i in cItems for j, k in ((0, len(i) // 2), (len(i) // 2, len(i))) if len(i) > 1]
-            for i in range(0, len(cItems), 2):
-                cItems0 = cItems[i] # cluster 1
-                cItems1 = cItems[i + 1] # cluster 2
-                
-                cVar0 = self.getClusterVar(cov, pd.Index(cItems0))
-                cVar1 = self.getClusterVar(cov, pd.Index(cItems1))
-                
-                alpha = 1 - cVar0 / (cVar0 + cVar1)
-                w[cItems0] *= alpha # weight 1
-                w[cItems1] *= 1 - alpha # weight 2
-        return w
-
-    def allocate_hrp(self, prices_df):
+    def allocate_hrp(self, prices_df, risk_metric='cvar'):
         """
         Calculates HRP weights for the given assets.
+        risk_metric: 'variance' or 'cvar' (Conditional Value at Risk / Expected Shortfall)
         """
         try:
             # Calculate returns and covariance
             returns = prices_df.pct_change().dropna()
-            cov = returns.cov()
+            # cov = returns.cov() # Not strictly needed for allocation now, but needed for clustering
             corr = returns.corr()
             
             # 1. Clustering
@@ -82,11 +105,15 @@ class PortfolioArchitect:
             sortIx = corr.index[sortIx].tolist()
             
             # 3. Allocation
-            hrp_weights = self.getRecBipart(cov, sortIx)
+            # Pass full returns df because CVaR needs historical distribution, not just covariance
+            hrp_weights = self.getRecBipart(returns, sortIx, metric=risk_metric)
             
             return hrp_weights.to_dict()
             
         except Exception as e:
+            print(f"DEBUG ERROR: {e}")
+            import traceback
+            traceback.print_exc()
             # st.error(f"HRP Allocation Error: {e}")
             # Fallback to Equal Weight
             n = len(prices_df.columns)
