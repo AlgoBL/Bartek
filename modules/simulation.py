@@ -249,24 +249,21 @@ def run_ai_backtest(
     # optimizer = GeneticOptimizer(num_generations=20) # Optional/Slow
     
     # Run HMM on Risky Assets (to detect regime for AI mode)
+    # Run HMM on Risky Assets (to detect regimes for Visualization AND Allocation)
     risky_returns_df = combined_data[risky_tickers].pct_change().fillna(0)
     risky_proxy_returns = risky_returns_df.mean(axis=1) # Average of risky basket
     
-    regimes = np.zeros(len(dates))
-    observer_model = None
+    # ALWAYS calculate regimes for visualization/context
+    regimes, observer_model = get_market_regimes(risky_proxy_returns, progress_callback)
     
-    if allocation_mode == "AI Dynamic":
-        # Pass a wrapper or the callback directly. 
-        # Since observer pushes 0.1->0.9, we might want to scale it or just let it update.
-        # "Trenowanie model HMM..." is the pre-step before the big loop.
-        regimes, observer_model = get_market_regimes(risky_proxy_returns, progress_callback)
-        
-        # FIX: Normalize regimes so that 1 ALWAYS means High Volatility (Risk-Off)
-        # This matches app.py expectation: np.where(regimes==1, 'red', 'green')
+    # Normalize regimes (1 = High Volatility / Risk-Off)
+    if observer_model:
         high_vol_state = observer_model.high_vol_state
         normalized_regimes = np.zeros_like(regimes)
         normalized_regimes[regimes == high_vol_state] = 1
         regimes = normalized_regimes
+    else:
+        regimes = np.zeros(len(dates))
     
     current_holdings = {t: 0.0 for t in combined_data.columns}
     cash = initial_capital

@@ -6,11 +6,13 @@ import plotly.graph_objects as go
 import plotly.express as px
 from modules.styling import apply_styling
 from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
+from modules.metrics import calculate_trade_stats
 from modules.ai.data_loader import load_data
 from modules.analysis_content import display_analysis_report, display_scanner_methodology, display_chart_guide
 from modules.scanner import calculate_convecity_metrics, score_asset
 from modules.ai.scanner_engine import ScannerEngine
-from modules.ai.asset_universe import get_sp500_tickers, get_euro_etfs
+from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
+from modules.ui.status_manager import StatusManager
 
 # ... existsing code ...
 
@@ -93,20 +95,42 @@ if module_selection == "📉 Symulator Portfela":
         st.title("⚖️ Barbell Strategy - Monte Carlo")
         
         if st.button("🚀 Symuluj Wyniki", type="primary", key="mc_run"):
-            with st.spinner("Symulacja..."):
-                wealth_paths = simulate_barbell_strategy(
-                    n_years=years,
-                    n_simulations=1000,
-                    initial_captial=initial_capital,
-                    safe_rate=safe_rate,
-                    risky_mean=risky_mean,
-                    risky_vol=risky_vol,
-                    risky_kurtosis=risky_kurtosis,
-                    alloc_safe=alloc_safe,
-                    rebalance_strategy=rebalance_strategy.split(" ")[0],
-                    threshold_percent=threshold_percent
-                )
-                metrics = calculate_metrics(wealth_paths, years)
+            status_mc = StatusManager("Symulacja Monte Carlo...")
+            
+            status_mc.info_math(f"Generowanie {1000} ścieżek dla horyzontu {years} lat...")
+            
+            wealth_paths = simulate_barbell_strategy(
+                n_years=years,
+                n_simulations=1000,
+                initial_captial=initial_capital,
+                safe_rate=safe_rate,
+                risky_mean=risky_mean,
+                risky_vol=risky_vol,
+                risky_kurtosis=risky_kurtosis,
+                alloc_safe=alloc_safe,
+                rebalance_strategy=rebalance_strategy.split(" ")[0],
+                threshold_percent=threshold_percent
+            )
+            
+            status_mc.info_math("Obliczanie zaawansowanych metryk (Sharpe, VaR, CVaR)...")
+            metrics = calculate_metrics(wealth_paths, years)
+
+            status_mc.success("Symulacja zakończona!")
+            
+            # Save to session state
+            st.session_state['mc_results'] = {
+                "wealth_paths": wealth_paths,
+                "metrics": metrics,
+                "years": years
+            }
+            
+        # Check if results exist and display
+        if 'mc_results' in st.session_state:
+            res = st.session_state['mc_results']
+            wealth_paths = res['wealth_paths']
+            metrics = res['metrics']
+            years = res['years']
+
 
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Średni Kapitał", f"{metrics['mean_final_wealth']:,.0f} PLN")
@@ -125,9 +149,9 @@ if module_selection == "📉 Symulator Portfela":
             percentiles = np.percentile(wealth_paths, [5, 50, 95], axis=0)
             
             fig_paths = go.Figure()
-            fig_paths.add_trace(go.Scatter(x=days, y=percentiles[2], mode='lines', line=dict(width=0), showlegend=False))
-            fig_paths.add_trace(go.Scatter(x=days, y=percentiles[0], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0, 255, 136, 0.2)', name='95% CI'))
-            fig_paths.add_trace(go.Scatter(x=days, y=percentiles[1], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'))
+            fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[2], mode='lines', line=dict(width=0), showlegend=False))
+            fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[0], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0, 255, 136, 0.2)', name='95% CI'))
+            fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[1], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'))
             fig_paths.update_layout(title="Projekcja Bogactwa", template="plotly_dark", height=500)
             st.plotly_chart(fig_paths, use_container_width=True)
             
@@ -430,9 +454,14 @@ if module_selection == "📉 Symulator Portfela":
                 
                 def update_progress(pct, msg):
                      progress_bar.progress(pct)
-                     status_text.markdown(f"**{msg}**")
+                     # Strip percentage from message to act on user feedback
+                     clean_msg = msg.split("(")[0].strip() if "(" in msg else msg
+                     status_text.markdown(f"**{clean_msg}**")
                  
             # with st.spinner("Pobieranie danych i trenowanie modeli..."): # Removed spinner to rely on progress bar
+            status_ai = StatusManager("Przygotowanie Backtestu AI...", expanded=True)
+            
+            status_ai.info_data("Pobieranie danych historycznych...")
             safe_data = pd.DataFrame()
             if safe_tickers:
                     safe_data = load_data(safe_tickers, start_date=start_date)
@@ -446,6 +475,8 @@ if module_selection == "📉 Symulator Portfela":
                 # Prepare args
                 safe_type_arg = "Ticker" if safe_type == "Tickers (Yahoo)" else "Fixed"
                 rebalance_strat_arg = rebalance_strategy.split(" ")[0]
+                
+                status_ai.info_ai("Obliczanie Reżimów Rynkowych i Symulacja Tradera RL...")
                 
                 results, weight_history, regimes = run_ai_backtest(
                     safe_data, 
@@ -462,360 +493,283 @@ if module_selection == "📉 Symulator Portfela":
                     risky_weights_dict=risky_weights_manual
                 )
                 
-                progress_bar.empty()
-                status_text.empty()
+                status_ai.info_math("Finalizacja metryk...")
                 
                 # Metrics
                 years = (results.index[-1] - results.index[0]).days / 365.25
                 metrics = calculate_metrics(results['PortfolioValue'].values, years)
                 
-                # Display Results
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Kapitał Końcowy", f"${metrics['mean_final_wealth']:,.0f}")
-                col2.metric("CAGR", f"{metrics['mean_cagr']:.2%}")
-                col3.metric("Max Drawdown", f"{metrics['worst_case_drawdown']:.2%}")
-                col4.metric("Regime Risk-Off", f"{np.mean(regimes):.1%} czasu")
-                
-                display_chart_guide("Wyniki Backtestu AI", """
-                *   **Kapitał Końcowy**: Ile zarobiłeś na koniec testu.
-                *   **Max Drawdown**: Najgłębszy spadek wartości portfela w historii.
-                *   **Regime Risk-Off**: Jak często AI "bało się" rynku i uciekało do bezpiecznych aktywów (Obligacje/Gotówka).
-                """)
-
-                # --- Algo / Professional Metrics Table ---
-                from modules.metrics import calculate_trade_stats
-
                 # Calculate Trade Stats approximation
                 trade_stats = calculate_trade_stats(results['PortfolioValue'])
-                
-                with st.expander("📊 Raport Funduszu (Algo Stats & Risk)", expanded=True):
-                    a_col1, a_col2, a_col3 = st.columns(3)
-                    with a_col1:
-                        st.markdown("**Efektywność Algo**")
-                        st.metric("Profit Factor", f"{trade_stats['profit_factor']:.2f}")
-                        st.metric("Win Rate (Dni)", f"{trade_stats['win_rate']:.1%}")
-                        st.metric("Risk/Reward", f"{trade_stats['risk_reward']:.2f}")
 
-                    with a_col2:
-                         st.markdown("**Risk-Adjusted**")
-                         st.metric("Sharpe Ratio", f"{metrics['median_sharpe']:.2f}")
-                         st.metric("Sortino Ratio", f"{metrics.get('median_sortino', 0):.2f}") 
-                         st.metric("Calmar Ratio", f"{metrics['median_calmar']:.2f}")
-                    
-                    with a_col3:
-                        st.markdown("**Ryzyko**")
-                        st.metric("VaR 95%", f"{metrics['var_95']:,.0f} PLN")
-                        st.metric("CVaR 95%", f"{metrics['cvar_95']:,.0f} PLN")
-                        st.metric("Max Drawdown", f"{metrics['worst_case_drawdown']:.2%}")
+                status_ai.success("Backtest zakończony sukcesem!")
+                
+                # Save results and Rerun
+                st.session_state['backtest_results'] = {
+                    "results": results,
+                    "metrics": metrics,
+                    "trade_stats": trade_stats,
+                    "risky_mean": risky_data.mean(axis=1),
+                    "regimes": regimes
+                }
+                st.rerun()
 
-                display_chart_guide("Tabela Algo & Risk", """
-                *   **Profit Factor**: Suma zysków / Suma strat. > 1.5 oznacza solidną strategię. < 1.0 to strata.
-                *   **Win Rate**: Procent dni zyskownych. Wysoki Win Rate nie gwarantuje sukcesu (można mieć 90% małych zysków i jedną stratę bankruta).
-                *   **Risk/Reward**: Średni Zysk / Średnia Strata. Strategie Trend-Following często mają niski Win Rate, ale wysoki R/R (tnij straty, pozwól zyskom rosnąć).
-                """)
+        # RENDER RESULTS (Only if state exists)
+        if 'backtest_results' in st.session_state:
+            # Just display what is in state.
+            res = st.session_state['backtest_results']
+            metrics = res['metrics']
+            
+            # --- 1. TABLES SECTION (Top) ---
+            st.subheader("📊 Wyniki Strategii (Scorecard)")
+            
+            # KPI Row
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Kapitał Końcowy", f"${metrics['mean_final_wealth']:,.0f}")
+            col2.metric("CAGR", f"{metrics['mean_cagr']:.2%}")
+            col3.metric("Max Drawdown", f"{metrics['mean_max_drawdown']:.2%}")
+            
+            # Regime Info
+            regime_disp = "N/A"
+            if 'results' in res:
+                df_res = res['results']
+                if 'Regime' in df_res.columns:
+                    risk_off_cnt = df_res['Regime'].str.contains("Risk-Off").sum()
+                    regime_disp = f"{risk_off_cnt / len(df_res):.1%} czasu"
+            
+            col4.metric("Regime Risk-Off", regime_disp)
+            
+            st.divider()
+            
+            # Professional Metrics Table
+            trade_stats = res['trade_stats']
+            
+            possible_sortino = metrics.get('median_sortino', 0)
+            if possible_sortino is None: possible_sortino = 0
+
+            m_col1, m_col2, m_col3 = st.columns(3)
+            
+            with m_col1:
+                st.markdown("**Efektywność (Return)**")
+                st.metric("Total Return", f"{(metrics['mean_final_wealth'] - initial_capital)/initial_capital:.1%}")
+                st.metric("CAGR", f"{metrics['mean_cagr']:.2%}")
+                st.metric("Profit Factor", f"{trade_stats.get('profit_factor', 0):.2f}")
+
+            with m_col2:
+                st.markdown("**Ryzyko (Risk)**")
+                st.metric("Max Drawdown", f"{metrics['mean_max_drawdown']:.2%}")
+                st.metric("Volatility (Ann.)", f"{metrics['median_volatility']:.1%}")
+                st.metric("CVaR 95% (Tail Risk)", f"{metrics['cvar_95']:,.0f}")
                 
-                # Plot Portfolio vs Regime
-                fig = go.Figure()
+            with m_col3:
+                st.markdown("**Jakość (Ratios)**")
+                st.metric("Sharpe Ratio", f"{metrics['median_sharpe']:.2f}")
+                st.metric("Sortino Ratio", f"{possible_sortino:.2f}")
+                st.metric("Risk/Reward", f"{trade_stats.get('risk_reward', 0):.2f}")
                 
-                # Add Portfolio Line
-                fig.add_trace(go.Scatter(
-                    x=results.index, 
-                    y=results['PortfolioValue'], 
-                    mode='lines', 
-                    name='Intelligent Barbell',
-                    line=dict(color='#00ff88', width=2)
-                ))
-                
-                fig.update_layout(
-                    title="Wyniki Backtestu AI",
-                    xaxis_title="Data",
-                    yaxis_title="Wartość Portfela",
-                    template="plotly_dark",
-                    height=600
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-                display_chart_guide("Wykres Kapitału (Equity Curve)", """
-                *   **Cel**: Chcesz widzieć stabilny wzrost (nachylenie w górę) z jak najmniejszymi "zębami" (drawdowns).
-                *   **Porównanie**: Jeśli linia jest gładsza niż "Kup i Trzymaj" na S&P 500, to strategia działa.
-                *   **Zielona Linia**: Wartość Twojego portfela w czasie.
-                """)
-                
-                # Plot Regimes
-                st.subheader("🕵️ Detekcja Reżimów Rynkowych (HMM)")
-                st.caption("Czerwony = Wysoka Zmienność (Trader ucieka do bezpiecznych aktywów), Zielony = Niska Zmienność (Trader atakuje).")
-                
-                st.caption("Czerwony = Wysoka Zmienność (Trader ucieka do bezpiecznych aktywów), Zielony = Niska Zmienność (Trader atakuje).")
-                
-                # Create Colored Segments (by plotting markers on top of a gray line)
-                fig_regime = go.Figure()
-                
-                # 1. Base Line (Gray)
-                fig_regime.add_trace(go.Scatter(
-                    x=results.index,
-                    y=risky_data.mean(axis=1),
+            st.divider()
+
+            # --- 2. CHARTS SECTION (Bottom) ---
+            st.subheader("📈 Wykresy Analityczne")
+            
+            # A. Equity Curve
+            st.markdown("#### 1. Krzywa Kapitału (Equity Curve)")
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scattergl(x=res['results'].index, y=res['results']['PortfolioValue'], mode='lines', name='Smart Barbell', line=dict(color='#00ff88', width=2)))
+            
+            risky_series = res.get('risky_mean', pd.Series())
+            regimes_arr = res.get('regimes', [])
+
+            fig.update_layout(title="Wzrost Wartości Portfela", template="plotly_dark", height=500)
+            st.plotly_chart(fig, use_container_width=True, key="chart_equity_main")
+            
+            display_chart_guide("Wykres Kapitału", """
+            *   **Cel**: Chcesz widzieć stabilny wzrost (nachylenie w górę).
+            *   **Stabilność**: Im mniej poszarpana linia, tym lepiej śpisz.
+            """)
+            
+            st.divider()
+            
+            # B. Underwater Plot
+            st.markdown("#### 2. Obsunięcia Kapitału (Drawdowns)")
+            wealth = res['results']['PortfolioValue']
+            peaks = wealth.cummax()
+            drawdowns = (wealth - peaks) / peaks
+            
+            fig_underwater = go.Figure()
+            fig_underwater.add_trace(go.Scattergl(
+                x=drawdowns.index,
+                y=drawdowns,
+                mode='lines',
+                fill='tozeroy',
+                line=dict(color='#ff4444', width=1),
+                name='Drawdown'
+            ))
+            fig_underwater.update_layout(
+                yaxis_title='Obsunięcie (%)',
+                template="plotly_dark",
+                height=300,
+                yaxis=dict(tickformat=".1%")
+            )
+            st.plotly_chart(fig_underwater, use_container_width=True, key="chart_underwater_plot")
+            
+            display_chart_guide("Underwater Plot", """
+            *   **Interpretacja**: Pokazuje ile % tracisz względem "szczytu" portfela.
+            *   **Cel**: Jak najpłytsze (krótkie słupki) i jak najwęższe (szybki powrót) "dołki".
+            """)
+            
+            st.divider()
+
+            # C. Regime Plot
+            st.markdown("#### 3. Detekcja Reżimów (AI Context)")
+            
+            fig_regime = go.Figure()
+            
+            # Base Line (Gray)
+            if not risky_series.empty:
+                fig_regime.add_trace(go.Scattergl(
+                    x=res['results'].index,
+                    y=risky_series,
                     mode='lines',
                     line=dict(color='rgba(255, 255, 255, 0.2)', width=1),
                     hoverinfo='skip',
                     showlegend=False
                 ))
 
-                # 2. Colored Markers (Larger)
-                regime_colors = np.where(regimes == 1, '#ff4444', '#00ff88') # Bright Red / Bright Green
-                fig_regime.add_trace(go.Scatter(
-                    x=results.index,
-                    y=risky_data.mean(axis=1), # Proxy for market
-                    mode='markers',
-                    marker=dict(color=regime_colors, size=6, line=dict(width=1, color='black')), # Size 2 -> 6
-                    name='Market Regime'
-                ))
+                # Colored Markers
+                if len(regimes_arr) > 0:
+                    regime_colors = np.where(regimes_arr == 1, '#ff4444', '#00ff88') 
+                    fig_regime.add_trace(go.Scattergl(
+                        x=res['results'].index,
+                        y=risky_series,
+                        mode='markers',
+                        marker=dict(color=regime_colors, size=4, opacity=0.6),
+                        name='Regime State'
+                    ))
+            
+            fig_regime.update_layout(title="Reżimy Rynkowe (HMM) na tle rynku", template="plotly_dark", height=400)
+            st.plotly_chart(fig_regime, use_container_width=True, key="chart_regime_dots")
+            
+            display_chart_guide("Detekcja Reżimów (HMM)", """
+            *   **Kropki Zielone (Risk-On)**: AI uznaje rynek za bezpieczny.
+            *   **Kropki Czerwone (Risk-Off)**: AI wykrywa turbulencje.
+            """)
+            
+            # --- Advanced Charts (Restored) ---
+            st.subheader("🔮 Zaawansowana Analityka (Hedge Fund View)")
+            
+            # 1. Monthly Returns Heatmap
+            st.markdown("### 🗓️ Mapa Zwrotów Miesięcznych (Monthly Heatmap)")
+            
+            res_monthly = res['results']['PortfolioValue'].resample('M').last().pct_change()
+            res_monthly_df = pd.DataFrame(res_monthly)
+            res_monthly_df['Year'] = res_monthly_df.index.year
+            res_monthly_df['Month'] = res_monthly_df.index.month_name()
+            
+            heatmap_data = res_monthly_df.pivot(index='Year', columns='Month', values='PortfolioValue')
+            months_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+            heatmap_data = heatmap_data.reindex(columns=months_order)
+            
+            max_val = heatmap_data.abs().max().max() if not heatmap_data.empty else 0.1
+            
+            fig_heat = px.imshow(
+                heatmap_data, 
+                text_auto=".1%", 
+                color_continuous_scale='RdYlGn',
+                range_color=[-max_val, max_val],
+                title="Miesięczne Stopy Zwrotu"
+            )
+            fig_heat.update_layout(template="plotly_dark", height=400)
+            st.plotly_chart(fig_heat, use_container_width=True, key="chart_heatmap_monthly")
+            
+            display_chart_guide("Mapa Ciepła (Heatmap)", """
+            *   **Cel**: Szybka ocena sezonowości i spójności wyników.
+            *   **Kolory**: Czerwień to strata, Zieleń to zysk.
+            """)
+            
+            # 2. Phase Space & Sharpe
+            col_viz_1, col_viz_2 = st.columns(2)
+            
+            with col_viz_1:
+                st.markdown("**Trajektoria Fazowa Portfela (Phase Space)**")
+                results_pv = res['results']['PortfolioValue']
+                ret_roll = results_pv.pct_change().rolling(21).mean() * 252
+                vol_roll = results_pv.pct_change().rolling(21).std() * np.sqrt(252)
                 
-                fig_regime.update_layout(
-                    title="Cykle Rynkowe (HMM)",
-                    xaxis_title="Data",
-                    yaxis_title="Średnia Cena Koszyka (Proxy)",
+                # Using known regimes length
+                regimes_to_plot = regimes_arr if len(regimes_arr) == len(results_pv) else np.zeros(len(results_pv))
+
+                fig_3d_phase = go.Figure(data=go.Scatter3d(
+                    x=ret_roll,
+                    y=vol_roll,
+                    z=np.arange(len(results_pv)),
+                    mode='lines',
+                    line=dict(
+                        color=np.where(regimes_to_plot==1, 1.0, 0.0), 
+                        colorscale='RdYlGn_r',
+                        width=4
+                    ),
+                    name='Trajektoria'
+                ))
+                fig_3d_phase.update_layout(
+                    scene=dict(xaxis_title='Zwrot', yaxis_title='Ryzyko', zaxis_title='Czas'),
+                    margin=dict(l=0, r=0, b=0, t=0),
                     template="plotly_dark",
                     height=400
                 )
-                st.plotly_chart(fig_regime, use_container_width=True)
+                st.plotly_chart(fig_3d_phase, use_container_width=True, key="chart_phase_space")
                 
-                display_chart_guide("Detekcja Reżimów (HMM)", """
-                *   **Kropki Zielone (Risk-On)**: AI uznaje rynek za bezpieczny (niska/średnia zmienność). Strategia agresywnie inwestuje w ryzykowne aktywa.
-                *   **Kropki Czerwone (Risk-Off)**: AI wykrywa turbulencje (wysoka zmienność/krach). Strategia ucieka do bezpiecznej przystani (Obligacje).
-                *   **Cel**: Unikanie czerwonych kropek w trakcie największych krachów (np. 2020, 2022).
+                display_chart_guide("Trajektoria Fazowa", """
+                *   **Spirala**: Portfel "oddycha". Zwróć uwagę, czy w okresach wysokiego ryzyka (oś Y) zwroty (oś X) są dodatnie.
+                *   **Kolor**: Czerwony = Reżim Wysokiej Zmienności (Risk-Off). Zielony = Hossa.
                 """)
 
-                # --- New AI Visualizations ---
-                st.divider()
-                st.divider()
-                st.subheader("🔮 Zaawansowana Analityka (Hedge Fund View)")
+            with col_viz_2:
+                st.markdown("**Stabilność Wyników (Rolling Sharpe)**")
+                window = 126
+                # Avoid division by zero
+                vol_safe = vol_roll.replace(0, 0.001)
+                rolling_sharpe = (ret_roll.rolling(window).mean() / vol_safe.rolling(window).mean()) * np.sqrt(252)
                 
-                # --- 1. Monthly Returns Heatmap ---
-                st.markdown("### 🗓️ Mapa Zwrotów Miesięcznych (Monthly Heatmap)")
-                
-                # Calculate monthly returns
-                res_monthly = results['PortfolioValue'].resample('M').last().pct_change()
-                res_monthly_df = pd.DataFrame(res_monthly)
-                res_monthly_df['Year'] = res_monthly_df.index.year
-                res_monthly_df['Month'] = res_monthly_df.index.month_name()
-                
-                # Pivot
-                heatmap_data = res_monthly_df.pivot(index='Year', columns='Month', values='PortfolioValue')
-                # Sort months correctly
-                months_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-                heatmap_data = heatmap_data.reindex(columns=months_order)
-                
-                # Calculate centered range for Heatmap
-                max_val = heatmap_data.abs().max().max() if not heatmap_data.empty else 0.1
-                
-                fig_heat = px.imshow(
-                    heatmap_data, 
-                    text_auto=".1%", 
-                    color_continuous_scale='RdYlGn',
-                    range_color=[-max_val, max_val],
-                    title="Miesięczne Stopy Zwrotu"
-                )
-                fig_heat.update_layout(template="plotly_dark", height=400)
-                st.plotly_chart(fig_heat, use_container_width=True)
-                
-                display_chart_guide("Mapa Ciepła (Heatmap)", """
-                *   **Cel**: Szybka ocena sezonowości i spójności wyników.
-                *   **Kolory**: Czerwień to strata, Zieleń to zysk.
-                *   **Co jest dobre?**: Dużo zieleni, brak długich "czerwonych pasów" (serii strat).
-                """)
-
-                col_viz_1, col_viz_2 = st.columns(2)
-                
-                with col_viz_1:
-                    # 2. 3D Phase Space Trajectory
-                    st.markdown("**Trajektoria Fazowa Portfela (Phase Space)**")
-                    ret_roll = results['PortfolioValue'].pct_change().rolling(21).mean() * 252
-                    vol_roll = results['PortfolioValue'].pct_change().rolling(21).std() * np.sqrt(252)
-                    
-                    fig_3d_phase = go.Figure(data=go.Scatter3d(
-                        x=ret_roll,
-                        y=vol_roll,
-                        z=np.arange(len(results)),
-                        mode='lines',
-                        line=dict(
-                            color=np.where(regimes==1, 1.0, 0.0), # Map to colorscale
-                            colorscale='RdYlGn_r',
-                            width=4
-                        ),
-                        name='Trajektoria'
-                    ))
-                    fig_3d_phase.update_layout(
-                        scene=dict(
-                            xaxis_title='Zwrot (Rolling)',
-                            yaxis_title='Ryzyko (Vol)',
-                            zaxis_title='Czas'
-                        ),
-                        margin=dict(l=0, r=0, b=0, t=0),
-                        template="plotly_dark",
-                        height=400
-                    )
-                    st.plotly_chart(fig_3d_phase, use_container_width=True)
-                    
-                    display_chart_guide("Trajektoria Fazowa", """
-                    *   **Spirala**: Portfel "oddycha". Zwróć uwagę, czy w okresach wysokiego ryzyka (oś Y) zwroty (oś X) są dodatnie.
-                    *   **Kolor**: Czerwony = Reżim Wysokiej Zmienności (Risk-Off). Zielony = Hossa.
-                    """)
-
-                with col_viz_2:
-                    # 3. Rolling Sharpe Ratio
-                    st.markdown("**Stabilność Wyników (Rolling Sharpe)**")
-                    
-                    # Rolling 6-month Sharpe
-                    window = 126
-                    rolling_sharpe = (ret_roll.rolling(window).mean() / vol_roll.rolling(window).mean()) * np.sqrt(252) # Approximation
-                    
-                    fig_sharpe = go.Figure()
-                    fig_sharpe.add_trace(go.Scatter(
-                        x=rolling_sharpe.index,
-                        y=rolling_sharpe,
-                        mode='lines',
-                        fill='tozeroy',
-                        line=dict(color='#00d4ff', width=2),
-                        name='Rolling Sharpe'
-                    ))
-                    fig_sharpe.add_hline(y=1.0, line_dash="dash", line_color="green", annotation_text="Dobre (1.0)")
-                    fig_sharpe.add_hline(y=0.0, line_dash="dot", line_color="red", annotation_text="Krytyczne (0.0)")
-                    
-                    fig_sharpe.update_layout(
-                        yaxis_title='Sharpe Ratio (6M)',
-                        template="plotly_dark",
-                        height=400
-                    )
-                    st.plotly_chart(fig_sharpe, use_container_width=True)
-                    
-                    display_chart_guide("Rolling Sharpe", """
-                    *   **Powyżej 1.0**: Strategia generuje zysk nieproporcjonalnie duży do ryzyka.
-                    *   **Poniżej 0**: Portfel nie zarabia nawet na pokrycie ryzyka.
-                    """)
-                
-                # 4. Underwater Plot dedicated
-                st.markdown("### ⚓ Wykres Obsunięć (Underwater Plot)")
-                wealth = results['PortfolioValue']
-                peaks = wealth.cummax()
-                drawdowns = (wealth - peaks) / peaks
-                
-                fig_underwater = go.Figure()
-                fig_underwater.add_trace(go.Scatter(
-                    x=drawdowns.index,
-                    y=drawdowns,
+                fig_sharpe = go.Figure()
+                fig_sharpe.add_trace(go.Scattergl(
+                    x=rolling_sharpe.index,
+                    y=rolling_sharpe,
                     mode='lines',
                     fill='tozeroy',
-                    line=dict(color='#ff4444', width=1),
-                    name='Drawdown'
+                    line=dict(color='#00d4ff', width=2),
+                    name='Rolling Sharpe'
                 ))
-                fig_underwater.update_layout(
-                    yaxis_title='Obsunięcie (%)',
+                fig_sharpe.add_hline(y=1.0, line_dash="dash", line_color="green", annotation_text="Dobre (1.0)")
+                
+                fig_sharpe.update_layout(
+                    yaxis_title='Sharpe Ratio (6M)',
                     template="plotly_dark",
-                    height=300,
-                    yaxis=dict(tickformat=".1%")
+                    height=400
                 )
-                st.plotly_chart(fig_underwater, use_container_width=True)
-
-                display_chart_guide("Underwater Plot", """
-                *   **Głębokość**: Jak mocno bolało (oś Y).
-                *   **Szerokość**: Jak długo trwało odrabianie strat (oś X). Długie płaskie dna to "Zombie Markets".
+                st.plotly_chart(fig_sharpe, use_container_width=True, key="chart_rolling_sharpe")
+                
+                display_chart_guide("Rolling Sharpe", """
+                *   **Powyżej 1.0**: Strategia generuje zysk nieproporcjonalnie duży do ryzyka.
+                *   **Poniżej 0**: Portfel nie zarabia nawet na pokrycie ryzyka.
                 """)
                 
-                # 5. Volatility Cone (Future implementation requires distinct windows logic but we add Rolling Vol here)
-                # Let's add Rolling Volatility vs Market Proxy if feasible, or just standalone Rolling Vol
-                st.divider()
-                
-                # 6. Rolling Correlation Heatmap (If multiple risky assets)
-                if len(risky_data.columns) > 1:
-                    st.subheader("🔥 Mapa Korelacji (Rolling)")
-                    
-                    corr_matrix = risky_data.tail(60).corr()
-                    fig_corr = px.imshow(
-                        corr_matrix, 
-                        text_auto=True, 
-                        color_continuous_scale='RdBu_r', 
-                        zmin=-1, zmax=1,
-                        title="Macierz Korelacji (Ostatnie 60 dni)"
-                    )
-                    st.plotly_chart(fig_corr, use_container_width=True)
-                    display_chart_guide("Korelacja", """
-                    *   **Czerwień (Blisko 1.0)**: Aktywa chodzą razem. Niebezpieczne w krachu.
-                    *   **Niebieski (Blisko -1.0)**: Aktywa chodzą przeciwnie. Idealne do hedgingu.
-                    *   **Biel (0.0)**: Brak korelacji. Święty Graal dywersyfikacji.
-                    """)
-                
-                # --- AI Insights Visualizations ---
-                st.subheader("🧠 Analityka AI: Architect & Trader")
-                
-                # Process Weights Data
-                weights_df = pd.DataFrame(weight_history, index=results.index)
-                
-                # Identify risky and safe columns present in weights_df
-                present_risky = [c for c in risky_tickers if c in weights_df.columns]
-                present_safe = [c for c in safe_tickers if c in weights_df.columns]
-                if not present_safe and "FIXED_SAFE" in weights_df.columns:
-                     present_safe = ["FIXED_SAFE"]
-    
-                # 1. TRADER: Risky Exposure over Time
-                if present_risky:
-                    risky_exposure = weights_df[present_risky].sum(axis=1)
-                    
-                    fig_trader = go.Figure()
-                    fig_trader.add_trace(go.Scatter(
-                        x=risky_exposure.index, 
-                        y=risky_exposure, 
-                        mode='lines', 
-                        name='Ekspozycja Ryzykowna (Trader)',
-                        fill='tozeroy',
-                        line=dict(color='#ffaa00', width=2)
-                    ))
-                    fig_trader.update_layout(
-                        title="🎮 Trader (RL Agent): Dynamiczne Zarządzanie Lewarem (Kelly)",
-                        yaxis_title=" % Portfela w Ryzyku",
-                        xaxis_title="Data",
-                        template="plotly_dark",
-                        height=400,
-                        yaxis=dict(tickformat=".0%")
-                    )
-                    st.plotly_chart(fig_trader, use_container_width=True)
-                    
-                    display_chart_guide("Decyzje Tradera (Risk Exposure)", """
-                    *   **Cel**: Zarządzanie wielkością pozycji (Bet Sizing) w oparciu o Kryterium Kelly'ego.
-                    *   **Wykres Wysoko**: Trader jest pewny siebie i zwiększa ekspozycję na ryzyko (lewaruje wynik).
-                    *   **Wykres Nisko (lub 0)**: Trader ucina ryzyko (de-lewarowanie) w obliczu zagrożenia. To mechanizm obronny.
-                    """)
-    
-                # 2. ARCHITECT: Internal Composition of Risky Basket
-                if present_risky:
-                    # Normalize risky weights to sum to 100% relative to the risky basket only
-                    risky_internal = weights_df[present_risky].div(weights_df[present_risky].sum(axis=1), axis=0).fillna(0)
-                    
-                    fig_architect = go.Figure()
-                    for col in risky_internal.columns:
-                        fig_architect.add_trace(go.Scatter(
-                            x=risky_internal.index,
-                            y=risky_internal[col],
-                            mode='lines',
-                            stackgroup='one', # Stacked Area
-                            name=col
-                        ))
-                    fig_architect.update_layout(
-                        title="🏗️ Architect (HRP): Dywersyfikacja Wewnątrz Koszyka Ryzykownego",
-                        yaxis_title="Waga Wewnętrzna",
-                        xaxis_title="Data",
-                        template="plotly_dark",
-                        height=400,
-                         yaxis=dict(tickformat=".0%")
-                    )
-                    st.plotly_chart(fig_architect, use_container_width=True)
-                    
-                    display_chart_guide("Decyzje Architekta (HRP)", """
-                    *   **Cel**: Minimalizacja ryzyka wewnątrz koszyka spekulacyjnego poprzez inteligentną dywersyfikację (Hierarchical Risk Parity).
-                    *   **Kolorowe Pola**: Pokazują, ile % portfela spekulacyjnego jest w danym aktywie.
-                    *   **Zmiany**: Jeśli jedno pole rośnie kosztem innych, Architekt wykrył, że to aktywo stało się bezpieczniejsze lub mniej skorelowane z resztą.
-                    """)
-    
-                display_analysis_report()
+            st.divider()
+            
+
+
+
+
+            
+             
+
+
+            
+            st.divider()
+            
+            # Methodology Report
+            display_analysis_report()
 
 elif module_selection == "🔍 Skaner Wypukłości (BCS)":
     st.header("🔍 Barbell Convexity Scanner (BCS)")
@@ -828,23 +782,24 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
     col_scan1, col_scan2 = st.columns([3, 1])
     
     with col_scan1:
-        scan_mode = st.radio("Tryb Skanowania", ["Manualny (Lista)", "AI Auto-Select (S&P 500 + ETF)"], horizontal=True)
+        scan_mode = st.radio("Tryb Skanowania", ["Manualny (Lista)", "Auto-Select (Math Score)"], horizontal=True)
         
         scan_tickers_str = ""
         max_ai_tickers = 10
-        api_key = ""
         
         if scan_mode == "Manualny (Lista)":
             default_tickers = "TQQQ, SOXL, UPRO, TMF, SPY, QQQ, BTC-USD, ETH-USD, ARKK, UVXY, COIN, NVDA, TSLA, MSTR"
             scan_tickers_str = st.text_area("Lista do przeskanowania (Tickery oddzielone przecinkami)", default_tickers)
         else:
-            st.info("🤖 AI przeszuka S&P 500 oraz wybrane Europejskie ETFy, obliczy metryki wypukłości, a następnie Gemini wybierze najlepszych kandydatów.")
+            st.info("🤖 System przeszuka S&P 500 oraz wybrane Europejskie ETFy i wybierze najlepsze aktywa na podstawie wyniku matematycznego (Score).")
             
             col_ai1, col_ai2 = st.columns(2)
             with col_ai1:
-                max_ai_tickers = st.slider("Ile tickerów ma wybrać AI?", 3, 20, 10)
+                max_ai_tickers = st.slider("Ile tickerów wybrać?", 3, 20, 10)
             with col_ai2:
-                api_key = st.text_input("Klucz API Gemini (opcjonalny, brak = Math Score)", type="password", help="Wpisz klucz, aby AI dokonało selekcji jakościowej. Bez klucza decyduje matematyczny wynik.")
+                # Spacer
+                st.write("")
+
     
     with col_scan2:
         scan_years = st.number_input("Historia (Lat)", value=3, step=1)
@@ -858,11 +813,25 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         if scan_mode == "Manualny (Lista)":
             final_tickers = [x.strip().upper() for x in scan_tickers_str.split(",") if x.strip()]
         else:
-            with st.spinner("Pobieranie listy aktywów (S&P 500 + Euro ETF)..."):
+            with st.spinner("Pobieranie listy aktywów (S&P 500 + Top 50 Global ETF)..."):
                 sp500 = get_sp500_tickers()
-                etfs = get_euro_etfs()
+                etfs = get_global_etfs() 
                 final_tickers = sp500 + etfs
                 st.toast(f"Znaleziono {len(final_tickers)} aktywów do analizy.")
+        
+        # Create Source Map
+        source_map = {}
+        if scan_mode == "Manualny (Lista)":
+            for t in final_tickers:
+                source_map[t] = "Manualne"
+        else:
+            # Re-fetch lists to map correctly
+            s_sp500 = get_sp500_tickers()
+            s_etfs = get_global_etfs()
+            for t in s_sp500:
+                source_map[t] = "S&P 500"
+            for t in s_etfs:
+                source_map[t] = "Top 50 Global"
         
         if not final_tickers:
             st.error("Podaj przynajmniej jeden ticker.")
@@ -872,57 +841,66 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
             # 2. Run Scan Engine
             engine = ScannerEngine()
             
-            with st.status(f"Analiza EVT dla {len(final_tickers)} aktywów...", expanded=True) as status:
-                # Progress bar inside status
-                progress_scan = st.progress(0)
+            # Use StatusManager instead of st.status context
+            status_scan = StatusManager(f"Analiza EVT dla {len(final_tickers)} aktywów...", expanded=True)
+            status_scan.info_math(f"Obliczanie metryk (Hill Alpha, Skewness, Kelly) dla {len(final_tickers)} rynków...")
                 
-                # Scan Markets (Metrics Calculation)
-                # Engine handles data fetching internally now for bulk efficiency
-                # but scan_markets expects a list of tickers, it will fetch inside.
-                # Actually scan_markets implementation in my head fetches inside.
+            # Progress bar inside (optional, handled by update?)
+            # Manager logic doesn't expose inner container easily, so we just use spinner style
+            # OR pass a callback if we refactor Engine. 
+            # Engine takes progress bar object.
+            # Let's use a placeholder progress bar or just rely on text updates if engine allows.
+            # Engine expects a streamlit progress object.
+            
+            progress_scan = st.progress(0)
+            
+            # Let's adapt engine call
+            df_candidates = engine.scan_markets(final_tickers, progress_bar=progress_scan)
+            
+            # Add Source Column
+            if not df_candidates.empty:
+                df_candidates["Source"] = df_candidates["Ticker"].map(source_map).fillna("Unknown")
+            
+            if df_candidates.empty:
+                st.error("Nie udało się obliczyć metryk (brak danych lub błędne tickery).")
+                status_scan.error("Błąd podczas analizy.")
+            else:
+                progress_scan.progress(1.0, "Analiza matematyczna zakończona.")
                 
-                # Let's adjust logic:
-                # If we pass hundreds of tickers, we rely on scan_markets bulk handling.
-                
-                df_candidates = engine.scan_markets(final_tickers, progress_bar=progress_scan)
-                
-                if df_candidates.empty:
-                    st.error("Nie udało się obliczyć metryk (brak danych lub błędne tickery).")
-                    status.update(label="Błąd", state="error")
-                else:
-                    progress_scan.progress(1.0, "Analiza matematyczna zakończona.")
-                    
-                    # 3. AI Selection (if applicable)
-                    if scan_mode == "AI Auto-Select (S&P 500 + ETF)":
-                        st.write("🧠 Uruchamianie agenta Gemini do selekcji...")
-                        # Filter top 50 first by Math Score to save tokens/context
-                        top_candidates = df_candidates.sort_values("Score", ascending=False).head(50)
-                        
-                        selected_tickers = engine.select_with_gemini(top_candidates, api_key, max_count=max_ai_tickers)
-                        
-                        # Filter results to show only selected
-                        df_res = df_candidates[df_candidates['Ticker'].isin(selected_tickers)]
-                        
-                        # Sort by Score again for display logic or keep AI order?
-                        # Let's stick to Score for table sorting
-                        df_res = df_res.sort_values("Score", ascending=False)
-                        st.toast(f"AI wybrało {len(df_res)} najlepszych kandydatów!")
-                        
-                    else:
-                        df_res = df_candidates.sort_values("Score", ascending=False)
+                # 3. Auto Selection (Math Based)
+                if scan_mode == "Auto-Select (Math Score)":
 
-                    st.session_state['scanner_results'] = df_res
+                    status_scan.update(label="🤖 Auto-Selekcja (Math Score)...", state="running")
                     
-                    # Fetch full data for charts (re-fetch only for results to be safe/full history or use data from engine?)
-                    # Engine fetched bulk, but didn't return series.
-                    # We need series for detailed charts.
-                    # Let's simple fetch data for the Final Result Tickers to ensure we have it for charts.
-                    final_result_tickers = df_res['Ticker'].tolist()
-                    status.write("Pobieranie danych do wykresów...")
-                    chart_data = load_data(final_result_tickers, start_date=start_date.strftime("%Y-%m-%d"))
-                    st.session_state['scanner_data'] = chart_data
+                    # Filter top 50 first by Math Score
+                    top_candidates = df_candidates.sort_values("Score", ascending=False)
                     
-                    status.update(label="Skanowanie zakończone!", state="complete", expanded=False)
+                    status_scan.info_ai(f"Wybieranie {max_ai_tickers} najlepszych aktywów wg wyniku...")
+                    selected_tickers = engine.select_best_candidates(top_candidates, max_count=max_ai_tickers)
+                    
+                    status_scan.info_ai("Selekcja zakończona.")
+                    
+                    # Filter results to show only selected
+                    df_res = df_candidates[df_candidates['Ticker'].isin(selected_tickers)]
+                    
+                    df_res = df_res.sort_values("Score", ascending=False)
+                    st.toast(f"Wybrano {len(df_res)} najlepszych kandydatów!")
+                    
+                else:
+                    df_res = df_candidates.sort_values("Score", ascending=False)
+
+                st.session_state['scanner_results'] = df_res
+                
+                # Fetch full data for charts
+                final_result_tickers = df_res['Ticker'].tolist()
+                status_scan.info_data("Pobieranie pełnej historii cen dla wykresów...")
+                chart_data = load_data(final_result_tickers, start_date=start_date.strftime("%Y-%m-%d"))
+                st.session_state['scanner_data'] = chart_data
+                
+                status_scan.success("Skanowanie zakończone!")
+                progress_scan.empty()
+                st.rerun()
+
                         
     # Display results if they exist in session state
     if 'scanner_results' in st.session_state:
@@ -1105,7 +1083,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
             prob = rank / len(pos_rets)
             
             fig_loglog = go.Figure()
-            fig_loglog.add_trace(go.Scatter(
+            fig_loglog.add_trace(go.Scattergl(
                 x=pos_rets,
                 y=prob,
                 mode='markers',
