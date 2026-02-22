@@ -18,6 +18,7 @@ from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
 from modules.frontier import compute_efficient_frontier
+from modules.emerytura import render_emerytura_module
 from modules.ai.observer import REGIME_BULL, REGIME_BEAR, REGIME_CRISIS
 
 # ... existsing code ...
@@ -38,7 +39,7 @@ if "force_navigate" in st.session_state:
     st.session_state["module_nav"] = st.session_state.pop("force_navigate")
 
 # 3. Main Navigation
-module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator Portfela", "🔍 Skaner Wypukłości (BCS)", "⚡ Stress Test"], horizontal=True, label_visibility="collapsed", key="module_nav")
+module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator Portfela", "🔍 Skaner Wypukłości (BCS)", "⚡ Stress Test", "🏖️ Emerytura"], horizontal=True, label_visibility="collapsed", key="module_nav")
 st.markdown("---")
 
 if module_selection == "📉 Symulator Portfela":
@@ -1382,3 +1383,7 @@ elif module_selection == "⚡ Stress Test":
                 plot_bgcolor="rgba(15,15,25,0.9)",
             )
             st.plotly_chart(fig_st, use_container_width=True)
+
+
+elif module_selection == "🏖️ Emerytura":
+    render_emerytura_module()
