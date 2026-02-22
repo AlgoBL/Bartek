@@ -4,6 +4,12 @@ import pandas as pd
 from scipy.stats import skew, kurtosis
 import streamlit as st
 from modules.metrics import calculate_sharpe, calculate_sortino, calculate_max_drawdown
+try:
+    import networkx as nx
+    HAS_NETWORKX = True
+except ImportError:
+    HAS_NETWORKX = False
+import plotly.graph_objects as go
 
 def hill_estimator(returns, tail_fraction=0.05):
     """
@@ -133,3 +139,111 @@ def score_asset(metrics):
         score -= 30
         
     return score
+
+
+def compute_correlation_network(returns_df: pd.DataFrame, metrics_df: pd.DataFrame = None) -> "go.Figure | None":
+    """
+    Minimum Spanning Tree (MST) correlation network visualization.
+    Reference: Mantegna (1999) — Hierarchical Structure in Financial Markets.
+
+    Parameters
+    ----------
+    returns_df : DataFrame of daily returns, columns = tickers
+    metrics_df : optional DataFrame with Sharpe column per ticker (for node color)
+
+    Returns
+    -------
+    Plotly Figure or None if networkx not installed
+    """
+    if not HAS_NETWORKX:
+        return None
+
+    tickers = returns_df.columns.tolist()
+    if len(tickers) < 2:
+        return None
+
+    # Build correlation-based distance matrix (Mantegna 1999)
+    corr = returns_df.corr()
+    dist = np.sqrt(2 * (1 - corr))  # metric distance: d = sqrt(2*(1-rho))
+
+    # Build complete graph
+    G = nx.Graph()
+    for i, t1 in enumerate(tickers):
+        for j, t2 in enumerate(tickers):
+            if i < j:
+                G.add_edge(t1, t2, weight=float(dist.loc[t1, t2]),
+                           corr=float(corr.loc[t1, t2]))
+
+    # Minimum Spanning Tree
+    mst = nx.minimum_spanning_tree(G, weight="weight")
+
+    # Layout
+    pos = nx.spring_layout(mst, seed=42, k=2.0)
+
+    # Node colors: by Sharpe if available, else by degree
+    if metrics_df is not None and "Sharpe" in metrics_df.columns:
+        sharpe_map = metrics_df.set_index("Ticker")["Sharpe"].to_dict() if "Ticker" in metrics_df.columns else {}
+        node_colors = [sharpe_map.get(t, 0.0) for t in mst.nodes()]
+        color_label = "Sharpe Ratio"
+    else:
+        node_colors = [dict(mst.degree())[t] for t in mst.nodes()]
+        color_label = "Degree"
+
+    # Build Plotly figure
+    edge_x, edge_y, edge_text = [], [], []
+    for u, v, data in mst.edges(data=True):
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        edge_x += [x0, x1, None]
+        edge_y += [y0, y1, None]
+        edge_text.append(f"{u}-{v}: corr={data['corr']:.2f}")
+
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1.5, color="rgba(150,150,200,0.5)"),
+        hoverinfo="none",
+        mode="lines",
+        name="Korelacja (MST)"
+    )
+
+    node_x = [pos[t][0] for t in mst.nodes()]
+    node_y = [pos[t][1] for t in mst.nodes()]
+    node_labels = list(mst.nodes())
+
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode="markers+text",
+        text=node_labels,
+        textposition="top center",
+        textfont=dict(color="white", size=11),
+        marker=dict(
+            size=20,
+            color=node_colors,
+            colorscale="RdYlGn",
+            colorbar=dict(title=color_label, thickness=12),
+            showscale=True,
+            line=dict(color="white", width=1.5)
+        ),
+        hovertemplate=[
+            f"<b>{t}</b><br>{color_label}: {c:.2f}<extra></extra>"
+            for t, c in zip(node_labels, node_colors)
+        ],
+        name="Aktywa"
+    )
+
+    fig = go.Figure([edge_trace, node_trace])
+    fig.update_layout(
+        title="🕸️ Sieć Korelacji MST (Mantegna 1999)",
+        showlegend=False,
+        hovermode="closest",
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(15,15,25,0.9)",
+        height=500,
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        font=dict(family="Inter", color="white"),
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+    return fig
+

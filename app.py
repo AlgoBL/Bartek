@@ -6,13 +6,19 @@ import plotly.graph_objects as go
 import plotly.express as px
 from modules.styling import apply_styling
 from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
-from modules.metrics import calculate_trade_stats
+from modules.metrics import (
+    calculate_trade_stats, calculate_omega, calculate_ulcer_index,
+    calculate_pain_index, calculate_drawdown_analytics
+)
 from modules.ai.data_loader import load_data
 from modules.analysis_content import display_analysis_report, display_scanner_methodology, display_chart_guide
-from modules.scanner import calculate_convecity_metrics, score_asset
+from modules.scanner import calculate_convecity_metrics, score_asset, compute_correlation_network
 from modules.ai.scanner_engine import ScannerEngine
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
+from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
+from modules.frontier import compute_efficient_frontier
+from modules.ai.observer import REGIME_BULL, REGIME_BEAR, REGIME_CRISIS
 
 # ... existsing code ...
 
@@ -32,7 +38,7 @@ if "force_navigate" in st.session_state:
     st.session_state["module_nav"] = st.session_state.pop("force_navigate")
 
 # 3. Main Navigation
-module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator Portfela", "🔍 Skaner Wypukłości (BCS)"], horizontal=True, label_visibility="collapsed", key="module_nav")
+module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator Portfela", "🔍 Skaner Wypukłości (BCS)", "⚡ Stress Test"], horizontal=True, label_visibility="collapsed", key="module_nav")
 st.markdown("---")
 
 if module_selection == "📉 Symulator Portfela":
@@ -91,6 +97,19 @@ if module_selection == "📉 Symulator Portfela":
         if rebalance_strategy == "Threshold (Shannon's Demon)":
             threshold_percent = st.sidebar.slider("Próg Rebalansowania (%)", 5, 50, 20, 5, key="mc_threshold") / 100.0
 
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### ⚙️ Zaawansowane (Naukowe)")
+        use_qmc = st.sidebar.checkbox(
+            "Użyj Quasi-Monte Carlo (Sobol)",
+            value=False, key="mc_use_qmc",
+            help="Sekwencje Sobola dają 10x szybszą zbieżność niż losowanie pseudolosowe. Joe & Kuo (2010)."
+        )
+        use_garch = st.sidebar.checkbox(
+            "Symuluj GARCH(1,1) Zmienność",
+            value=False, key="mc_use_garch",
+            help="Modeluje klastrowanie zmienności (volatility clustering). Bollerslev (1986). Wolniejsze, ale bardziej realistyczne."
+        )
+
         # MAIN CONTENT FOR MONTE CARLO
         st.title("⚖️ Barbell Strategy - Monte Carlo")
         
@@ -109,7 +128,9 @@ if module_selection == "📉 Symulator Portfela":
                 risky_kurtosis=risky_kurtosis,
                 alloc_safe=alloc_safe,
                 rebalance_strategy=rebalance_strategy.split(" ")[0],
-                threshold_percent=threshold_percent
+                threshold_percent=threshold_percent,
+                use_qmc=use_qmc,
+                use_garch=use_garch,
             )
             
             status_mc.info_math("Obliczanie zaawansowanych metryk (Sharpe, VaR, CVaR)...")
@@ -169,7 +190,7 @@ if module_selection == "📉 Symulator Portfela":
                 with m_col1:
                     st.markdown("**Efektywność (Risk-Adjusted)**")
                     st.metric("Sharpe Ratio", f"{metrics['median_sharpe']:.2f}")
-                    st.metric("Sortino Ratio", f"{metrics.get('median_sortino', 0):.2f}") # Placeholder
+                    st.metric("Sortino Ratio", f"{metrics.get('median_sortino', 0):.2f}")
                     st.metric("Calmar Ratio", f"{metrics['median_calmar']:.2f}")
 
                 with m_col2:
@@ -179,10 +200,17 @@ if module_selection == "📉 Symulator Portfela":
                     st.metric("CVaR 95% (Krach)", f"{metrics['cvar_95']:,.0f} PLN", help="Średnia wartość kapitału w 5% najgorszych scenariuszy.")
 
                 with m_col3:
-                    st.markdown("**Statystyka**")
+                    st.markdown("**Statystyka + NOWE 🆕**")
                     st.metric("Median Volatility", f"{metrics['median_volatility']:.1%}")
-                    st.metric("Szansa Bankructwa", f"{metrics['prob_loss']:.1%}")
-                    st.metric("Worst Case Drawdown", f"{metrics['worst_case_drawdown']:.1%}")
+                    # Omega Ratio (new)
+                    final_returns = np.diff(wealth_paths[:, :], axis=1).flatten() / wealth_paths[:, :-1].flatten()
+                    omega = calculate_omega(final_returns)
+                    st.metric("Omega Ratio 🆕", f"{omega:.2f}", help="Omega > 1 = więcej zysku niż straty. Idealny wskaźnik dla strategii Barbell (Shadwick & Keating 2002).")
+                    # Ulcer Index (new)
+                    median_path = np.median(wealth_paths, axis=0)
+                    ulcer = calculate_ulcer_index(median_path)
+                    st.metric("Ulcer Index 🆕", f"{ulcer:.2f}", help="Mierzy 'ból inwestora' przez cały okres. Niższy = lepszy (Martin & McCann 1989).")
+
             
             display_chart_guide("Tabela Profesjonalna (Hedge Fund Grade)", """
             *   **Sharpe Ratio**: Zysk za każdą jednostkę ryzyka. > 1.0 = Dobrze, > 2.0 = Wybitnie.
@@ -512,6 +540,9 @@ if module_selection == "📉 Symulator Portfela":
                     "risky_mean": risky_data.mean(axis=1),
                     "regimes": regimes
                 }
+                # ★ Save raw price data for Efficient Frontier (persists across reruns)
+                st.session_state['backtest_safe_data']  = safe_data
+                st.session_state['backtest_risky_data'] = risky_data
                 st.rerun()
 
         # RENDER RESULTS (Only if state exists)
@@ -638,15 +669,32 @@ if module_selection == "📉 Symulator Portfela":
                 ))
 
                 # Colored Markers
-                if len(regimes_arr) > 0:
-                    regime_colors = np.where(regimes_arr == 1, '#ff4444', '#00ff88') 
-                    fig_regime.add_trace(go.Scattergl(
-                        x=res['results'].index,
-                        y=risky_series,
-                        mode='markers',
-                        marker=dict(color=regime_colors, size=4, opacity=0.6),
-                        name='Regime State'
-                    ))
+            # Colored Markers — now 3-color for Bull/Bear/Crisis
+            if len(regimes_arr) > 0:
+                # Map regime integers to colors
+                if hasattr(res.get('observer'), 'high_vol_state') and res.get('observer'):
+                    obs = res['observer']
+                    crisis_idx = obs.high_vol_state
+                    low_idx = obs.low_vol_state
+                    mid_idx = getattr(obs, 'mid_vol_state', -1)
+                    def _regime_color(r):
+                        if r == crisis_idx: return '#ff2222'
+                        if r == mid_idx: return '#ffaa00'
+                        return '#00ff88'
+                    regime_colors = [_regime_color(r) for r in regimes_arr]
+                    regime_label_map = {crisis_idx: 'Crisis 🔴', mid_idx: 'Bear 🟠', low_idx: 'Bull 🟢'}
+                else:
+                    # Fallback: 2-state
+                    regime_colors = ['#ff4444' if r == 1 else '#00ff88' for r in regimes_arr]
+                    regime_label_map = {1: 'Risk-Off 🔴', 0: 'Risk-On 🟢'}
+                fig_regime.add_trace(go.Scattergl(
+                    x=res['results'].index,
+                    y=risky_series,
+                    mode='markers',
+                    marker=dict(color=regime_colors, size=4, opacity=0.6),
+                    name='Regime State'
+                ))
+
             
             fig_regime.update_layout(title="Reżimy Rynkowe (HMM) na tle rynku", template="plotly_dark", height=400)
             st.plotly_chart(fig_regime, use_container_width=True, key="chart_regime_dots")
@@ -770,6 +818,103 @@ if module_selection == "📉 Symulator Portfela":
             
             # Methodology Report
             display_analysis_report()
+
+            # ─────────────────────────────────────────────────────────────────
+            # 🆕 DRAWDOWN ANALYTICS (Naukowe)
+            # ─────────────────────────────────────────────────────────────────
+            st.divider()
+            st.subheader("🩺 Zaawansowana Analiza Obsunięć 🆕")
+            st.caption("Reference: Magdon-Ismail & Atiya (2004), Chekhlov et al. (2005), Martin & McCann (1989)")
+
+            pv_series = res['results']['PortfolioValue']
+            dd_analytics = calculate_drawdown_analytics(pv_series.values)
+
+            dd_col1, dd_col2, dd_col3, dd_col4 = st.columns(4)
+            dd_col1.metric("Max Drawdown", f"{dd_analytics['max_drawdown']:.1%}")
+            dd_col2.metric("Ulcer Index", f"{dd_analytics['ulcer_index']:.2f}",
+                          help="sqrt(mean(DD²)). Mierzy ból i długość spadków. Niższy = lepszy.")
+            dd_col3.metric("Pain Index", f"{dd_analytics['pain_index']:.2%}",
+                          help="Średnia głębokość obsunięcia przez cały okres.")
+            dd_col4.metric("DD-at-Risk 95%", f"{dd_analytics['drawdown_at_risk_95']:.1%}",
+                          help="Analogia CVaR dla drawdownów. Najgorsze 5% obsunięć.")
+
+            dd_col5, dd_col6 = st.columns(2)
+            dd_col5.metric("Śr. Czas Obsunięcia", f"{dd_analytics['avg_drawdown_duration_days']:.0f} sesji",
+                          help="Średnia liczba dni trwania jednego obsunięcia.")
+            dd_col6.metric("Max Czas Obsunięcia", f"{dd_analytics['max_drawdown_duration_days']} sesji",
+                          help="Najdłuższe obsunięcie (ile dni od szczytu do powrotu).")
+
+            # Omega Ratio
+            port_returns_pct = pv_series.pct_change().dropna().values
+            omega_val = calculate_omega(port_returns_pct)
+            st.metric("Omega Ratio 🆕", f"{min(omega_val, 99):.2f}",
+                     help="Omega > 1 = portfel generuje więcej zysku niż straty. Idealny dla Barbell.")
+
+            # ─────────────────────────────────────────────────────────────────
+            # 🆕 EFFICIENT FRONTIER
+            # ─────────────────────────────────────────────────────────────────
+            st.divider()
+            st.subheader("📐 Granica Efektywna — Gdzie jest Twój Barbell? 🆕")
+            st.caption("Reference: Markowitz (1952), Shadwick & Keating (2002)")
+
+            with st.expander("🔍 Generuj Granicę Efektywną (może chwilę potrwać)", expanded=False):
+                if st.button("📐 Oblicz Granicę Efektywną", key="frontier_btn"):
+                    try:
+                        # Load from session_state (saved when backtest ran)
+                        _safe_data  = st.session_state.get('backtest_safe_data',  pd.DataFrame())
+                        _risky_data = st.session_state.get('backtest_risky_data', pd.DataFrame())
+
+                        if _risky_data.empty:
+                            st.warning("⚠️ Uruchom najpierw AI Backtest żeby załadować dane aktywów.")
+                        else:
+                            # Build returns DataFrame — safe may be empty (TOS fixed rate mode)
+                            if not _safe_data.empty:
+                                ef_prices = pd.concat([_safe_data, _risky_data], axis=1)
+                            else:
+                                ef_prices = _risky_data.copy()
+
+                            # Forward-fill then drop rows still all-NaN
+                            ef_prices = ef_prices.ffill().dropna(how="all")
+                            ef_returns = ef_prices.pct_change().dropna(how="all")
+
+                            # Remove columns with too many NaNs
+                            ef_returns = ef_returns.dropna(axis=1, thresh=int(len(ef_returns) * 0.8))
+
+                            n_cols = len(ef_returns.columns)
+                            st.caption(f"📊 Obliczam granicę dla {n_cols} aktywów: {', '.join(ef_returns.columns.tolist())}")
+
+                            if n_cols < 2:
+                                st.warning(f"⚠️ Za mało aktywów ({n_cols}). Potrzeba ≥2. Dodaj więcej tickerów w sekcji Koszyk Ryzykowny.")
+                            else:
+                                frontier_result = compute_efficient_frontier(
+                                    ef_returns,
+                                    n_portfolios=2000,
+                                    risk_free_rate=0.04,
+                                )
+                                if frontier_result.get("error"):
+                                    st.error(frontier_result["error"])
+                                else:
+                                    st.session_state["frontier_fig"] = frontier_result["fig"]
+                                    st.session_state["frontier_data"] = {
+                                        "max_sharpe": frontier_result["max_sharpe"],
+                                        "min_vol":    frontier_result["min_vol"],
+                                        "max_omega":  frontier_result["max_omega"],
+                                    }
+                    except Exception as e:
+                        st.error(f"Błąd obliczenia granicy: {e}")
+
+
+                if "frontier_fig" in st.session_state:
+                    st.plotly_chart(st.session_state["frontier_fig"], use_container_width=True)
+                    fd = st.session_state["frontier_data"]
+                    ef_c1, ef_c2, ef_c3 = st.columns(3)
+                    ef_c1.metric("⭐ Max Sharpe", f"{fd['max_sharpe']['sharpe']:.2f}",
+                                 f"Return: {fd['max_sharpe']['return']:.1%}")
+                    ef_c2.metric("🔵 Min Vol", f"{fd['min_vol']['volatility']:.1%}",
+                                 f"Return: {fd['min_vol']['return']:.1%}")
+                    ef_c3.metric("🟢 Max Omega", f"{fd['max_omega']['omega']:.2f}",
+                                 f"Return: {fd['max_omega']['return']:.1%}")
+
 
 elif module_selection == "🔍 Skaner Wypukłości (BCS)":
     st.header("🔍 Barbell Convexity Scanner (BCS)")
@@ -1112,6 +1257,128 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
     st.markdown("---")
     display_scanner_methodology()
 
+    # ─────────────────────────────────────────────────────────────────
+    # 🆕 MST CORRELATION NETWORK
+    # ─────────────────────────────────────────────────────────────────
+    if 'bcs_returns' in st.session_state and 'bcs_metrics_df' in st.session_state:
+        st.divider()
+        st.subheader("🕸️ Sieć Korelacji (MST) 🆕")
+        st.caption("Minimum Spanning Tree — Mantegna (1999). Pokazuje strukturę korelacji bez redundantnych połączeń.")
+        mst_fig = compute_correlation_network(
+            st.session_state['bcs_returns'],
+            st.session_state['bcs_metrics_df']
+        )
+        if mst_fig:
+            st.plotly_chart(mst_fig, use_container_width=True)
+            st.caption("🟢 Węzły połączone krawędziami = blisko skorelowane. Szukaj aktywów izolowanych (duża odległość w grafie) — to prawdziwa dywersyfikacja.")
+        else:
+            st.info("Zainstaluj `networkx` aby zobaczyć sieć korelacji: `pip install networkx`")
 
 
+# ─────────────────────────────────────────────────────────────────
+# ⚡ STRESS TEST TAB
+# ─────────────────────────────────────────────────────────────────
+elif module_selection == "⚡ Stress Test":
+    st.title("⚡ Stress Testing — Historyczne Kryzysy")
+    st.markdown("""
+    Testuje jak Twoja strategia Barbell zachowałaby się w 5 historycznych kryzysach.
+    Wczytuje prawdziwe dane historyczne z Yahoo Finance i porównuje z benchmarkiem (SPY/QQQ).
+    """)
 
+    st.sidebar.title("⚡ Konfiguracja Stress Testu")
+    st.sidebar.markdown("### Aktywa do Testu")
+
+    st_safe_str  = st.sidebar.text_input("Koszyk Bezpieczny", "TLT, GLD", key="st_safe")
+    st_risky_str = st.sidebar.text_input("Koszyk Ryzykowny", "SPY, QQQ, BTC-USD", key="st_risky")
+    st_safe_w    = st.sidebar.slider("Waga Bezpieczna (%)", 10, 95, 85, key="st_sw") / 100.0
+    st_capital   = st.sidebar.number_input("Kapitał Początkowy", value=100000, step=10000, key="st_cap")
+
+    crisis_options = list(CRISIS_SCENARIOS.keys())
+    selected_crises = st.multiselect(
+        "Wybierz Scenariusze Kryzysu",
+        crisis_options,
+        default=crisis_options[:3],
+        key="st_crises"
+    )
+
+    if st.button("🚀 Uruchom Stress Test", type="primary", key="st_run"):
+        st_safe_tickers  = [x.strip() for x in st_safe_str.split(",")  if x.strip()]
+        st_risky_tickers = [x.strip() for x in st_risky_str.split(",") if x.strip()]
+
+        st_results = {}
+        with st.spinner("Pobieranie danych historycznych i symulacja..."):
+            for crisis in selected_crises:
+                result = run_stress_test(
+                    safe_tickers=st_safe_tickers,
+                    risky_tickers=st_risky_tickers,
+                    safe_weight=st_safe_w,
+                    crisis_name=crisis,
+                    initial_capital=float(st_capital),
+                )
+                st_results[crisis] = result
+
+        st.session_state['stress_results'] = st_results
+
+    if 'stress_results' in st.session_state:
+        st_results = st.session_state['stress_results']
+
+        for crisis_name, result in st_results.items():
+            if result.get("error"):
+                st.error(f"{crisis_name}: {result['error']}")
+                continue
+
+            scenario = result['metrics']['scenario']
+            st.divider()
+            st.subheader(f"{crisis_name}")
+            st.caption(scenario['description'])
+
+            m = result['metrics']
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(
+                "Barbell MaxDD w Krachu",
+                f"{m['crash_portfolio_max_dd']:.1%}",
+                delta=f"{m['dd_protection']:.1%} lepsza niż benchmark",
+                delta_color="inverse"
+            )
+            c2.metric("Benchmark MaxDD", f"{m['crash_benchmark_max_dd']:.1%}")
+            c3.metric(
+                "Czas Odrabiania Strat",
+                f"{m['recovery_days']} sesji" if isinstance(m['recovery_days'], int) else str(m['recovery_days'])
+            )
+            c4.metric("Ulcer Index", f"{m['ulcer_index']:.2f}")
+
+            # Chart: Portfolio vs Benchmark during crisis
+            df_chart = result['results_df']
+            fig_st = go.Figure()
+            for col, color in zip(df_chart.columns, ['#00ff88', '#ff8800']):
+                fig_st.add_trace(go.Scatter(
+                    x=df_chart.index, y=df_chart[col],
+                    mode='lines', name=col,
+                    line=dict(color=color, width=2)
+                ))
+
+            # Mark crash end — use add_shape+add_annotation to avoid Plotly bug
+            # where add_vline(annotation_text=...) crashes on date strings
+            crash_end_dt = pd.to_datetime(scenario['end'])
+            if crash_end_dt in df_chart.index or (df_chart.index.min() < crash_end_dt < df_chart.index.max()):
+                x_str = crash_end_dt.strftime("%Y-%m-%d")
+                fig_st.add_shape(
+                    type="line",
+                    x0=x_str, x1=x_str, y0=0, y1=1,
+                    xref="x", yref="paper",
+                    line=dict(color="red", dash="dash", width=1.5),
+                )
+                fig_st.add_annotation(
+                    x=x_str, y=1, xref="x", yref="paper",
+                    text="Dno krachu", showarrow=False,
+                    yanchor="bottom", font=dict(color="red", size=11),
+                )
+
+            fig_st.update_layout(
+                title=f"{crisis_name} — Barbell vs Benchmark",
+                template="plotly_dark", height=400,
+                yaxis_title="Wartość Portfela (PLN)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(15,15,25,0.9)",
+            )
+            st.plotly_chart(fig_st, use_container_width=True)

@@ -2,6 +2,7 @@
 import numpy as np
 import pandas as pd
 from scipy.stats import t
+from scipy.stats.qmc import Sobol
 from modules.ai.observer import get_market_regimes
 from modules.ai.architect import PortfolioArchitect
 from modules.ai.optimizer import GeneticOptimizer
@@ -18,23 +19,72 @@ def simulate_barbell_strategy(
     risky_kurtosis=6.0, # Fat tails parameter (degrees of freedom for t-dist. Lower = fatter)
     alloc_safe=0.85,
     rebalance_strategy="None", # None, Yearly, Monthly, Threshold
-    threshold_percent=0.20 # For Shannon's Demon/Threshold rebalancing
+    threshold_percent=0.20, # For Shannon's Demon/Threshold rebalancing
+    use_qmc=False,  # Quasi-Monte Carlo via Sobol sequences
+    use_garch=False, # GARCH(1,1) for volatility clustering
 ):
     """
-    Original Monte Carlo Simulation (Kept for compatibility).
+    Monte Carlo Simulation supporting Quasi-MC (Sobol) and GARCH(1,1) volatility.
     """
     days_per_year = 252
     total_days = n_years * days_per_year
     dt = 1/days_per_year
     
-    df = max(2.1, risky_kurtosis) 
-    random_shocks = t.rvs(df, size=(n_simulations, total_days))
-    std_t = np.sqrt(df / (df - 2))
-    standardized_shocks = random_shocks / std_t
+    df = max(2.1, risky_kurtosis)
     
-    daily_mean = (risky_mean - 0.5 * risky_vol**2) * dt
-    daily_vol = risky_vol * np.sqrt(dt)
-    risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks) - 1
+    # ─── Random Shocks: Pseudo-random vs Quasi-MC (Sobol) ───────────────────
+    if use_qmc:
+        # Sobol sequences give O(1/N) convergence vs O(1/sqrt(N)) for pseudo-random
+        # Each simulation is 1 dimension, total_days dimensions needed.
+        # We use scrambled Sobol for uniform [0,1] then inverse CDF to get t-dist samples.
+        try:
+            # Sobol supports max 21201 dimensions; fall back to pseudo if exceeded
+            if total_days <= 21201:
+                sampler = Sobol(d=total_days, scramble=True)
+                n_sobol = int(2 ** np.ceil(np.log2(n_simulations)))  # Sobol needs power of 2
+                uniform_samples = sampler.random(n_sobol)[:n_simulations]  # shape (n_sim, total_days)
+                from scipy.stats import t as t_dist
+                std_t = np.sqrt(df / (df - 2))
+                random_shocks = t_dist.ppf(np.clip(uniform_samples, 1e-8, 1 - 1e-8), df=df)
+                standardized_shocks = random_shocks / std_t
+            else:
+                raise ValueError("Too many days for Sobol, falling back")
+        except Exception:
+            # Fallback to standard
+            random_shocks = t.rvs(df, size=(n_simulations, total_days))
+            std_t = np.sqrt(df / (df - 2))
+            standardized_shocks = random_shocks / std_t
+    else:
+        random_shocks = t.rvs(df, size=(n_simulations, total_days))
+        std_t = np.sqrt(df / (df - 2))
+        standardized_shocks = random_shocks / std_t
+    
+    # ─── GARCH(1,1) Volatility ──────────────────────────────────────────────
+    if use_garch:
+        # GARCH(1,1): sigma_t^2 = omega + alpha * eps_{t-1}^2 + beta * sigma_{t-1}^2
+        # Calibrated to long-run variance = risky_vol^2
+        alpha_g = 0.10  # Shock sensitivity
+        beta_g  = 0.85  # Persistence
+        omega_g = (risky_vol ** 2) * (1 - alpha_g - beta_g) / days_per_year  # Long-run target
+        
+        # Simulate GARCH variance process
+        var_series = np.zeros((n_simulations, total_days))
+        var_series[:, 0] = risky_vol ** 2 / days_per_year
+        
+        eps = standardized_shocks.copy()  # innovations
+        for day in range(1, total_days):
+            prev_eps = eps[:, day - 1]
+            var_series[:, day] = omega_g + alpha_g * prev_eps ** 2 + beta_g * var_series[:, day - 1]
+        
+        # Conditional volatility (daily)
+        daily_vols = np.sqrt(np.maximum(var_series, 1e-10))  # (n_sims, total_days)
+        
+        daily_mean = (risky_mean - 0.5 * risky_vol**2) * dt
+        risky_returns = np.exp(daily_mean + daily_vols * standardized_shocks) - 1
+    else:
+        daily_mean = (risky_mean - 0.5 * risky_vol**2) * dt
+        daily_vol = risky_vol * np.sqrt(dt)
+        risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks) - 1
     
     daily_safe_rate = (1 + safe_rate)**(1/days_per_year) - 1
     

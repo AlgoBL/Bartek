@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import norm
 import pandas as pd
 
 def calculate_sharpe(returns, rf=0.04, periods=252):
@@ -149,4 +150,118 @@ def calculate_trade_stats(equity_curve):
         "avg_loss": avg_loss,
         "risk_reward": risk_reward,
         "profit_factor": profit_factor
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW SCIENTIFIC METRICS (2024 upgrade)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def calculate_omega(returns, threshold=0.0):
+    """
+    Omega Ratio (Shadwick & Keating, 2002).
+    Omega = Integral of (1-F(r)) dr above threshold
+           / Integral of F(r) dr below threshold
+    Simplified as: sum of gains above threshold / sum of losses below threshold.
+    Omega > 1 means more weighted return above threshold than below.
+    Perfect for Barbell strategies with asymmetric return profiles.
+    """
+    if len(returns) == 0:
+        return 1.0
+    excess = returns - threshold
+    gains = np.sum(np.maximum(excess, 0))
+    losses = np.sum(np.maximum(-excess, 0))
+    if losses == 0:
+        return np.inf
+    return gains / losses
+
+
+def calculate_ulcer_index(prices):
+    """
+    Ulcer Index (Martin & McCann, 1989).
+    Measures the depth and duration of drawdowns — investor 'pain'.
+    UI = sqrt(mean(drawdown_pct^2))
+    Unlike Max Drawdown, UI punishes prolonged drawdowns, not just deep ones.
+    """
+    if isinstance(prices, pd.Series):
+        arr = prices.values
+    else:
+        arr = np.array(prices)
+    if len(arr) < 2:
+        return 0.0
+    peaks = np.maximum.accumulate(arr)
+    drawdown_pct = ((arr - peaks) / peaks) * 100  # as percentage
+    return np.sqrt(np.mean(drawdown_pct ** 2))
+
+
+def calculate_pain_index(prices):
+    """
+    Pain Index — average drawdown depth over the entire period.
+    Simpler than Ulcer Index but useful as companion metric.
+    """
+    if isinstance(prices, pd.Series):
+        arr = prices.values
+    else:
+        arr = np.array(prices)
+    peaks = np.maximum.accumulate(arr)
+    drawdowns = (arr - peaks) / peaks
+    return np.mean(np.abs(drawdowns))
+
+
+def calculate_drawdown_analytics(prices):
+    """
+    Full drawdown analytics suite.
+    Returns dict with:
+    - max_drawdown: deepest single drawdown
+    - avg_drawdown_depth: average depth across all drawdown periods
+    - avg_drawdown_duration: average number of days to recover
+    - ulcer_index: Martin & McCann UI
+    - pain_index: mean absolute drawdown
+    - drawdown_at_risk_95: worst 5% case drawdown (analogous to CVaR)
+    Reference: Magdon-Ismail & Atiya (2004), Chekhlov et al. (2005)
+    """
+    if isinstance(prices, pd.Series):
+        arr = prices.values
+    else:
+        arr = np.array(prices)
+
+    peaks = np.maximum.accumulate(arr)
+    drawdowns = (arr - peaks) / peaks  # non-positive values
+
+    # Max drawdown
+    max_dd = float(np.min(drawdowns))
+
+    # Ulcer Index and Pain Index
+    dd_pct = drawdowns * 100
+    ulcer = float(np.sqrt(np.mean(dd_pct ** 2)))
+    pain = float(np.mean(np.abs(drawdowns)))
+
+    # Drawdown-at-Risk 95% (worst 5% of daily drawdown values)
+    dd_at_risk_95 = float(np.percentile(drawdowns, 5))  # 5th percentile (most negative)
+
+    # Drawdown periods: duration analysis
+    in_drawdown = drawdowns < 0
+    durations = []
+    current_duration = 0
+    for is_dd in in_drawdown:
+        if is_dd:
+            current_duration += 1
+        else:
+            if current_duration > 0:
+                durations.append(current_duration)
+            current_duration = 0
+    if current_duration > 0:
+        durations.append(current_duration)
+
+    avg_duration = float(np.mean(durations)) if durations else 0.0
+    max_duration = int(np.max(durations)) if durations else 0
+
+    return {
+        "max_drawdown": max_dd,
+        "avg_drawdown_depth": float(np.mean(drawdowns[drawdowns < 0])) if np.any(drawdowns < 0) else 0.0,
+        "avg_drawdown_duration_days": avg_duration,
+        "max_drawdown_duration_days": max_duration,
+        "ulcer_index": ulcer,
+        "pain_index": pain,
+        "drawdown_at_risk_95": dd_at_risk_95,
     }

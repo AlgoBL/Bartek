@@ -118,3 +118,64 @@ class PortfolioArchitect:
             # Fallback to Equal Weight
             n = len(prices_df.columns)
             return {ticker: 1.0/n for ticker in prices_df.columns}
+
+    def allocate_cvar_risk_parity(self, prices_df: pd.DataFrame, alpha: float = 0.05) -> dict:
+        """
+        CVaR Risk Parity allocation.
+        Equalizes each asset's Conditional Value at Risk (Expected Shortfall) contribution.
+        Reference: Rockafellar & Uryasev (2000), Boudt et al. (2012).
+
+        Each asset's CVaR contribution should equal 1/n of portfolio CVaR.
+        Implemented as iterative proportional scaling (no CVXPY needed).
+        """
+        returns = prices_df.pct_change().dropna()
+        n_assets = len(returns.columns)
+        tickers = returns.columns.tolist()
+
+        if n_assets < 2:
+            return {t: 1.0 for t in tickers}
+
+        # Start from equal weights
+        weights = np.ones(n_assets) / n_assets
+
+        for iteration in range(200):
+            # Portfolio returns with current weights
+            port_returns = returns.values @ weights
+
+            # Portfolio CVaR at alpha level
+            cutoff = np.percentile(port_returns, alpha * 100)
+            tail_returns = port_returns[port_returns <= cutoff]
+            port_cvar = float(np.abs(tail_returns.mean())) if len(tail_returns) > 0 else 1e-6
+
+            # Marginal CVaR for each asset (numerical differentiation)
+            marginal_cvar = np.zeros(n_assets)
+            eps = 1e-4
+            for i in range(n_assets):
+                w_plus = weights.copy()
+                w_plus[i] += eps
+                w_plus /= w_plus.sum()
+                port_plus = returns.values @ w_plus
+                cutoff_plus = np.percentile(port_plus, alpha * 100)
+                tail_plus = port_plus[port_plus <= cutoff_plus]
+                cvar_plus = float(np.abs(tail_plus.mean())) if len(tail_plus) > 0 else 1e-6
+                marginal_cvar[i] = (cvar_plus - port_cvar) / eps
+
+            # Component CVaR = weight * marginal CVaR
+            component_cvar = weights * np.abs(marginal_cvar)
+            component_cvar = np.maximum(component_cvar, 1e-8)  # avoid zero
+
+            # Target: equal CVaR contribution
+            target_cvar = component_cvar.sum() / n_assets
+
+            # Scale weights inversely proportional to their CVaR contribution
+            new_weights = weights * (target_cvar / component_cvar)
+            new_weights = np.maximum(new_weights, 0)  # long only
+            new_weights /= new_weights.sum()
+
+            # Check convergence
+            if np.max(np.abs(new_weights - weights)) < 1e-6:
+                break
+            weights = new_weights
+
+        return {t: float(w) for t, w in zip(tickers, weights)}
+
