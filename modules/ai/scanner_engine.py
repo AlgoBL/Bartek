@@ -7,7 +7,7 @@ from scipy.stats import skew, kurtosis
 from modules.scanner import calculate_convecity_metrics, score_asset
 
 from modules.ai.oracle import TheOracle
-from modules.ai.agents import EconomistAgent, GeopoliticsAgent, ChiefInvestmentOfficerAgent
+from modules.ai.agents import LocalEconomist, LocalGeopolitics, LocalCIO
 from modules.ai.screener import FundamentalScreener
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -94,16 +94,16 @@ class ScannerEngine:
         
         if progress_callback: progress_callback(0.3, "Agenci AI: Analiza geopolityki i ekonomii...")
         
-        # 2. Agents
-        economist = EconomistAgent()
-        geo = GeopoliticsAgent()
-        cio = ChiefInvestmentOfficerAgent()
+        # 2. Agents (Local, API-Free)
+        economist = LocalEconomist()
+        geo = LocalGeopolitics()
+        cio = LocalCIO()
         
         econ_report = economist.analyze_macro(macro_snap)
         geo_report = geo.analyze_news(news)
         cio_thesis = cio.synthesize_thesis(econ_report, geo_report, horizon_years)
         
-        if progress_callback: progress_callback(0.5, "Mikro-Skaner: Filtracja 2000 globalnych aktywów...")
+        if progress_callback: progress_callback(0.5, "Mikro-Skaner: Filtracja najpłynniejszych globalnych aktywów...")
         
         # 3. Screener
         screener = FundamentalScreener(min_volume=500000)

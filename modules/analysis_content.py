@@ -70,25 +70,9 @@ def display_analysis_report():
         """)
 
 def display_scanner_methodology():
-     with st.expander("🧩 METODOLOGIA SKANERA V5 (Szczegóły Modelu & API)", expanded=True):
-        # Sekcja API
-        st.subheader("🔑 Konfiguracja Google Gemini API")
-        current_api_key = load_api_key()
-        new_api_key = st.text_input(
-            "Klucz Google Gemini API (potrzebny do AI Hedge Fund)", 
-            value=current_api_key, 
-            type="password", 
-            help="Pobierz klucz za darmo w Google AI Studio. Klucz jest potrzebny dla Agentów: Ekonomisty, Geopolityka i CIO."
-        )
-        if new_api_key != current_api_key:
-            save_api_key(new_api_key)
-            st.success("Zapisano nowy klucz API!")
-            st.rerun()
-
-        st.divider()
-
+     with st.expander("🧩 METODOLOGIA SKANERA V5.1 (API-Free Local AI)", expanded=True):
         st.markdown("""
-        ### Specyfikacja Techniczna: Autonomiczny Makro-Skaner V5.0
+        ### Specyfikacja Techniczna: Autonomiczny Makro-Skaner V5.1 (API-Free)
 
         #### 1. Cel Systemu
         Całkowicie bezobsługowe narzędzie, działające jak pełnoprawny **AI Hedge Fund**. System samodzielnie analizuje ustrukturyzowane dane makroekonomiczne i nieustrukturyzowane wiadomości ze świata, po czym przesiewa globalne rynki filtrem fundamentalnym (Screener). Na samym końcu kwalifikuje wybrane instrumenty ekstremalną matematyką poszukującej Wypukłości.
@@ -102,11 +86,11 @@ def display_scanner_methodology():
 
         ---
 
-        #### 3. Warstwa 2: AI Makro-Stratedzy (Multi-Agent System LLM)
-        "Mózg" operacji oparty na Dużym Modelu Językowym (Gemini 2.5 Flash), podzielony na 3 konkurujące byty:
-        *   **Agent Ekonomista**: Osadza twarde wskaźniki (VIX, DXY, Złoto, Ropa, U.S. Yields) w cyklu koniunkturalnym (Reflacja / Stagflacja / Dezinflacja).
-        *   **Agent Geopolityk**: Skanuje nagłówki w poszukiwaniu rzadkich czarnych łabędzi (Black Swans) i geopolitycznych szoków podażowych.
-        *   **Chief Investment Officer (CIO)**: Bada raporty dwójki podwładnych i generuje dla Ciebie ostateczną Tezę Inwestycyjną - plan, który pozycjonuje Twój kapitał tak, by wykorzystać luki opisane przez Ekonomistę i ustrzec przed zagrożeniami Geopolityka.
+        #### 3. Warstwa 2: Lokalni Makro-Stratedzy (NLP & Heuristics)
+        "Mózg" operacji działający całkowicie lokalnie i darmowo w środowisku Python bez konieczności odpytywania zewnętrznych serwerów LLM:
+        *   **Lokalny Ekonomista**: Osadza twarde wskaźniki (VIX, DXY, U.S. Yields) w cyklu koniunkturalnym (np. Detekcja Inwersji Krzywej na bazie sztywnych reguł Heurystycznych). 
+        *   **Lokalny Geopolityk**: Skanuje nagłówki w poszukiwaniu rzadkich czarnych łabędzi metodą leksykalną NLP (VADER Sentiment Analysis), błyskawicznie kwantyfikując strach jako wartość liczbową od -1 do 1.
+        *   **Lokalny Chief Investment Officer (CIO)**: Bada wyniki kwantyfikacji dwójki podwładnych (wyniki matematyczne) i dobiera wprost konkretne pod-koszyki aktywów z S&P500 i ETF.
 
         ---
 
@@ -121,5 +105,5 @@ def display_scanner_methodology():
         *   **Estymator Hilla (Tail Index)**: Finałowa kwalifikacja przechodzi przez sita Power Law (rozkłady potęgowe, np. $\\alpha < 3.0$) preferujące rynki podlegające asymetrycznym wystrzałom kapitału pośród rynkowej nudy.
         *   **Maksymalizacja Wypukłości (Skewness/Kurtosis)**: Odrzucenie klasycznego ryzyka-korelacji na rzecz poszukiwań lewego ogona (straty znane) oraz grubego prawego ogona (zyski nieograniczone).
 
-        > **Wniosek**: Architektura V5 nie pozostawia żadnej przestrzeni na ludzkie emocje. Rozszerza matematyczną potęgę "Sztangi" Taleba o logiczną, chłodną maszynę inwestycyjną (End-to-End).
+        > **Wniosek**: Architektura V5.1 nie pozostawia żadnej przestrzeni na ludzkie emocje (ani wycieki danych LLM). Rozszerza matematyczną potęgę "Sztangi" Taleba o logiczną, chłodną maszynę inwestycyjną (End-to-End).
         """)

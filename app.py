@@ -1102,23 +1102,40 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         except Exception as e:
              status_scan.error(f"Krytyczny błąd w Silniku V5: {e}")
              
-    # Renderowanie Wyników V5
+    # Renderowanie Wyników V5 (API-Free)
     if 'v5_scanner_results' in st.session_state:
         res = st.session_state['v5_scanner_results']
         
         st.divider()
-        st.subheader("🤖 Teza Makroekonomiczna Komitetu AI")
+        st.subheader("🎛️ Zegary Instrumentalne: Sentyment i Makro")
         
-        tab_cio, tab_econ, tab_geo = st.tabs(["🤵 Raport Główny CIO", "📊 Raport Ekonomisty", "🌍 Raport Geopolityka"])
+        econ = res['econ_report']
+        geo = res['geo_report']
+        cio = res['cio_thesis']
         
-        with tab_cio:
-             st.markdown(res['cio_thesis'])
-        with tab_econ:
-             st.markdown(res['econ_report'])
-        with tab_geo:
-             st.markdown(res['geo_report'])
-             
-        st.caption(f"Mikro-Skaner przeanalizował {res['scanned_universe_size']} płynnych aktywów. Wysłano do EVT.")
+        col_c1, col_c2, col_c3 = st.columns(3)
+        
+        with col_c1:
+            st.markdown(f"**📊 Ekonomista (Twarde Dane)**")
+            st.metric("Stan Oceny Makro", econ['phase'])
+            st.caption(f"Punkty Ryzyka Recesji: {econ['score']} / 8")
+            with st.expander("Detale"):
+                 for d in econ['details']: st.write(f"- {d}")
+        
+        with col_c2:
+            st.markdown(f"**🌍 Geopolityk (NLP VADER)**")
+            st.metric("Sentyment Prasy", geo['label'])
+            st.caption(f"Wynik Emocjonalny (Compound): {geo['compound_sentiment']} | Analiza: {geo['analyzed_articles']} nagłówków")
+        
+        with col_c3:
+            st.markdown(f"**🤵 Chief Investment Officer**")
+            st.metric("Tryb Alokacji", cio['mode'])
+            st.caption(f"Risk Meter: {cio['gauge_risk_percent']}% Defensywy")
+            
+        st.info(f"**Teza Inwestycyjna CIO**: {cio['description']}")
+        st.success(f"**Cele Skanera**: {', '.join(cio['target_asset_classes'])}")
+            
+        st.caption(f"Mikro-Skaner przeanalizował aktywa i wysłał najpłynniejszych kandydatów do EVT.")
              
         df_metrics = res['metrics_df']
         selected_tickers = res['top_picks']
