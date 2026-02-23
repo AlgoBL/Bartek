@@ -64,10 +64,10 @@ if "custom_stress_scenarios" not in st.session_state:
     st.session_state["custom_stress_scenarios"] = {}
 
 # 3. Main Navigation
-module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator Portfela", "🔍 Skaner Wypukłości (BCS)", "⚡ Stress Test", "🏖️ Emerytura"], horizontal=True, label_visibility="collapsed", key="module_nav")
+module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator (Sztanga)", "🔍 AI Makro-Skaner V5", "⚡ Stress Test", "🏖️ Emerytura"], horizontal=True, label_visibility="collapsed", key="module_nav")
 st.markdown("---")
 
-if module_selection == "📉 Symulator Portfela":
+if module_selection == "📉 Symulator (Sztanga)":
     st.sidebar.title("🛠️ Konfiguracja Strategii")
     
     mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest AI)"], index=["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest AI)"].index(_saved("sim_mode", "Monte Carlo (Teoretyczny)")), key="sim_mode", on_change=_save, args=("sim_mode",))
@@ -1061,7 +1061,7 @@ if module_selection == "📉 Symulator Portfela":
                                  f"Return: {fd['max_omega']['return']:.1%}")
 
 
-elif module_selection == "🔍 Skaner Wypukłości (BCS)":
+elif module_selection == "🔍 AI Makro-Skaner V5":
     st.header("🌍 The Oracle: Autonomiczny AI Hedge Fund (Skaner V5.0)")
     st.markdown("""
     **Architektura V5**: Zamiast ręcznie wybierać aktywa, wystarczy że podasz Horyzont Czasowy.
@@ -1259,7 +1259,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
                 st.session_state['transfer_data'] = pd.DataFrame(transfer_data)
                 
                 # Switch Tabs/Mode
-                st.session_state["force_navigate"] = "📉 Symulator Portfela"
+                st.session_state["force_navigate"] = "📉 Symulator (Sztanga)"
                 st.session_state["sim_mode"] = "Intelligent Barbell (Backtest AI)"
                 st.session_state["ai_risky_mode"] = "Manualne Wagi"
                 
