@@ -42,8 +42,13 @@ def compute_efficient_frontier(
     if n_assets < 2:
         return {"error": "Potrzeba co najmniej 2 aktywów do obliczeń granicy efektywnej."}
 
-    mean_returns = returns_df.mean() * 252  # annualized
-    cov_matrix = returns_df.cov() * 252     # annualized
+    # Apply 19% Belka Tax to positive returns for realistic net expectations
+    returns_taxed = returns_df.copy()
+    returns_taxed.mask(returns_taxed > 0, returns_taxed * 0.81, inplace=True)
+    
+    mean_returns = returns_taxed.mean() * 252
+    cov_matrix = returns_taxed.cov() * 252
+    rf_taxed = risk_free_rate * 0.81
 
     results = {
         "Return": [],
@@ -61,11 +66,11 @@ def compute_efficient_frontier(
 
         port_return = np.dot(weights, mean_returns)
         port_vol = np.sqrt(weights @ cov_matrix.values @ weights)
-        sharpe = (port_return - risk_free_rate) / port_vol if port_vol > 0 else 0
+        sharpe = (port_return - rf_taxed) / port_vol if port_vol > 0 else 0
 
-        # Omega from daily returns
-        port_daily_returns = returns_df.values @ weights
-        omega = calculate_omega(port_daily_returns, threshold=0.0)
+        # Omega from taxed daily returns
+        port_daily_returns_taxed = returns_taxed.values @ weights
+        omega = calculate_omega(port_daily_returns_taxed, threshold=0.0)
         omega = min(omega, 10.0)  # cap for visualization
 
         results["Return"].append(port_return)
@@ -152,9 +157,9 @@ def compute_efficient_frontier(
         w_arr = w_arr / w_arr.sum() if w_arr.sum() > 0 else w_arr
         bb_ret = float(np.dot(w_arr, mean_returns))
         bb_vol = float(np.sqrt(w_arr @ cov_matrix.values @ w_arr))
-        bb_sharpe = (bb_ret - risk_free_rate) / bb_vol if bb_vol > 0 else 0
-        bb_daily = returns_df.values @ w_arr
-        bb_omega = float(min(calculate_omega(bb_daily), 10.0))
+        bb_sharpe = (bb_ret - rf_taxed) / bb_vol if bb_vol > 0 else 0
+        bb_daily_taxed = returns_taxed.values @ w_arr
+        bb_omega = float(min(calculate_omega(bb_daily_taxed), 10.0))
 
         fig.add_trace(go.Scatter(
             x=[bb_vol * 100],
@@ -185,7 +190,10 @@ def compute_efficient_frontier(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(15,15,25,0.9)",
         font=dict(family="Inter", color="white"),
+        hovermode="closest"
     )
+    fig.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+    fig.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
 
     return {
         "fig": fig,

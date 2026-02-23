@@ -245,5 +245,7 @@ def compute_correlation_network(returns_df: pd.DataFrame, metrics_df: pd.DataFra
         font=dict(family="Inter", color="white"),
         margin=dict(l=20, r=20, t=50, b=20),
     )
+    fig.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+    fig.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
     return fig
 

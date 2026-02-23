@@ -2,7 +2,7 @@ import numpy as np
 from scipy.stats import norm
 import pandas as pd
 
-def calculate_sharpe(returns, rf=0.04, periods=252):
+def calculate_sharpe(returns, rf=0.0324, periods=252):
     """
     Calculates Sharpe Ratio: (Mean Return - Risk Free) / Volatility
     """
@@ -20,7 +20,7 @@ def calculate_sharpe(returns, rf=0.04, periods=252):
     
     return (mean_excess / std_excess) * np.sqrt(periods)
 
-def calculate_sortino(returns, rf=0.04, periods=252, target_return=0.0):
+def calculate_sortino(returns, rf=0.0324, periods=252, target_return=0.0):
     """
     Calculates Sortino Ratio: (Mean Return - Risk Free) / Downside Deviation
     """

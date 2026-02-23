@@ -8,7 +8,7 @@ from modules.styling import apply_styling
 from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
 from modules.metrics import (
     calculate_trade_stats, calculate_omega, calculate_ulcer_index,
-    calculate_pain_index, calculate_drawdown_analytics
+    calculate_pain_index, calculate_drawdown_analytics, calculate_max_drawdown
 )
 from modules.ai.data_loader import load_data
 from modules.analysis_content import display_analysis_report, display_scanner_methodology, display_chart_guide
@@ -34,9 +34,34 @@ st.set_page_config(
 # 2. Apply Custom Styling
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
+# ---------------------------------------------------------------------------
+# Persystencja ustawień między modułami
+# Streamlit USUWA klucze widżetów z session_state gdy widżet nie jest renderowany.
+# Rozwiązanie: on_change zapisuje do "_s.<key>", a value= czyta z tego klucza.
+# ---------------------------------------------------------------------------
+def _save(wk):
+    """Callback on_change: kopiuje wartość widżetu do trwałego klucza."""
+    st.session_state[f"_s.{wk}"] = st.session_state[wk]
+
+def _saved(wk, default):
+    """Zwraca ostatnio zapisaną wartość lub domyślną."""
+    return st.session_state.get(f"_s.{wk}", default)
+
+# Klucze pomocnicze (nie-widżetowe) dla modułu Emerytura
+if "rem_initial_capital" not in st.session_state:
+    st.session_state["rem_initial_capital"] = 1000000.0
+if "rem_expected_return" not in st.session_state:
+    st.session_state["rem_expected_return"] = 0.07
+if "rem_volatility" not in st.session_state:
+    st.session_state["rem_volatility"] = 0.15
+
+
 # Navigation State Handler
 if "force_navigate" in st.session_state:
     st.session_state["module_nav"] = st.session_state.pop("force_navigate")
+
+if "custom_stress_scenarios" not in st.session_state:
+    st.session_state["custom_stress_scenarios"] = {}
 
 # 3. Main Navigation
 module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator Portfela", "🔍 Skaner Wypukłości (BCS)", "⚡ Stress Test", "🏖️ Emerytura"], horizontal=True, label_visibility="collapsed", key="module_nav")
@@ -45,12 +70,12 @@ st.markdown("---")
 if module_selection == "📉 Symulator Portfela":
     st.sidebar.title("🛠️ Konfiguracja Strategii")
     
-    mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest AI)"], key="sim_mode")
+    mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest AI)"], index=["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest AI)"].index(_saved("sim_mode", "Monte Carlo (Teoretyczny)")), key="sim_mode", on_change=_save, args=("sim_mode",))
 
     if mode == "Monte Carlo (Teoretyczny)":
         st.sidebar.markdown("### 1. Kapitał i Czas")
-        initial_capital = st.sidebar.number_input("Kapitał Początkowy (PLN)", value=100000, step=10000, key="mc_cap")
-        years = st.sidebar.slider("Horyzont Inwestycyjny (Lata)", 1, 30, 10, key="mc_years")
+        initial_capital = st.sidebar.number_input("Kapitał Początkowy (PLN)", value=_saved("mc_cap", 100000), step=10000, key="mc_cap", on_change=_save, args=("mc_cap",))
+        years = st.sidebar.slider("Horyzont Inwestycyjny (Lata)", 1, 30, value=_saved("mc_years", 10), key="mc_years", on_change=_save, args=("mc_years",))
 
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 2. Część Bezpieczna (Safe Sleeve)")
@@ -59,20 +84,20 @@ if module_selection == "📉 Symulator Portfela":
 
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 3. Część Ryzykowna (Risky Sleeve)")
-        risky_mean = st.sidebar.slider("Oczekiwany Zwrot Roczny (Średnia)", -0.20, 0.50, 0.08, 0.01)
-        risky_vol = st.sidebar.slider("Zmienność Roczna (Volatility)", 0.10, 1.50, 0.50, 0.05)
-        risky_kurtosis = st.sidebar.slider("Grubość Ogonów (Kurtosis)", 2.1, 30.0, 4.0, 0.1)
+        risky_mean = st.sidebar.slider("Oczekiwany Zwrot Roczny (Średnia)", -0.20, 0.50, value=_saved("mc_risky_mean", 0.08), step=0.01, key="mc_risky_mean", on_change=_save, args=("mc_risky_mean",))
+        risky_vol = st.sidebar.slider("Zmienność Roczna (Volatility)", 0.10, 1.50, value=_saved("mc_risky_vol", 0.50), step=0.05, key="mc_risky_vol", on_change=_save, args=("mc_risky_vol",))
+        risky_kurtosis = st.sidebar.slider("Grubość Ogonów (Kurtosis)", 2.1, 30.0, value=_saved("mc_risky_kurtosis", 4.0), step=0.1, key="mc_risky_kurtosis", on_change=_save, args=("mc_risky_kurtosis",))
 
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 4. Optymalizacja Kelly'ego")
-        use_kelly = st.sidebar.checkbox("Użyj Kryterium Kelly'ego", key="mc_kelly")
+        use_kelly = st.sidebar.checkbox("Użyj Kryterium Kelly'ego", value=_saved("mc_kelly", False), key="mc_kelly", on_change=_save, args=("mc_kelly",))
         
         kelly_fraction = 1.0
         kelly_shrinkage = 0.0
         
         if use_kelly:
-            kelly_fraction = st.sidebar.slider("Ułamek Kelly'ego (Fraction)", 0.1, 1.0, 0.25, 0.05)
-            kelly_shrinkage = st.sidebar.slider("Czynnik Kurczenia (Shrinkage)", 0.0, 0.9, 0.1, 0.05)
+            kelly_fraction = st.sidebar.slider("Ułamek Kelly'ego (Fraction)", 0.1, 1.0, value=_saved("mc_kelly_frac", 0.25), step=0.05, key="mc_kelly_frac", on_change=_save, args=("mc_kelly_frac",))
+            kelly_shrinkage = st.sidebar.slider("Czynnik Kurczenia (Shrinkage)", 0.0, 0.9, value=_saved("mc_kelly_shrink", 0.1), step=0.05, key="mc_kelly_shrink", on_change=_save, args=("mc_kelly_shrink",))
             
             if risky_vol > 0:
                 kelly_full = (risky_mean - safe_rate) / (risky_vol ** 2)
@@ -86,28 +111,33 @@ if module_selection == "📉 Symulator Portfela":
             alloc_safe = 1.0 - kelly_optimal
         else:
             st.sidebar.markdown("### 5. Alokacja Manualna")
-            alloc_safe = st.sidebar.slider("Alokacja w Część Bezpieczną (%)", 0, 100, 85, key="mc_alloc_safe") / 100.0
+            alloc_safe = st.sidebar.slider("Alokacja w Część Bezpieczną (%)", 0, 100, value=_saved("mc_alloc_safe", 85), key="mc_alloc_safe", on_change=_save, args=("mc_alloc_safe",)) / 100.0
 
+        _mc_rebal_opts = ["None (Buy & Hold)", "Yearly", "Monthly", "Threshold (Shannon's Demon)"]
         rebalance_strategy = st.sidebar.selectbox(
             "Strategia Rebalansowania",
-            ["None (Buy & Hold)", "Yearly", "Monthly", "Threshold (Shannon's Demon)"],
-            key="mc_rebalance"
+            _mc_rebal_opts,
+            index=_mc_rebal_opts.index(_saved("mc_rebalance", "None (Buy & Hold)")),
+            key="mc_rebalance",
+            on_change=_save, args=("mc_rebalance",)
         )
         
         threshold_percent = 0.0
         if rebalance_strategy == "Threshold (Shannon's Demon)":
-            threshold_percent = st.sidebar.slider("Próg Rebalansowania (%)", 5, 50, 20, 5, key="mc_threshold") / 100.0
+            threshold_percent = st.sidebar.slider("Próg Rebalansowania (%)", 5, 50, value=_saved("mc_threshold", 20), step=5, key="mc_threshold", on_change=_save, args=("mc_threshold",)) / 100.0
 
         st.sidebar.markdown("---")
         st.sidebar.markdown("### ⚙️ Zaawansowane (Naukowe)")
         use_qmc = st.sidebar.checkbox(
             "Użyj Quasi-Monte Carlo (Sobol)",
-            value=False, key="mc_use_qmc",
+            value=_saved("mc_use_qmc", False), key="mc_use_qmc",
+            on_change=_save, args=("mc_use_qmc",),
             help="Sekwencje Sobola dają 10x szybszą zbieżność niż losowanie pseudolosowe. Joe & Kuo (2010)."
         )
         use_garch = st.sidebar.checkbox(
             "Symuluj GARCH(1,1) Zmienność",
-            value=False, key="mc_use_garch",
+            value=_saved("mc_use_garch", False), key="mc_use_garch",
+            on_change=_save, args=("mc_use_garch",),
             help="Modeluje klastrowanie zmienności (volatility clustering). Bollerslev (1986). Wolniejsze, ale bardziej realistyczne."
         )
 
@@ -174,7 +204,9 @@ if module_selection == "📉 Symulator Portfela":
             fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[2], mode='lines', line=dict(width=0), showlegend=False))
             fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[0], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0, 255, 136, 0.2)', name='95% CI'))
             fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[1], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'))
-            fig_paths.update_layout(title="Projekcja Bogactwa", template="plotly_dark", height=500)
+            fig_paths.update_layout(title="Projekcja Bogactwa", template="plotly_dark", height=500, hovermode="x unified")
+            fig_paths.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+            fig_paths.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
             st.plotly_chart(fig_paths, use_container_width=True)
             
             display_chart_guide("Projekcja Bogactwa (Fan Chart)", """
@@ -220,6 +252,30 @@ if module_selection == "📉 Symulator Portfela":
             *   **VaR 95%**: "Value at Risk". Kwota, której NIE stracisz z 95% pewnością. (Ale z 5% pewnością stracisz więcej!).
             *   **CVaR 95%**: "Expected Shortfall". Jeśli już nastąpi te 5% najgorszych dni (krach), tyle średnio stracisz. To jest prawdziwy wymiar ryzyka ogona.
             """)
+            
+            # --- TRANSFER BUTTON (MC) ---
+            if st.button("⚡ Przenieś 'Worst Case' do Stress Testów", key="mc_to_stress"):
+                # Find the 5th percentile path (the one representing VaR 95%)
+                final_wealths = wealth_paths[:, -1]
+                # Index of the path closest to the 5% percentile
+                target_val = np.percentile(final_wealths, 5)
+                idx_worst = np.abs(final_wealths - target_val).argmin()
+                worst_path = wealth_paths[idx_worst]
+                
+                # Create DataFrame with fake dates for Stress Test
+                dates = pd.date_range(start=pd.Timestamp.now(), periods=len(worst_path), freq='D')
+                df_custom = pd.DataFrame({
+                    "Portfolio (Barbell)": worst_path,
+                    "Benchmark": np.full(len(worst_path), initial_capital) # Mock benchmark for MC
+                }, index=dates)
+                
+                st.session_state["custom_stress_scenarios"]["🔥 MC: Worst Case (5%)"] = {
+                    "df": df_custom,
+                    "initial_capital": initial_capital,
+                    "description": f"Symulowany najgorszy scenariusz (5. percentyl) z Monte Carlo ({years} lat)."
+                }
+                st.session_state["force_navigate"] = "⚡ Stress Test"
+                st.rerun()
             
             # --- New Visualization Section ---
             st.divider()
@@ -364,28 +420,30 @@ if module_selection == "📉 Symulator Portfela":
 
     elif mode == "Intelligent Barbell (Backtest AI)":
         st.sidebar.markdown("### 1. Konfiguracja Podstawowa")
-        initial_capital = st.sidebar.number_input("Kapitał Początkowy (USD)", value=100000, step=10000, key="ai_cap")
-        start_date = st.sidebar.date_input("Data Początkowa", value=pd.to_datetime("2020-01-01"), key="ai_start")
+        initial_capital = st.sidebar.number_input("Kapitał Początkowy (USD)", value=_saved("ai_cap", 100000), step=10000, key="ai_cap", on_change=_save, args=("ai_cap",))
+        start_date = st.sidebar.date_input("Data Początkowa", value=_saved("ai_start", pd.to_datetime("2020-01-01")), key="ai_start", on_change=_save, args=("ai_start",))
     
         st.sidebar.markdown("### 2. Aktywa")
         
         # Safe Asset Selection
-        safe_type = st.sidebar.radio("Rodzaj Bezpiecznego Aktywa", ["Tickers (Yahoo)", "Holistyczne Obligacje Skarbowe (TOS 5.51%)"], key="ai_safe_type")
+        _ai_safe_opts = ["Tickers (Yahoo)", "Holistyczne Obligacje Skarbowe (TOS 5.51%)"]
+        safe_type = st.sidebar.radio("Rodzaj Bezpiecznego Aktywa", _ai_safe_opts, index=_ai_safe_opts.index(_saved("ai_safe_type", "Holistyczne Obligacje Skarbowe (TOS 5.51%)")), key="ai_safe_type", on_change=_save, args=("ai_safe_type",))
         safe_tickers_str = ""
         safe_fixed_rate = 0.0551
         
         if safe_type == "Tickers (Yahoo)":
-            safe_tickers_str = st.sidebar.text_area("Koszyk Bezpieczny (Safe)", "TLT, IEF, GLD", help="Obligacje, Złoto", key="ai_safe_tickers")
+            safe_tickers_str = st.sidebar.text_area("Koszyk Bezpieczny (Safe)", value=_saved("ai_safe_tickers", "TLT, IEF, GLD"), help="Obligacje, Złoto", key="ai_safe_tickers", on_change=_save, args=("ai_safe_tickers",))
         else:
             st.sidebar.info("Generowanie syntetycznego aktywa o stałym wzroście 5.51% rocznie.")
-            safe_fixed_rate = st.sidebar.number_input("Oprocentowanie Obligacji (%)", value=5.51, step=0.1, key="ai_safe_rate") / 100.0
+            safe_fixed_rate = st.sidebar.number_input("Oprocentowanie Obligacji (%)", value=_saved("ai_safe_rate", 5.51), step=0.1, key="ai_safe_rate", on_change=_save, args=("ai_safe_rate",)) / 100.0
     
-        risky_asset_mode = st.sidebar.radio("Tryb Wyboru Aktywów Ryzykownych", ["Lista (Auto Wagi)", "Manualne Wagi"], key="ai_risky_mode")
+        _ai_risky_opts = ["Lista (Auto Wagi)", "Manualne Wagi"]
+        risky_asset_mode = st.sidebar.radio("Tryb Wyboru Aktywów Ryzykownych", _ai_risky_opts, index=_ai_risky_opts.index(_saved("ai_risky_mode", "Lista (Auto Wagi)")), key="ai_risky_mode", on_change=_save, args=("ai_risky_mode",))
         risky_tickers_str = "SPY, QQQ, NVDA, BTC-USD" # Default for logic
         risky_weights_manual = None
         
         if risky_asset_mode == "Lista (Auto Wagi)":
-             risky_tickers_str = st.sidebar.text_area("Koszyk Ryzykowny (Risky)", "SPY, QQQ, NVDA, BTC-USD", help="Akcje, Krypto", key="ai_risky_tickers")
+             risky_tickers_str = st.sidebar.text_area("Koszyk Ryzykowny (Risky)", value=_saved("ai_risky_tickers", "SPY, QQQ, NVDA, BTC-USD"), help="Akcje, Krypto", key="ai_risky_tickers", on_change=_save, args=("ai_risky_tickers",))
              # Logic uses this string later
         else:
             st.sidebar.markdown("**Manualne Wagi Aktywów**")
@@ -426,31 +484,34 @@ if module_selection == "📉 Symulator Portfela":
             risky_tickers_str = ", ".join(valid_tickers) # Mock string to reuse existing download logic
         
         st.sidebar.markdown("### 3. Strategia Alokacji")
-        allocation_mode = st.sidebar.selectbox("Tryb Alokacji", ["AI Dynamic (Regime + RL)", "Manual Fixed", "Rolling Kelly"], key="ai_alloc_mode")
+        _ai_alloc_opts = ["AI Dynamic (Regime + RL)", "Manual Fixed", "Rolling Kelly"]
+        allocation_mode = st.sidebar.selectbox("Tryb Alokacji", _ai_alloc_opts, index=_ai_alloc_opts.index(_saved("ai_alloc_mode", "AI Dynamic (Regime + RL)")), key="ai_alloc_mode", on_change=_save, args=("ai_alloc_mode",))
         
         alloc_safe_fixed = 0.85
         kelly_params = {}
         
         if allocation_mode == "Manual Fixed":
-            alloc_safe_fixed = st.sidebar.slider("Alokacja w Część Bezpieczną (%)", 0, 100, 85, key="ai_alloc_safe_slider") / 100.0
+            alloc_safe_fixed = st.sidebar.slider("Alokacja w Część Bezpieczną (%)", 0, 100, value=_saved("ai_alloc_safe_slider", 85), key="ai_alloc_safe_slider", on_change=_save, args=("ai_alloc_safe_slider",)) / 100.0
             
         elif allocation_mode == "Rolling Kelly":
-            kelly_fraction = st.sidebar.slider("Ułamek Kelly'ego (Fraction)", 0.1, 1.5, 0.5, 0.1, key="ai_kelly_frac")
-            kelly_shrinkage = st.sidebar.slider("Czynnik Kurczenia (Shrinkage)", 0.0, 0.9, 0.1, 0.1, key="ai_kelly_shrink")
-            kelly_window = st.sidebar.slider("Okno Analizy (dni)", 30, 500, 252, 10, key="ai_kelly_win")
+            kelly_fraction = st.sidebar.slider("Ułamek Kelly'ego (Fraction)", 0.1, 1.5, value=_saved("ai_kelly_frac", 0.5), step=0.1, key="ai_kelly_frac", on_change=_save, args=("ai_kelly_frac",))
+            kelly_shrinkage = st.sidebar.slider("Czynnik Kurczenia (Shrinkage)", 0.0, 0.9, value=_saved("ai_kelly_shrink", 0.1), step=0.1, key="ai_kelly_shrink", on_change=_save, args=("ai_kelly_shrink",))
+            kelly_window = st.sidebar.slider("Okno Analizy (dni)", 30, 500, value=_saved("ai_kelly_win", 252), step=10, key="ai_kelly_win", on_change=_save, args=("ai_kelly_win",))
             kelly_params = {"fraction": kelly_fraction, "shrinkage": kelly_shrinkage, "window": kelly_window}
     
         st.sidebar.markdown("### 4. Zarządzanie")
+        _ai_rebal_opts = ["None (Buy & Hold)", "Yearly", "Monthly", "Threshold (Shannon's Demon)"]
         rebalance_strategy = st.sidebar.selectbox(
             "Strategia Rebalansowania",
-            ["None (Buy & Hold)", "Yearly", "Monthly", "Threshold (Shannon's Demon)"],
-            index=2, # Default Monthly
-            key="ai_rebal"
+            _ai_rebal_opts,
+            index=_ai_rebal_opts.index(_saved("ai_rebal", "Monthly")),
+            key="ai_rebal",
+            on_change=_save, args=("ai_rebal",)
         )
         
         threshold_percent = 0.0
         if rebalance_strategy == "Threshold (Shannon's Demon)":
-            threshold_percent = st.sidebar.slider("Próg Rebalansowania (%)", 5, 50, 20, 5, key="ai_thresh") / 100.0
+            threshold_percent = st.sidebar.slider("Próg Rebalansowania (%)", 5, 50, value=_saved("ai_thresh", 20), step=5, key="ai_thresh", on_change=_save, args=("ai_thresh",)) / 100.0
             
     
         
@@ -599,6 +660,22 @@ if module_selection == "📉 Symulator Portfela":
                 st.metric("Sortino Ratio", f"{possible_sortino:.2f}")
                 st.metric("Risk/Reward", f"{trade_stats.get('risk_reward', 0):.2f}")
                 
+            # --- TRANSFER BUTTON (AI) ---
+            if st.button("⚡ Przenieś Backtest AI do Stress Testów", key="ai_to_stress"):
+                df_results = res['results']
+                df_custom = pd.DataFrame({
+                    "Portfolio (Barbell)": df_results["PortfolioValue"],
+                    "Benchmark": df_results.get("Benchmark", df_results["PortfolioValue"])
+                }, index=df_results.index)
+                
+                st.session_state["custom_stress_scenarios"]["🧠 AI: Backtest Strategy"] = {
+                    "df": df_custom,
+                    "initial_capital": initial_capital,
+                    "description": f"Pełna historia portfela wypracowana przez AI od {df_custom.index.min().date()}."
+                }
+                st.session_state["force_navigate"] = "⚡ Stress Test"
+                st.rerun()
+
             st.divider()
 
             # --- 2. CHARTS SECTION (Bottom) ---
@@ -613,7 +690,9 @@ if module_selection == "📉 Symulator Portfela":
             risky_series = res.get('risky_mean', pd.Series())
             regimes_arr = res.get('regimes', [])
 
-            fig.update_layout(title="Wzrost Wartości Portfela", template="plotly_dark", height=500)
+            fig.update_layout(title="Wzrost Wartości Portfela", template="plotly_dark", height=500, hovermode="x unified")
+            fig.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+            fig.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
             st.plotly_chart(fig, use_container_width=True, key="chart_equity_main")
             
             display_chart_guide("Wykres Kapitału", """
@@ -642,8 +721,11 @@ if module_selection == "📉 Symulator Portfela":
                 yaxis_title='Obsunięcie (%)',
                 template="plotly_dark",
                 height=300,
-                yaxis=dict(tickformat=".1%")
+                yaxis=dict(tickformat=".1%"),
+                hovermode="x unified"
             )
+            fig_underwater.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+            fig_underwater.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
             st.plotly_chart(fig_underwater, use_container_width=True, key="chart_underwater_plot")
             
             display_chart_guide("Underwater Plot", """
@@ -697,7 +779,9 @@ if module_selection == "📉 Symulator Portfela":
                 ))
 
             
-            fig_regime.update_layout(title="Reżimy Rynkowe (HMM) na tle rynku", template="plotly_dark", height=400)
+            fig_regime.update_layout(title="Reżimy Rynkowe (HMM) na tle rynku", template="plotly_dark", height=400, hovermode="closest")
+            fig_regime.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+            fig_regime.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
             st.plotly_chart(fig_regime, use_container_width=True, key="chart_regime_dots")
             
             display_chart_guide("Detekcja Reżimów (HMM)", """
@@ -1295,9 +1379,11 @@ elif module_selection == "⚡ Stress Test":
     st_capital   = st.sidebar.number_input("Kapitał Początkowy", value=100000, step=10000, key="st_cap")
 
     crisis_options = list(CRISIS_SCENARIOS.keys())
+    custom_options = list(st.session_state["custom_stress_scenarios"].keys())
+    
     selected_crises = st.multiselect(
         "Wybierz Scenariusze Kryzysu",
-        crisis_options,
+        crisis_options + custom_options,
         default=crisis_options[:3],
         key="st_crises"
     )
@@ -1308,15 +1394,45 @@ elif module_selection == "⚡ Stress Test":
 
         st_results = {}
         with st.spinner("Pobieranie danych historycznych i symulacja..."):
+            # 1. Historical Scenarios
             for crisis in selected_crises:
-                result = run_stress_test(
-                    safe_tickers=st_safe_tickers,
-                    risky_tickers=st_risky_tickers,
-                    safe_weight=st_safe_w,
-                    crisis_name=crisis,
-                    initial_capital=float(st_capital),
-                )
-                st_results[crisis] = result
+                if crisis in CRISIS_SCENARIOS:
+                    result = run_stress_test(
+                        safe_tickers=st_safe_tickers,
+                        risky_tickers=st_risky_tickers,
+                        safe_weight=st_safe_w,
+                        crisis_name=crisis,
+                        initial_capital=float(st_capital),
+                    )
+                    st_results[crisis] = result
+                elif crisis in st.session_state["custom_stress_scenarios"]:
+                    # 2. Custom Scenarios from Simulator
+                    custom_data = st.session_state["custom_stress_scenarios"][crisis]
+                    # We need to scale to current capital if different
+                    scale = float(st_capital) / custom_data["initial_capital"]
+                    df_scaled = custom_data["df"].copy()
+                    df_scaled["Portfolio (Barbell)"] *= scale
+                    df_scaled["Benchmark"] *= scale
+                    
+                    # Calculate basic metrics for the custom scenario
+                    # (This is a simplification, we could use calculate_metrics for more depth)
+                    port_vals = df_scaled["Portfolio (Barbell)"].values
+                    bench_vals = df_scaled["Benchmark"].values
+                    port_dd = calculate_drawdown_analytics(port_vals)
+                    bench_dd = calculate_max_drawdown(bench_vals)
+                    
+                    st_results[crisis] = {
+                        "results_df": df_scaled,
+                        "metrics": {
+                            "crash_portfolio_max_dd": port_dd["max_drawdown"],
+                            "crash_benchmark_max_dd": bench_dd,
+                            "dd_protection": bench_dd - port_dd["max_drawdown"],
+                            "recovery_days": port_dd["max_drawdown_duration_days"],
+                            "ulcer_index": port_dd["ulcer_index"],
+                            "scenario": {"description": custom_data["description"], "end": str(df_scaled.index.max())}
+                        },
+                        "error": None
+                    }
 
         st.session_state['stress_results'] = st_results
 
@@ -1381,7 +1497,10 @@ elif module_selection == "⚡ Stress Test":
                 yaxis_title="Wartość Portfela (PLN)",
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(15,15,25,0.9)",
+                hovermode="x unified"
             )
+            fig_st.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+            fig_st.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
             st.plotly_chart(fig_st, use_container_width=True)
 
 

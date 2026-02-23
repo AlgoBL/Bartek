@@ -124,10 +124,22 @@ def run_stress_test(
     def basket_value(prices_df, weight):
         if prices_df is None or prices_df.empty:
             return pd.Series(0.0, index=data.index)
-        norm = prices_df / prices_df.iloc[0]  # normalize to 1
+        
+        # Calculate daily returns for the basket
+        returns = prices_df.pct_change().fillna(0)
+        # Apply equal weights within the basket
         eq_weights = np.ones(len(prices_df.columns)) / len(prices_df.columns)
-        basket = norm.values @ eq_weights
-        return pd.Series(basket * weight * initial_capital, index=data.index)
+        basket_returns = returns.values @ eq_weights
+        
+        # Apply 19% tax to positive returns (conservative daily approx)
+        taxed_returns = np.where(basket_returns > 0, basket_returns * 0.81, basket_returns)
+        
+        # Reconstruct wealth path from returns
+        path = np.ones(len(data.index))
+        for i in range(1, len(path)):
+            path[i] = path[i-1] * (1 + taxed_returns[i])
+            
+        return pd.Series(path * weight * initial_capital, index=data.index)
 
     safe_val = basket_value(safe_prices, safe_weight)
     risky_val = basket_value(risky_prices, risky_weight)
