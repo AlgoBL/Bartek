@@ -11,7 +11,7 @@ def display_chart_guide(title, content):
         st.caption("💡 *Zrozumienie metryk to klucz do przewagi rynkowej.*")
 
 def display_analysis_report():
-    with st.expander("📊 AUTOMATYCZNY RAPORT ANALITYCZNY I REKOMENDACJE (AI)", expanded=False):
+    with st.expander("📊 AUTOMATYCZNY RAPORT ANALITYCZNY I REKOMENDACJE", expanded=False):
         st.markdown("""
         ## Synteza Strategii Sztangi i Rekomendacje Inwestycyjne
 
@@ -32,7 +32,7 @@ def display_analysis_report():
 
         ### 2. Zastosowane Modele i Algorytmy
 
-        W przeprowadzonej symulacji (w trybie AI/Backtest) wykorzystano następujące zaawansowane mechanizmy:
+        W przeprowadzonej symulacji (w trybie Backtest) wykorzystano następujące zaawansowane mechanizmy:
 
         *   **Kryterium Kelly'ego (Zarządzanie Wielkością Pozycji)**:
             *   Klasyczny Kelly maksymalizuje wzrost geometryczny, ale jest zbyt ryzykowny ("ściana Kelly'ego").
@@ -42,7 +42,7 @@ def display_analysis_report():
             *   **Implementacja**: Rebalansowanie Progowe (Threshold), symulujące pasma Davisa-Normana. Rebalansujemy tylko, gdy wagi odchylą się znacząco (np. +/- 20%), co minimalizuje koszty transakcyjne i maksymalizuje efekt "kupuj tanio, sprzedawaj drogo".
         *   **Teoria Wartości Ekstremalnych (EVT)**:
             *   Dobór aktywów do części ryzykownej opierał się na poszukiwaniu "Grubych Ogonów" (Estymator Hilla). Szukamy aktywów o potencjale nieliniowego wzrostu (Opcje, Krypto, Tech).
-        *   **Sztuczna Inteligencja - wnioski ze stosowania**:
+        *   **Algorytmy Decyzyjne - wnioski ze stosowania**:
             *   **Architect (HRP)**: Buduje zdywersyfikowany portfel wewnątrz koszyków. W przeciwieństwie do Markowitza, HRP nie "wariuje" przy wysokiej korelacji. Na wykresie struktury portfela (poniżej) zobaczysz, jak Architect dynamicznie zmienia wagi aktywów ryzykownych, reagując na zmieniające się korelacje. To zapewnia stabilność.
             *   **Trader (RL Agent/Kelly)**: Dynamicznie zarządza lewarem (Kelly). To jest "gaz i hamulec". Trader obserwuje reżim rynkowy. Gdy zmienność spada (hossa), zwiększa ekspozycję (lewaruje). Gdy wykrywa turbulencje (Risk-Off), tnie pozycje szybciej niż jakikolwiek człowiek. Wykres "Pozycja Tradera" (poniżej) pokazuje te decyzje w czasie.
             *   **Hierarchiczny Parytet Ryzyka (HRP)**: Zastępuje tradycyjną korelację (która zawodzi w krachach) strukturą drzewiastą, lepiej dywersyfikując ryzyko.
@@ -70,12 +70,12 @@ def display_analysis_report():
         """)
 
 def display_scanner_methodology():
-     with st.expander("🧩 METODOLOGIA SKANERA V5.1 (API-Free Local AI)", expanded=False):
+     with st.expander("🧩 METODOLOGIA SKANERA V5.1 (Analiza Wielowymiarowa)", expanded=False):
         st.markdown("""
-        ### Specyfikacja Techniczna: Autonomiczny Makro-Skaner V5.1 (API-Free)
+        ### Specyfikacja Techniczna: Autonomiczny Makro-Skaner V5.1
 
         #### 1. Cel Systemu
-        Całkowicie bezobsługowe narzędzie, działające jak pełnoprawny **AI Hedge Fund**. System samodzielnie analizuje ustrukturyzowane dane makroekonomiczne i nieustrukturyzowane wiadomości ze świata, po czym przesiewa globalne rynki filtrem fundamentalnym (Screener). Na samym końcu kwalifikuje wybrane instrumenty ekstremalną matematyką poszukującej Wypukłości.
+        Całkowicie bezobsługowe narzędzie, działające jak pełnoprawny **Algorytmiczny Fundusz Ilościowy**. System samodzielnie analizuje ustrukturyzowane dane makroekonomiczne i nieustrukturyzowane wiadomości ze świata, po czym przesiewa globalne rynki filtrem fundamentalnym (Screener). Na samym końcu kwalifikuje wybrane instrumenty ekstremalną matematyką poszukującej Wypukłości.
 
         ---
 
@@ -101,7 +101,7 @@ def display_scanner_methodology():
         ---
 
         #### 5. Warstwa 4: Matematyka Ogonów (Extreme Value Theory)
-        Gdy AI CIO zawęzi rynki do tych właściwych (np. Energia, Złoto), te 100-200 wybranych aktywów rywalizuje na sterydach algorytmu Wypukłości BCS ze starych wersji:
+        Gdy Algorytm CIO zawęzi rynki do tych właściwych (np. Energia, Złoto), te 100-200 wybranych aktywów rywalizuje na sterydach algorytmu Wypukłości BCS ze starych wersji:
         *   **Estymator Hilla (Tail Index)**: Finałowa kwalifikacja przechodzi przez sita Power Law (rozkłady potęgowe, np. $\\alpha < 3.0$) preferujące rynki podlegające asymetrycznym wystrzałom kapitału pośród rynkowej nudy.
         *   **Maksymalizacja Wypukłości (Skewness/Kurtosis)**: Odrzucenie klasycznego ryzyka-korelacji na rzecz poszukiwań lewego ogona (straty znane) oraz grubego prawego ogona (zyski nieograniczone).
 

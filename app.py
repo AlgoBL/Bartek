@@ -64,13 +64,13 @@ if "custom_stress_scenarios" not in st.session_state:
     st.session_state["custom_stress_scenarios"] = {}
 
 # 3. Main Navigation
-module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator (Sztanga)", "🔍 AI Makro-Skaner V5", "⚡ Stress Test", "🏖️ Emerytura"], horizontal=True, label_visibility="collapsed", key="module_nav")
+module_selection = st.radio("Wybierz Moduł:", ["📉 Symulator", "🔍 Skaner", "⚡ Stress Test", "🏖️ Emerytura"], horizontal=True, label_visibility="collapsed", key="module_nav")
 st.markdown("---")
 
-if module_selection == "📉 Symulator (Sztanga)":
+if module_selection == "📉 Symulator":
     st.sidebar.title("🛠️ Konfiguracja Strategii")
     
-    mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest AI)"], index=["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest AI)"].index(_saved("sim_mode", "Monte Carlo (Teoretyczny)")), key="sim_mode", on_change=_save, args=("sim_mode",))
+    mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"], index=["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"].index(_saved("sim_mode", "Monte Carlo (Teoretyczny)")), key="sim_mode", on_change=_save, args=("sim_mode",))
 
     if mode == "Monte Carlo (Teoretyczny)":
         st.sidebar.markdown("### 1. Kapitał i Czas")
@@ -479,7 +479,7 @@ if module_selection == "📉 Symulator (Sztanga)":
             
             display_analysis_report()
 
-    elif mode == "Intelligent Barbell (Backtest AI)":
+    elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         st.sidebar.markdown("### 1. Konfiguracja Podstawowa")
         initial_capital = st.sidebar.number_input("Kapitał Początkowy (USD)", value=_saved("ai_cap", 100000), step=10000, key="ai_cap", on_change=_save, args=("ai_cap",))
         start_date = st.sidebar.date_input("Data Początkowa", value=_saved("ai_start", pd.to_datetime("2020-01-01")), key="ai_start", on_change=_save, args=("ai_start",))
@@ -545,8 +545,8 @@ if module_selection == "📉 Symulator (Sztanga)":
             risky_tickers_str = ", ".join(valid_tickers) # Mock string to reuse existing download logic
         
         st.sidebar.markdown("### 3. Strategia Alokacji")
-        _ai_alloc_opts = ["AI Dynamic (Regime + RL)", "Manual Fixed", "Rolling Kelly"]
-        allocation_mode = st.sidebar.selectbox("Tryb Alokacji", _ai_alloc_opts, index=_ai_alloc_opts.index(_saved("ai_alloc_mode", "AI Dynamic (Regime + RL)")), key="ai_alloc_mode", on_change=_save, args=("ai_alloc_mode",))
+        _ai_alloc_opts = ["Dynamiczna Alokacja (Regime + RL)", "Manual Fixed", "Rolling Kelly"]
+        allocation_mode = st.sidebar.selectbox("Tryb Alokacji", _ai_alloc_opts, index=_ai_alloc_opts.index(_saved("ai_alloc_mode", "Dynamiczna Alokacja (Regime + RL)")), key="ai_alloc_mode", on_change=_save, args=("ai_alloc_mode",))
         
         alloc_safe_fixed = 0.85
         kelly_params = {}
@@ -576,15 +576,15 @@ if module_selection == "📉 Symulator (Sztanga)":
             
     
         
-        st.title("🧠 Intelligent Barbell - AI Backtest")
+        st.title("🧠 Intelligent Barbell - Backtest Algorytmiczny")
         st.markdown("""
-        **Moduły AI:**
+        **Moduły Algorytmiczne:**
         - **Observer (HMM)**: Wykrywa reżimy rynkowe (Risk-On / Risk-Off).
         - **Architect (HRP)**: Buduje zdywersyfikowany portfel wewnątrz koszyków.
         - **Trader (RL Agent)**: Dynamicznie zarządza lewarem (Kelly).
         """)
         
-        if st.button("🧠 Uruchom AI Backtest", type="primary"):
+        if st.button("🧠 Uruchom Backtest", type="primary"):
             safe_tickers = []
             if safe_type == "Tickers (Yahoo)":
                  safe_tickers = [x.strip() for x in safe_tickers_str.split(",") if x.strip()]
@@ -610,7 +610,7 @@ if module_selection == "📉 Symulator (Sztanga)":
                      status_text.markdown(f"**{clean_msg}**")
                  
             # with st.spinner("Pobieranie danych i trenowanie modeli..."): # Removed spinner to rely on progress bar
-            status_ai = StatusManager("Przygotowanie Backtestu AI...", expanded=True)
+            status_ai = StatusManager("Przygotowanie Backtestu...", expanded=False)
             
             status_ai.info_data("Pobieranie danych historycznych...")
             safe_data = pd.DataFrame()
@@ -722,17 +722,17 @@ if module_selection == "📉 Symulator (Sztanga)":
                 st.metric("Risk/Reward", f"{trade_stats.get('risk_reward', 0):.2f}")
                 
             # --- TRANSFER BUTTON (AI) ---
-            if st.button("⚡ Przenieś Backtest AI do Stress Testów", key="ai_to_stress"):
+            if st.button("⚡ Przenieś Backtest Algorytmiczny do Stress Testów", key="ai_to_stress"):
                 df_results = res['results']
                 df_custom = pd.DataFrame({
                     "Portfolio (Barbell)": df_results["PortfolioValue"],
                     "Benchmark": df_results.get("Benchmark", df_results["PortfolioValue"])
                 }, index=df_results.index)
                 
-                st.session_state["custom_stress_scenarios"]["🧠 AI: Backtest Strategy"] = {
+                st.session_state["custom_stress_scenarios"]["🧠 Algorytm: Backtest Strategy"] = {
                     "df": df_custom,
                     "initial_capital": initial_capital,
-                    "description": f"Pełna historia portfela wypracowana przez AI od {df_custom.index.min().date()}."
+                    "description": f"Pełna historia portfela wypracowana przez system algorytmiczny od {df_custom.index.min().date()}."
                 }
                 st.session_state["force_navigate"] = "⚡ Stress Test"
                 st.rerun()
@@ -797,7 +797,7 @@ if module_selection == "📉 Symulator (Sztanga)":
             st.divider()
 
             # C. Regime Plot
-            st.markdown("#### 3. Detekcja Reżimów (AI Context)")
+            st.markdown("#### 3. Detekcja Reżimów (Kontekst Architektury)")
             
             fig_regime = go.Figure()
             
@@ -1062,8 +1062,8 @@ if module_selection == "📉 Symulator (Sztanga)":
                                  f"Return: {fd['max_omega']['return']:.1%}")
 
 
-elif module_selection == "🔍 AI Makro-Skaner V5":
-    st.header("🌍 The Oracle: Autonomiczny AI Hedge Fund (Skaner V5.0)")
+elif module_selection == "🔍 Skaner":
+    st.header("🌍 Skaner")
     st.markdown("""
     **Architektura V5**: Zamiast ręcznie wybierać aktywa, wystarczy że podasz Horyzont Czasowy.
     Wielu-agentowy system zejdzie na rynki globalne, przeczyta z Rezerwy Federalnej stropy bazowe,
@@ -1071,9 +1071,6 @@ elif module_selection == "🔍 AI Makro-Skaner V5":
     """)
     
     col_scan1, col_scan2 = st.columns([3, 1])
-    
-    with col_scan1:
-        st.info("Pamiętaj: System opiera się na matematyce grubych ogonów i NLP. Decyzje AI mają charakter edukacyjny.")
     
     with col_scan2:
         scan_years = st.number_input("Horyzont Inwestycyjny (Lata)", value=5, step=1, min_value=1, max_value=30)
@@ -1097,7 +1094,7 @@ elif module_selection == "🔍 AI Makro-Skaner V5":
              v5_results = engine.run_v5_autonomous_scan(int(scan_years), progress_callback=terminal_update)
              
              status_scan.success("Kwantowy re-balancing i selekcja zakończone!")
-             st.toast("System AI podjął decyzje inwestycyjne.")
+             st.toast("System Algorytmiczny podjął decyzje inwestycyjne.")
              
              st.session_state['v5_scanner_results'] = v5_results
         except Exception as e:
@@ -1260,8 +1257,8 @@ elif module_selection == "🔍 AI Makro-Skaner V5":
                 st.session_state['transfer_data'] = pd.DataFrame(transfer_data)
                 
                 # Switch Tabs/Mode
-                st.session_state["force_navigate"] = "📉 Symulator (Sztanga)"
-                st.session_state["sim_mode"] = "Intelligent Barbell (Backtest AI)"
+                st.session_state["force_navigate"] = "📉 Symulator"
+                st.session_state["sim_mode"] = "Intelligent Barbell (Backtest Algorytmiczny)"
                 st.session_state["ai_risky_mode"] = "Manualne Wagi"
                 
                 st.rerun()
