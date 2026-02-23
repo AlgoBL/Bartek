@@ -18,4 +18,5 @@ tabulate
 # --- Naukowe ulepszenia (2024 upgrade) ---
 networkx           # MST Correlation Network (Mantegna 1999)
 arch               # GARCH(1,1) Volatility Clustering (Bollerslev 1986)
+numba              # JIT Compiler dla pętli Monte Carlo
 # torch            # LSTM Regime Detector (opcjonalne — heavy, ~700MB)

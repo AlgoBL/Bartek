@@ -3,11 +3,53 @@ import numpy as np
 import pandas as pd
 from scipy.stats import t
 from scipy.stats.qmc import Sobol
+from numba import jit
 from modules.ai.observer import get_market_regimes
 from modules.ai.architect import PortfolioArchitect
 from modules.ai.optimizer import GeneticOptimizer
 from modules.ai.trader import RLTrader
 import streamlit as st
+
+@jit(nopython=True, cache=True)
+def _compute_garch_variance(var_series, eps, omega_g, alpha_g, beta_g, total_days):
+    for day in range(1, total_days):
+        for s in range(var_series.shape[0]):
+            prev_eps = eps[s, day - 1]
+            prev_var = var_series[s, day - 1]
+            var_series[s, day] = omega_g + alpha_g * (prev_eps * np.sqrt(prev_var)) ** 2 + beta_g * prev_var
+    return var_series
+
+@jit(nopython=True, cache=True)
+def _compute_wealth_paths(val_safe, val_risky, wealth_paths, daily_safe_rate, risky_returns, alloc_safe, threshold_percent, total_days, days_per_year, rebalance_strategy_id):
+    n_sims = val_safe.shape[0]
+    for day in range(1, total_days + 1):
+        for s in range(n_sims):
+            vs = val_safe[s, day-1] * (1.0 + daily_safe_rate)
+            vr = val_risky[s, day-1] * (1.0 + risky_returns[s, day-1])
+            cw = vs + vr
+            
+            should_rebalance = False
+            if rebalance_strategy_id == 1 and day % days_per_year == 0:
+                should_rebalance = True
+            elif rebalance_strategy_id == 2 and day % 21 == 0:
+                should_rebalance = True
+            elif rebalance_strategy_id == 3:
+                current_risky_weight = vr / cw
+                target_weight = 1.0 - alloc_safe
+                lower_bound = target_weight * (1.0 - threshold_percent)
+                upper_bound = target_weight * (1.0 + threshold_percent)
+                if current_risky_weight < lower_bound or current_risky_weight > upper_bound:
+                    should_rebalance = True
+                    
+            if should_rebalance:
+                vs = cw * alloc_safe
+                vr = cw * (1.0 - alloc_safe)
+                
+            val_safe[s, day] = vs
+            val_risky[s, day] = vr
+            wealth_paths[s, day] = cw
+
+    return wealth_paths
 
 def generate_student_t_copula_shocks(n_sims, n_days, n_assets, df=4, correlation_matrix=None):
     """
@@ -118,9 +160,7 @@ def simulate_barbell_strategy(
         var_series[:, 0] = target_diff_var / days_per_year
         
         eps = standardized_shocks.copy()
-        for day in range(1, total_days):
-            prev_eps = eps[:, day - 1]
-            var_series[:, day] = omega_g + alpha_g * (prev_eps * np.sqrt(var_series[:, day - 1])) ** 2 + beta_g * var_series[:, day - 1]
+        var_series = _compute_garch_variance(var_series, eps, omega_g, alpha_g, beta_g, total_days)
         
         daily_vols = np.sqrt(np.maximum(var_series, 1e-10))
         
@@ -157,31 +197,13 @@ def simulate_barbell_strategy(
     val_safe[:, 0] = initial_captial * alloc_safe
     val_risky[:, 0] = initial_captial * (1 - alloc_safe)
     
-    for day in range(1, total_days + 1):
-        val_safe[:, day] = val_safe[:, day-1] * (1 + daily_safe_rate)
-        val_risky[:, day] = val_risky[:, day-1] * (1 + risky_returns[:, day-1])
-        current_wealth = val_safe[:, day] + val_risky[:, day]
-        
-        should_rebalance = False
-        if rebalance_strategy == "Yearly" and day % days_per_year == 0:
-            should_rebalance = True
-        elif rebalance_strategy == "Monthly" and day % 21 == 0:
-            should_rebalance = True
-        elif rebalance_strategy == "Threshold":
-            current_risky_weight = val_risky[:, day] / current_wealth
-            target_weight = 1 - alloc_safe
-            lower_bound = target_weight * (1 - threshold_percent)
-            upper_bound = target_weight * (1 + threshold_percent)
-            mask = (current_risky_weight < lower_bound) | (current_risky_weight > upper_bound)
-            if np.any(mask):
-                val_safe[mask, day] = current_wealth[mask] * alloc_safe
-                val_risky[mask, day] = current_wealth[mask] * (1 - alloc_safe)
-        
-        if should_rebalance:
-            val_safe[:, day] = current_wealth * alloc_safe
-            val_risky[:, day] = current_wealth * (1 - alloc_safe)
-            
-        wealth_paths[:, day] = val_safe[:, day] + val_risky[:, day]
+    rebalance_map = {"None": 0, "Yearly": 1, "Monthly": 2, "Threshold": 3}
+    reb_id = rebalance_map.get(rebalance_strategy, 0)
+    
+    wealth_paths = _compute_wealth_paths(
+        val_safe, val_risky, wealth_paths, daily_safe_rate, risky_returns, 
+        alloc_safe, threshold_percent, total_days, days_per_year, reb_id
+    )
 
     return wealth_paths
 
