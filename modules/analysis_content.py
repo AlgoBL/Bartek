@@ -1,5 +1,6 @@
 
 import streamlit as st
+from modules.secrets_manager import load_api_key, save_api_key
 
 def display_chart_guide(title, content):
     """
@@ -69,47 +70,56 @@ def display_analysis_report():
         """)
 
 def display_scanner_methodology():
-     with st.expander("🧩 METODOLOGIA SKANERA (Szczegóły Modelu)", expanded=True):
+     with st.expander("🧩 METODOLOGIA SKANERA V5 (Szczegóły Modelu & API)", expanded=True):
+        # Sekcja API
+        st.subheader("🔑 Konfiguracja Google Gemini API")
+        current_api_key = load_api_key()
+        new_api_key = st.text_input(
+            "Klucz Google Gemini API (potrzebny do AI Hedge Fund)", 
+            value=current_api_key, 
+            type="password", 
+            help="Pobierz klucz za darmo w Google AI Studio. Klucz jest potrzebny dla Agentów: Ekonomisty, Geopolityka i CIO."
+        )
+        if new_api_key != current_api_key:
+            save_api_key(new_api_key)
+            st.success("Zapisano nowy klucz API!")
+            st.rerun()
+
+        st.divider()
+
         st.markdown("""
-        ### Specyfikacja Techniczna: Barbell Convexity Scanner (BCS)
+        ### Specyfikacja Techniczna: Autonomiczny Makro-Skaner V5.0
 
         #### 1. Cel Systemu
-        Automatyczna identyfikacja aktywów charakteryzujących się matematycznie potwierdzoną "anty-kruchością" (dodatnia wypukłość, grube prawe ogony), przy jednoczesnym odrzuceniu aktywów o ukrytym ryzyku. Skaner nie zgaduje cen, lecz poluje na **wypukłość**.
+        Całkowicie bezobsługowe narzędzie, działające jak pełnoprawny **AI Hedge Fund**. System samodzielnie analizuje ustrukturyzowane dane makroekonomiczne i nieustrukturyzowane wiadomości ze świata, po czym przesiewa globalne rynki filtrem fundamentalnym (Screener). Na samym końcu kwalifikuje wybrane instrumenty ekstremalną matematyką poszukującej Wypukłości.
 
         ---
 
-        #### 2. Moduł I: Filtr Matematyczny (Fundament EVT)
-        Odpowiada za selekcję kandydatów spełniających rygorystyczne kryteria statystyczne.
-
-        *   **Kryterium 1: Estymator Hilla (Tail Index)**
-            *   **Zasada**: Szukamy rozdładów potęgowych (Power Laws), a nie normalnych.
-            *   **Wzór**: Wykorzystujemy estymator Hilla do oceny grubości ogona.
-            *   **Cel**: $\\alpha < 3.0$ (ideał $1 < \\alpha < 2$). Oznacza to wysokie prawdopodobieństwo ekstremalnie pozytywnych zwrotów ("To The Moon" events).
-
-        *   **Kryterium 2: Dodatnia Skośność (Positive Skewness)**
-            *   **Zasada**: Preferujemy "długi prawy ogon".
-            *   **Warunek**: $Skew > 0$. Unikamy aktywów z ujemną skośnością (jak sprzedaż opcji), gdzie zyski są częste ale małe, a straty rzadkie ale totalne.
-
-        *   **Kryterium 3: Potencjał "Demona Shannona"**
-            *   **Zasada**: Zmienność ($\sigma$) jest zasobem.
-            *   **Cel**: Aktywo musi mieć wysoką zmienność, aby "karmić" mechanizm rebalansowania. W strategii sztangi zmienność nie jest ryzykiem, lecz paliwem dla wzrostu geometrycznego.
+        #### 2. Warstwa 1: Połykacz Danych Makro (The Oracle)
+        Moduł odpowiedzialny za interfejs sensoryczny Skanera:
+        *   **Analiza FRED (Federal Reserve)**: Skaner na żywo weryfikuje stopy wolne od ryzyka oraz kategoryczny spread na krzywej dochodowości (US 10-Year minus 3-Month Treasury), będący wyprzedzającym ostrzeżeniem przed twardym lądowaniem (Hard Landing).
+        *   **Neurolingwistyczny Zwiad (NLP)**: Hurtowe pochłanianie setek najświeższych nagłówków wiadomości finansowych i globalnej geopolityki poprzez kanały RSS.
 
         ---
 
-        #### 3. Moduł II: Warstwa AI i Detekcja Reżimów
-        Ten moduł decyduje "CZY" inwestować, w oparciu o stan rynku.
-
-        *   **Ukryte Modele Markowa (HMM)**: Aplikacja analizuje rynek, aby wykryć, czy jesteśmy w reżimie "Risk-On" (Hossa/Spokój) czy "Risk-Off" (Chaos/Krach). W zależności od tego algorytm sugeruje zwiększenie lub zmniejszenie ekspozycji (Kelly Fraction).
+        #### 3. Warstwa 2: AI Makro-Stratedzy (Multi-Agent System LLM)
+        "Mózg" operacji oparty na Dużym Modelu Językowym (Gemini 2.5 Flash), podzielony na 3 konkurujące byty:
+        *   **Agent Ekonomista**: Osadza twarde wskaźniki (VIX, DXY, Złoto, Ropa, U.S. Yields) w cyklu koniunkturalnym (Reflacja / Stagflacja / Dezinflacja).
+        *   **Agent Geopolityk**: Skanuje nagłówki w poszukiwaniu rzadkich czarnych łabędzi (Black Swans) i geopolitycznych szoków podażowych.
+        *   **Chief Investment Officer (CIO)**: Bada raporty dwójki podwładnych i generuje dla Ciebie ostateczną Tezę Inwestycyjną - plan, który pozycjonuje Twój kapitał tak, by wykorzystać luki opisane przez Ekonomistę i ustrzec przed zagrożeniami Geopolityka.
 
         ---
 
-        #### 4. Moduł III: Money Management (Egzekucja)
-        Bezpiecznik systemu, chroniący przed ruiną.
+        #### 4. Warstwa 3: Mikro-Skaner Finansowy (Filtry)
+        Aplikacja pobiera 2000 giełdowych tickerów (S&P500 + Top Global ETFs), odrzucając wszystko, co niemożliwe do kupienia lub niebezpieczne: 
+        *   **Eliminacja braku płynności**: Odrzucane są wszystkie fundusze (tzw. wydmuszki), których dzienny wolumen obrotu wynosi poniżej 500,000 darmowych jednostek (Free Float restrictions).
 
-        *   **Ułamkowy Kelly z "Kurczeniem" (Shrinkage)**:
-            *   Estymacje matematyczne są obarczone błędem. Dlatego stosujemy wzór Bakera-McHale'a, który automatycznie redukuje wielkość pozycji (np. o 50%), gdy pewność statystyczna jest niska. To zapobiega "przelicytowaniu".
-        *   **Rebalansowanie Progowe (Threshold Rebalancing)**:
-            *   Implementujemy pasma Davisa-Normana (No-Trade Zone). Nie rebalansujemy codziennie, lecz tylko po przekroczeniu progu (zależnego od zmienności i kosztów). To maksymalizuje efekt Shannona.
+        ---
 
-        > **Wniosek**: Ten skaner to narzędzie inżynierii finansowej. Odrzuca intuicję na rzecz twardej statystyki, szukając asymetrii w świecie losowości.
+        #### 5. Warstwa 4: Matematyka Ogonów (Extreme Value Theory)
+        Gdy AI CIO zawęzi rynki do tych właściwych (np. Energia, Złoto), te 100-200 wybranych aktywów rywalizuje na sterydach algorytmu Wypukłości BCS ze starych wersji:
+        *   **Estymator Hilla (Tail Index)**: Finałowa kwalifikacja przechodzi przez sita Power Law (rozkłady potęgowe, np. $\\alpha < 3.0$) preferujące rynki podlegające asymetrycznym wystrzałom kapitału pośród rynkowej nudy.
+        *   **Maksymalizacja Wypukłości (Skewness/Kurtosis)**: Odrzucenie klasycznego ryzyka-korelacji na rzecz poszukiwań lewego ogona (straty znane) oraz grubego prawego ogona (zyski nieograniczone).
+
+        > **Wniosek**: Architektura V5 nie pozostawia żadnej przestrzeni na ludzkie emocje. Rozszerza matematyczną potęgę "Sztangi" Taleba o logiczną, chłodną maszynę inwestycyjną (End-to-End).
         """)
