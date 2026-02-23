@@ -1071,10 +1071,21 @@ elif module_selection == "🔍 Skaner":
     """)
     
     col_scan1, col_scan2 = st.columns([3, 1])
-    
+
     with col_scan2:
-        scan_years = st.number_input("Horyzont Inwestycyjny (Lata)", value=5, step=1, min_value=1, max_value=30)
-        st.markdown("###")
+        scan_months = st.slider(
+            "📅 Horyzont Inwestycyjny (Miesiące)",
+            min_value=1, max_value=120, value=60, step=1,
+            help="Ilość miesięcy do prześwietlenia historii aktywów (1 = 1M, 12 = 1 rok, 60 = 5 lat)"
+        )
+        scan_years = round(scan_months / 12, 2)
+        if scan_months < 12:
+            st.caption(f"⏱️ {scan_months} mies. (≈{scan_months * 30} dni)")
+        elif scan_months % 12 == 0:
+            st.caption(f"⏱️ {scan_months} mies. = {scan_months // 12} lat")
+        else:
+            st.caption(f"⏱️ {scan_months} mies. = {scan_years:.1f} roku")
+        st.markdown("")
         scan_btn = st.button("🚀 Uruchom Globalną Syntezę", type="primary")
 
     if scan_btn:
