@@ -154,6 +154,8 @@ def run_stress_test(
     results_df = pd.DataFrame({
         "Portfolio (Barbell)": portfolio,
         "Benchmark": benchmark,
+        "Safe_Val": safe_val,
+        "Risky_Val": risky_val
     }, index=data.index)
 
     # --- Metrics ---
@@ -198,4 +200,43 @@ def run_stress_test(
         "results_df": results_df,
         "metrics": metrics,
         "error": None,
+    }
+
+
+def run_reverse_stress_test(safe_weight: float, target_loss: float = 0.30):
+    """
+    Reverse Stress Testing (Basel III framework).
+    Instead of simulating a known crisis, we ask: "What does it take to lose 30% of the portfolio?"
+    We assume the Safe Basket drops by a fixed worst-case scenario (e.g. 5% due to extreme inflation/rates),
+    and solve for the required crash in the Risky Basket to hit the target portfolio loss.
+    """
+    risky_weight = 1.0 - safe_weight
+    
+    # Assumptions for extreme stress
+    # Safe assets (Treasuries/Gold) might drop 5% in an unprecedented liquidity shock or inflation spike.
+    safe_shock = -0.05 
+    
+    if risky_weight <= 0:
+        return {"error": "Portfel w 100% bezpieczny. Nie da się osiągnąć takiej straty przy założonym szoku bezpiecznym."}
+        
+    # Equation: safe_weight * safe_shock + risky_weight * risky_shock = -target_loss
+    # solving for risky_shock:
+    risky_shock = (-target_loss - (safe_weight * safe_shock)) / risky_weight
+    
+    # If the required shock is > 100%, it implies bankruptcy of the risky basket is not enough
+    if risky_shock < -1.0:
+        actual_max_loss = (safe_weight * safe_shock) + (risky_weight * -1.0)
+        return {
+            "is_possible": False,
+            "max_loss": abs(actual_max_loss),
+            "safe_shock": safe_shock,
+            "risky_shock": -1.0,
+            "message": f"Nawet jeśli część ryzykowna spadnie do zera (-100%), cały portfel straci maksymalnie {-actual_max_loss:.1%}. Cel {target_loss:.1%} jest matematycznie niemożliwy."
+        }
+        
+    return {
+        "is_possible": True,
+        "safe_shock": safe_shock,
+        "risky_shock": risky_shock,
+        "message": f"Aby portfel stracił {target_loss:.1%}, część ryzykowna musi spaść o {abs(risky_shock):.1%} (przy założeniu spadku części bezpiecznej o {abs(safe_shock):.1%})."
     }

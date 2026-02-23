@@ -12,7 +12,7 @@ from modules.metrics import (
 )
 from modules.ai.data_loader import load_data
 from modules.analysis_content import display_analysis_report, display_scanner_methodology, display_chart_guide
-from modules.scanner import calculate_convecity_metrics, score_asset, compute_correlation_network
+from modules.scanner import calculate_convecity_metrics, score_asset, compute_hierarchical_dendrogram
 from modules.ai.scanner_engine import ScannerEngine
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
@@ -140,6 +140,13 @@ if module_selection == "📉 Symulator Portfela":
             on_change=_save, args=("mc_use_garch",),
             help="Modeluje klastrowanie zmienności (volatility clustering). Bollerslev (1986). Wolniejsze, ale bardziej realistyczne."
         )
+        use_jump_diffusion = st.sidebar.checkbox(
+            "Merton Jump-Diffusion (Skoki Cen)",
+            value=_saved("mc_use_jump", True), key="mc_use_jump",
+            on_change=_save, args=("mc_use_jump",),
+            help="Symuluje nagłe luki cenowe (Czarne Łabędzie) poprzez proces Poissona. Merton (1976)."
+        )
+
 
         # MAIN CONTENT FOR MONTE CARLO
         st.title("⚖️ Barbell Strategy - Monte Carlo")
@@ -162,6 +169,7 @@ if module_selection == "📉 Symulator Portfela":
                 threshold_percent=threshold_percent,
                 use_qmc=use_qmc,
                 use_garch=use_garch,
+                use_jump_diffusion=use_jump_diffusion
             )
             
             status_mc.info_math("Obliczanie zaawansowanych metryk (Sharpe, VaR, CVaR)...")
@@ -200,19 +208,49 @@ if module_selection == "📉 Symulator Portfela":
             days = np.arange(wealth_paths.shape[1])
             percentiles = np.percentile(wealth_paths, [5, 50, 95], axis=0)
             
-            fig_paths = go.Figure()
-            fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[2], mode='lines', line=dict(width=0), showlegend=False))
-            fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[0], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(0, 255, 136, 0.2)', name='95% CI'))
-            fig_paths.add_trace(go.Scattergl(x=days, y=percentiles[1], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'))
-            fig_paths.update_layout(title="Projekcja Bogactwa", template="plotly_dark", height=500, hovermode="x unified")
-            fig_paths.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
-            fig_paths.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
-            st.plotly_chart(fig_paths, use_container_width=True)
+            # ─── Ridge Plot / Joyplot of Wealth Distribution ───────────────────
+            st.markdown("### ⛰️ Ewoluujący Rozkład Majątku (Ridge Plot)")
+            st.caption("Płynna zmiana rozkładu prawdopodobieństwa w czasie. Ukazuje asymetrię zysków i ryzyko ogona.")
             
-            display_chart_guide("Projekcja Bogactwa (Fan Chart)", """
-            *   **Ciemnozielona Linia (Mediana)**: Najbardziej prawdopodobna ścieżka Twojego portfela.
-            *   **Obszar Cieniowany (90% CI)**: "Stożek niepewności". Z 90% prawdopodobieństwem Twój wynik zmieści się w tym tunelu.
-            *   **Szerokość Tunelu**: Im szerszy, tym większa niepewność (ryzyko) strategii.
+            fig_ridge = go.Figure()
+            
+            # Select 5 key milestones to plot distributions for (e.g. year 1, quarter-way, half-way, 3-quarter, final)
+            milestones = np.linspace(252, wealth_paths.shape[1]-1, min(5, years)).astype(int)
+            colors = ['#00ff88', '#00ccff', '#ffaa00', '#ff4444', '#aa88ff']
+            
+            for i, day_idx in enumerate(milestones[::-1]): # Reverse to draw back-to-front
+                year_mark = int(day_idx / 252)
+                data_slice = wealth_paths[:, day_idx]
+                
+                # Use violin plot with horizontal orientation for ridge effect
+                fig_ridge.add_trace(go.Violin(
+                    x=data_slice,
+                    name=f"Rok {year_mark}",
+                    side='positive',
+                    line_color=colors[i % len(colors)],
+                    fillcolor=colors[i % len(colors)].replace(')', ', 0.3)').replace('rgb', 'rgba') if 'rgb' in colors[i] else 'rgba(0, 255, 136, 0.4)',
+                    meanline_visible=True
+                ))
+                
+            fig_ridge.update_layout(
+                template="plotly_dark",
+                height=500,
+                xaxis_title="Kapitał (PLN)",
+                yaxis_title="Oś Czasu (Horyzont)",
+                violinmode='overlay',
+                violingap=0,
+                violingroupgap=0,
+                showlegend=False
+            )
+            fig_ridge.update_traces(orientation='h', width=2.5, points=False)
+            fig_ridge.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+            fig_ridge.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+            fig_ridge.add_vline(x=initial_capital, line_dash="dash", line_color="orange", annotation_text="Start")
+            st.plotly_chart(fig_ridge, use_container_width=True)
+            
+            display_chart_guide("Ridge Plot (Ewoluujący Kapitał)", """
+            *   Zamiast płaskich linii, widzisz **pełny rozkład prawdopodobieństwa kapitału** w kluczowych latach symulacji.
+            *   **Asymetria**: Zauważ, jak wraz z upływem czasu rozkład staje się prawoskośny (długi ogon bogactwa) dzięki procentowi składanemu, podczas gdy lewa strona (straty) jest węższa, obrazując asymetrię ryzyka/zysku Barbell'a.
             """)
 
             # --- Professional Metrics Table ---
@@ -1159,7 +1197,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
                 "Volatility": "{:.1%}",
                 "Skewness": "{:.2f}",
                 "Kurtosis": "{:.2f}",
-                "Hill Alpha (Tail)": "{:.2f}",
+                "EVT Shape (Tail)": "{:.2f}",
                 "Kelly Safe (50%)": "{:.1%}",
                 "Sharpe": "{:.2f}",
                 "Sortino": "{:.2f}",
@@ -1208,12 +1246,9 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         # Color: Score, Size: Inverse Hill Alpha (or just fixed if nan)
         
         plot_df = df_res.copy()
-        # Handle NaNs for plot
-        plot_df['Hill Alpha (Tail)'] = plot_df['Hill Alpha (Tail)'].fillna(4.0) 
-        # Create Size dimension: Inverse related to Hill Alpha (Lower Alpha = Bigger Bubble)
-        # Avoid division by zero close to 1
-        plot_df['Size'] = 10 / np.log(plot_df['Hill Alpha (Tail)'] + 0.1)
-        plot_df['Size'] = plot_df['Size'].clip(upper=30, lower=5)
+        plot_df['EVT Shape (Tail)'] = plot_df['EVT Shape (Tail)'].fillna(0.0) 
+        # Create Size dimension: Higher EVT Shape = Bigger Bubble (Fatter tail)
+        plot_df['Size'] = (plot_df['EVT Shape (Tail)'] * 50).clip(upper=30, lower=5)
         
         fig_3d_scan = px.scatter_3d(
             plot_df,
@@ -1223,7 +1258,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
             color='Score',
             size='Size', # Dynamic size
             hover_name='Ticker',
-            hover_data=['Hill Alpha (Tail)', 'Kelly Safe (50%)'],
+            hover_data=['EVT Shape (Tail)', 'Kelly Safe (50%)'],
             color_continuous_scale='Viridis',
             title='Przestrzeń Wypukłości (Convexity Space)'
         )
@@ -1240,7 +1275,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         
         display_chart_guide("Mapa Antykruchości 3D", """
         *   **Szukaj Baniek**: Szukamy aktywów w prawym górnym rogu (Wysoka Skośność, Wysoka Kurtoza).
-        *   **Rozmiar Bańki**: Większa bańka = Bardziej "Gruby Ogon" (Mniejsze Hill Alpha). To są potencjalne "rakiety".
+        *   **Rozmiar Bańki**: Większa bańka = Bardzo "Gruby Ogon" Mierzony Teorią EVT (Wyższe EVT Shape). To są potencjalne "rakiety".
         """)
         
         st.markdown("""
@@ -1250,7 +1285,7 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         *   **Volatility (Zmienność)**: Zmienność roczna. W strategii sztangi traktujemy ją jako **zasób**.
         *   **Skewness (Skośność)**: Mierzy asymetrię. >0 to nasz cel (częste małe straty, rzadkie wielkie zyski).
         *   **Kurtosis (Kurtoza)**: Mierzy "grubość" ogonów. Im wyższa, tym więcej ekstremalnych zdarzeń.
-        *   **Hill Alpha**: Kluczowa metryka EVT. < 3.0 oznacza Gruby Ogon (szansa na wykładniczy wzrost).
+        *   **EVT Shape (Tail)**: Kluczowa metryka Teorii EVT (Peaks Over Threshold). Im wyższa, tym większa szansa na wybitne zdarzenia (Black Swans).
         *   **Sharpe Ratio**: Wynik > 1.0 jest dobry. Mierzy zysk na jednostkę całkowitego ryzyka (zmienności).
         *   **Sortino Ratio**: Lepsza wersja Sharpe'a. Mierzy zysk na jednostkę "złej zmienności" (tylko spadki).
         *   **Max Drawdown**: Maksymalne obsunięcie kapitału. Mówi o tym, jak bardzo zaboli w najgorszym momencie.
@@ -1343,21 +1378,18 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
     display_scanner_methodology()
 
     # ─────────────────────────────────────────────────────────────────
-    # 🆕 MST CORRELATION NETWORK
+    # 🆕 HIERARCHICAL DENDROGRAM (Zamiast płaskiego MST)
     # ─────────────────────────────────────────────────────────────────
-    if 'bcs_returns' in st.session_state and 'bcs_metrics_df' in st.session_state:
+    if 'bcs_returns' in st.session_state:
         st.divider()
-        st.subheader("🕸️ Sieć Korelacji (MST) 🆕")
-        st.caption("Minimum Spanning Tree — Mantegna (1999). Pokazuje strukturę korelacji bez redundantnych połączeń.")
-        mst_fig = compute_correlation_network(
-            st.session_state['bcs_returns'],
-            st.session_state['bcs_metrics_df']
-        )
+        st.subheader("🌳 Dendrogram Klastrowy (Hierarchical Risk Parity) 🆕")
+        st.caption("Maszyny uczące budują zagnieżdżoną strukturę ryzyka. Szukaj aktywów, które odłączają się najwcześniej na dole (najdłuższe pionowe gałęzie) — to prawdziwe, nieskorelowane dywersyfikatory wg Teorematu Lopeza de Prado.")
+        mst_fig = compute_hierarchical_dendrogram(st.session_state['bcs_returns'])
+        
         if mst_fig:
             st.plotly_chart(mst_fig, use_container_width=True)
-            st.caption("🟢 Węzły połączone krawędziami = blisko skorelowane. Szukaj aktywów izolowanych (duża odległość w grafie) — to prawdziwa dywersyfikacja.")
-        else:
-            st.info("Zainstaluj `networkx` aby zobaczyć sieć korelacji: `pip install networkx`")
+            st.caption("🟢 Odkryj prawdziwą architekturę rynku: Drzewo pokazuje które rynki zachowują się jak jedno aktywo, a które faktycznie różnią się od reszty koszyka.")
+
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1373,11 +1405,38 @@ elif module_selection == "⚡ Stress Test":
     st.sidebar.title("⚡ Konfiguracja Stress Testu")
     st.sidebar.markdown("### Aktywa do Testu")
 
+    from modules.stress_test import run_stress_test, CRISIS_SCENARIOS, run_reverse_stress_test
+    
     st_safe_str  = st.sidebar.text_input("Koszyk Bezpieczny", "TLT, GLD", key="st_safe")
     st_risky_str = st.sidebar.text_input("Koszyk Ryzykowny", "SPY, QQQ, BTC-USD", key="st_risky")
     st_safe_w    = st.sidebar.slider("Waga Bezpieczna (%)", 10, 95, 85, key="st_sw") / 100.0
     st_capital   = st.sidebar.number_input("Kapitał Początkowy", value=100000, step=10000, key="st_cap")
 
+    # ─────────────────────────────────────────────────────────────────
+    # 🆕 REVERSE STRESS TESTING
+    # ─────────────────────────────────────────────────────────────────
+    st.sidebar.divider()
+    st.sidebar.markdown("### 🧨 Reverse Stress Test")
+    st.sidebar.caption("Odwrócony test stresu (Standard Basel III). Podaj cel spadku portfela, a system wyliczy jak duży musi być krach rynkowy, by to mencapai.")
+    rst_target_loss = st.sidebar.slider("Zakładana strata portfela (-%)", 5, 80, 20, step=5) / 100.0
+    
+    if st.sidebar.button("🧨 Szukaj Punktu Pęknięcia"):
+        st.subheader("🧨 Reverse Stress Test (Punkt Pęknięcia)")
+        rst_res = run_reverse_stress_test(safe_weight=st_safe_w, target_loss=rst_target_loss)
+        
+        if rst_res.get("error"):
+            st.error(rst_res["error"])
+        elif rst_res["is_possible"]:
+            st.warning(rst_res["message"])
+            col_rst1, col_rst2 = st.columns(2)
+            col_rst1.metric("Szok Bezpieczny (Założenie)", f"{rst_res['safe_shock']:.1%}")
+            col_rst2.metric("Wymagany Krach Ryzykowny", f"{rst_res['risky_shock']:.1%}", delta="Punkt krytyczny", delta_color="inverse")
+            st.caption(f"Przy wadze bezpiecznej {st_safe_w:.0%} i ryzykownej {1-st_safe_w:.0%}, portfel straci {rst_target_loss:.0%} tylko wtedy, gdy ryzykowna część załamie się o {abs(rst_res['risky_shock']):.1%}.")
+        else:
+            st.success(rst_res["message"])
+            st.metric("Ostrzeżenie", f"{rst_res['max_loss']:.1%}", "Maksymalna teoretyczna strata portfela")
+
+    st.sidebar.divider()
     crisis_options = list(CRISIS_SCENARIOS.keys())
     custom_options = list(st.session_state["custom_stress_scenarios"].keys())
     
@@ -1502,6 +1561,49 @@ elif module_selection == "⚡ Stress Test":
             fig_st.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
             fig_st.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
             st.plotly_chart(fig_st, use_container_width=True)
+
+            # ─────────────────────────────────────────────────────────────────
+            # 🆕 ROLLING CORRELATION HEATMAP (Dywersyfikacja w kryzysie)
+            # ─────────────────────────────────────────────────────────────────
+            # Ensure we have Safe_Val and Risky_Val
+            if "Safe_Val" in df_chart.columns and "Risky_Val" in df_chart.columns:
+                safe_rets = df_chart["Safe_Val"].pct_change().dropna()
+                risky_rets = df_chart["Risky_Val"].pct_change().dropna()
+                
+                # Rolling 21-day correlation
+                roll_corr = safe_rets.rolling(21).corr(risky_rets).dropna()
+                
+                if not roll_corr.empty:
+                    fig_corr_time = go.Figure()
+                    
+                    # Fill logic based on correlation > 0 (bad) vs < 0 (good)
+                    fig_corr_time.add_trace(go.Scatter(
+                        x=roll_corr.index, 
+                        y=roll_corr,
+                        mode='lines',
+                        name='Korelacja (21-dniowa)',
+                        line=dict(color='#00ccff', width=2),
+                        fill='tozeroy',
+                        fillcolor='rgba(0, 204, 255, 0.2)'
+                    ))
+                    
+                    fig_corr_time.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3)
+                    
+                    # Also mark crash end
+                    if crash_end_dt in df_chart.index or (df_chart.index.min() < crash_end_dt < df_chart.index.max()):
+                        fig_corr_time.add_shape(
+                            type="line", x0=x_str, x1=x_str, y0=-1, y1=1,
+                            xref="x", yref="y", line=dict(color="red", dash="dash", width=1.5),
+                        )
+                        
+                    fig_corr_time.update_layout(
+                        title=f"⏳ Płynna Korelacja (Safe vs Risky) w czasie {crisis_name}",
+                        template="plotly_dark", height=250,
+                        yaxis=dict(range=[-1.05, 1.05], title="Korelacja (Pearson)"),
+                        margin=dict(t=40, b=10)
+                    )
+                    st.plotly_chart(fig_corr_time, use_container_width=True)
+                    st.caption("🟢 **Wartości ujemne** (< 0): Idealna dywersyfikacja (gdy ryzykowny spada, bezpieczny rośnie). 🔴 **Wartości dodatnie** (> 0): Załamanie dywersyfikacji (wszystko spada naraz).")
 
 
 elif module_selection == "🏖️ Emerytura":

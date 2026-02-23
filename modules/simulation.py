@@ -9,6 +9,37 @@ from modules.ai.optimizer import GeneticOptimizer
 from modules.ai.trader import RLTrader
 import streamlit as st
 
+def generate_student_t_copula_shocks(n_sims, n_days, n_assets, df=4, correlation_matrix=None):
+    """
+    Generates multidimensional shocks using a Student-t Copula.
+    This captures 'tail dependence' — assets crashing together during crises.
+    """
+    if correlation_matrix is None:
+        correlation_matrix = np.eye(n_assets)
+        
+    # Cholesky decomposition of the correlation matrix
+    try:
+        chol = np.linalg.cholesky(correlation_matrix)
+    except np.linalg.LinAlgError:
+        # Fallback to PCA or eigen decomposition if not positive-definite, but for simplicity:
+        chol = np.eye(n_assets)
+
+    # 1. Generate independent normal samples
+    z = np.random.normal(0, 1, size=(n_sims, n_days, n_assets))
+    
+    # 2. Introduce correlation
+    correlated_z = np.einsum('ij,kMj->kMi', chol, z)
+    
+    # 3. Generate mixing variable (Chi-square distributed)
+    chi2 = np.random.chisquare(df, size=(n_sims, n_days, 1))
+    
+    # 4. Construct Student-t shocks
+    t_shocks = correlated_z * np.sqrt(df / chi2)
+    
+    # Standardize to variance = 1 (approx)
+    std_t = np.sqrt(df / (df - 2)) if df > 2 else 1.0
+    return t_shocks / std_t
+
 def simulate_barbell_strategy(
     n_years=10, 
     n_simulations=1000, 
@@ -16,16 +47,20 @@ def simulate_barbell_strategy(
     safe_rate=0.0551,  # Polish Bonds 5.51%
     risky_mean=0.08, 
     risky_vol=0.20, 
-    risky_kurtosis=6.0, # Fat tails parameter (degrees of freedom for t-dist. Lower = fatter)
+    risky_kurtosis=6.0, # Fat tails parameter
     alloc_safe=0.85,
-    rebalance_strategy="None", # None, Yearly, Monthly, Threshold
-    threshold_percent=0.20, # For Shannon's Demon/Threshold rebalancing
-    use_qmc=False,  # Quasi-Monte Carlo via Sobol sequences
-    use_garch=False, # GARCH(1,1) for volatility clustering
+    rebalance_strategy="None",
+    threshold_percent=0.20,
+    use_qmc=False,
+    use_garch=False,
+    use_jump_diffusion=True, # Merton Jump-Diffusion
+    jump_lambda=1.5,         # Expect 1.5 jumps per year
+    jump_mean=-0.03,         # Average jump is a 3% drop
+    jump_std=0.04            # Volatility of the jump size
 ):
     """
-    Monte Carlo Simulation supporting Quasi-MC (Sobol) and GARCH(1,1) volatility.
-    Automatically applies 19% Belka Tax to all gains and interest.
+    Monte Carlo Simulation with GARCH(1,1), t-Copula, and Merton Jump-Diffusion.
+    Automatically applies 19% Belka Tax to all gains.
     """
     days_per_year = 252
     total_days = n_years * days_per_year
@@ -55,27 +90,57 @@ def simulate_barbell_strategy(
         std_t = np.sqrt(df / (df - 2))
         standardized_shocks = random_shocks / std_t
     
+    # ─── Merton Jump-Diffusion ──────────────────────────────────────────────
+    jump_returns = np.zeros((n_simulations, total_days))
+    if use_jump_diffusion:
+        # Poisson process for jump occurrences
+        # Probability of jump in a single day
+        prob_jump = jump_lambda * dt
+        jump_occurrences = np.random.binomial(1, prob_jump, size=(n_simulations, total_days))
+        
+        # Normal distribution for jump sizes
+        jump_sizes = np.random.normal(jump_mean, jump_std, size=(n_simulations, total_days))
+        
+        # Total jump returns
+        jump_returns = jump_occurrences * jump_sizes
+
     # ─── GARCH(1,1) Volatility ──────────────────────────────────────────────
     if use_garch:
         alpha_g = 0.10
         beta_g  = 0.85
-        omega_g = (risky_vol ** 2) * (1 - alpha_g - beta_g) / days_per_year
+        # Compensation for jump variance to keep overall volatility target
+        jump_var_annual = jump_lambda * (jump_mean**2 + jump_std**2) if use_jump_diffusion else 0
+        target_diff_var = max(0.0001, (risky_vol ** 2) - jump_var_annual)
+        
+        omega_g = target_diff_var * (1 - alpha_g - beta_g) / days_per_year
         
         var_series = np.zeros((n_simulations, total_days))
-        var_series[:, 0] = risky_vol ** 2 / days_per_year
+        var_series[:, 0] = target_diff_var / days_per_year
         
         eps = standardized_shocks.copy()
         for day in range(1, total_days):
             prev_eps = eps[:, day - 1]
-            var_series[:, day] = omega_g + alpha_g * prev_eps ** 2 + beta_g * var_series[:, day - 1]
+            var_series[:, day] = omega_g + alpha_g * (prev_eps * np.sqrt(var_series[:, day - 1])) ** 2 + beta_g * var_series[:, day - 1]
         
         daily_vols = np.sqrt(np.maximum(var_series, 1e-10))
-        daily_mean = (risky_mean - 0.5 * risky_vol**2) * dt
-        risky_returns = np.exp(daily_mean + daily_vols * standardized_shocks) - 1
+        
+        # Compensate mean for jumps
+        jump_mean_annual = jump_lambda * (np.exp(jump_mean + 0.5*jump_std**2) - 1) if use_jump_diffusion else 0
+        diff_mean = risky_mean - jump_mean_annual - 0.5 * target_diff_var
+        daily_mean = diff_mean * dt
+        
+        risky_returns = np.exp(daily_mean + daily_vols * standardized_shocks) - 1 + jump_returns
     else:
-        daily_mean = (risky_mean - 0.5 * risky_vol**2) * dt
-        daily_vol = risky_vol * np.sqrt(dt)
-        risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks) - 1
+        jump_var_annual = jump_lambda * (jump_mean**2 + jump_std**2) if use_jump_diffusion else 0
+        target_diff_var = max(0.0001, (risky_vol ** 2) - jump_var_annual)
+        
+        jump_mean_annual = jump_lambda * (np.exp(jump_mean + 0.5*jump_std**2) - 1) if use_jump_diffusion else 0
+        diff_mean = risky_mean - jump_mean_annual - 0.5 * target_diff_var
+        
+        daily_mean = diff_mean * dt
+        daily_vol = np.sqrt(target_diff_var / days_per_year)
+        
+        risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks) - 1 + jump_returns
     
     # Apply 19% Belka Tax on risky gains (conservative daily approximation)
     risky_returns = np.where(risky_returns > 0, risky_returns * 0.81, risky_returns)

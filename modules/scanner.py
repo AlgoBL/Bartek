@@ -11,42 +11,40 @@ except ImportError:
     HAS_NETWORKX = False
 import plotly.graph_objects as go
 
-def hill_estimator(returns, tail_fraction=0.05):
+from scipy.stats import skew, kurtosis, genpareto
+import scipy.cluster.hierarchy as sch
+import scipy.spatial.distance as ssd
+import plotly.figure_factory as ff
+
+def evt_pot_estimator(returns, threshold_quantile=0.90):
     """
-    Oblicza Estymator Hilla (Hill Index) dla prawego ogona rozkładu zwrotów.
-    Alpha < 3.0 oznacza gruby ogon (Fat Tail).
-    Alpha < 2.0 oznacza nieskończoną wariancję (ekstremalne ryzyko/zysk).
+    Extreme Value Theory (EVT) - Peaks Over Threshold (POT) approach.
+    Fits a Generalized Pareto Distribution (GPD) to the right tail (gains).
+    Returns the Shape parameter (xi). Highly positive xi = extremely fat tail (Black Swans).
     """
-    if len(returns) < 20:
+    if len(returns) < 50:
         return np.nan
         
-    # Sortujemy zwroty malejąco (największe zyski na początku)
-    sorted_returns = np.sort(returns)[::-1]
-    
-    # Bierzemy tylko dodatnie zwroty do analizy prawego ogona
-    positive_returns = sorted_returns[sorted_returns > 0]
-    
-    if len(positive_returns) < 10:
+    positive_returns = returns[returns > 0]
+    if len(positive_returns) < 20:
         return np.nan
 
-    # Ustalamy liczbę obserwacji w ogonie (k)
-    k = int(len(positive_returns) * tail_fraction)
-    if k < 2:
-        k = 2
-        
-    # Wybieramy k największych zwrotów
-    tail_returns = positive_returns[:k]
-    x_k_plus_1 = positive_returns[k] # Próg odcięcia
+    # Determine threshold (u) based on quantile
+    u = np.quantile(positive_returns, threshold_quantile)
     
-    # Wzór Hilla: 1 / (mean(ln(Xi / X_k+1)))
-    log_ratios = np.log(tail_returns / x_k_plus_1)
-    gamma = np.mean(log_ratios)
+    # Extract exceedances
+    exceedances = positive_returns[positive_returns > u] - u
     
-    if gamma == 0:
+    if len(exceedances) < 5:
         return np.nan
         
-    alpha = 1.0 / gamma
-    return alpha
+    try:
+        # Fit GPD (scipy returns: shape(c), location(loc), scale(scale))
+        # Note: scipy's 'c' is the shape parameter xi in EVT standard notation
+        xi, loc, scale = genpareto.fit(exceedances, floc=0)
+        return xi
+    except:
+        return np.nan
 
 def calculate_convecity_metrics(ticker, price_series, benchmark_series=None):
     """
@@ -71,8 +69,8 @@ def calculate_convecity_metrics(ticker, price_series, benchmark_series=None):
     sortino = calculate_sortino(returns)
     max_dd = calculate_max_drawdown(price_series)
     
-    # 3. Estymator Hilla (Prawy Ogon - Zyski)
-    alpha_hill = hill_estimator(returns.values)
+    # 3. Dodanie EVT (Prawy Ogon - Zyski / Black Swans)
+    xi_evt = evt_pot_estimator(returns.values)
     
     # 4. Ryzyko Oporu Wariancji (Variance Drag)
     # R_Geom approx R_Arith - 0.5 * sigma^2
@@ -94,7 +92,7 @@ def calculate_convecity_metrics(ticker, price_series, benchmark_series=None):
         "Volatility": vol_ann,
         "Skewness": skew_val,
         "Kurtosis": kurt_val,
-        "Hill Alpha (Tail)": alpha_hill,
+        "EVT Shape (Tail)": xi_evt,
         
         "Sharpe": sharpe,
         "Sortino": sortino,
@@ -115,16 +113,14 @@ def score_asset(metrics):
         
     score = 0
     
-    # 1. Hill Alpha (Im niżej tym lepiej, celujemy w 1.5 - 2.5)
-    alpha = metrics["Hill Alpha (Tail)"]
-    if not np.isnan(alpha):
-        if 1.0 < alpha < 3.0:
+    # 1. EVT Shape (Tail) - szukamy dodatnich grubych ogonów (xi > 0). Im wyżej tym lepiej (asymetryczne ZYSKI)
+    xi = metrics["EVT Shape (Tail)"]
+    if not np.isnan(xi):
+        if xi > 0.3: # Bardzo grube prawe ogony = świetne wypukłe aktywo
             score += 50
-        if 1.5 < alpha < 2.5: # Sweet spot
+        elif xi > 0.1:
             score += 20
-        # Penalizacja za zbyt cienki ogon
-        if alpha > 4.0:
-            score -= 20
+        # Brak grubych ogonów nie ma kary, po prostu brak nagrody.
             
     # 2. Skośność (Musi być dodatnia)
     if metrics["Skewness"] > 0:
@@ -139,6 +135,49 @@ def score_asset(metrics):
         score -= 30
         
     return score
+
+def compute_hierarchical_dendrogram(returns_df: pd.DataFrame) -> "go.Figure | None":
+    """
+    Hierarchical Risk Parity (HRP) Dendrogram visualization (Lopez de Prado 2016).
+    Replaces MST with a proper nested clustering tree.
+    Uses distance correlation proxy.
+    """
+    tickers = returns_df.columns.tolist()
+    if len(tickers) < 2:
+        return None
+
+    # Correlation distance: d_ij = sqrt(0.5*(1-rho))
+    corr = returns_df.corr().fillna(0)
+    dist = np.sqrt(np.clip(0.5 * (1 - corr), 0, 1))
+    
+    # Condensed distance matrix required by scipy linkage
+    condensed_dist = ssd.squareform(dist.values, checks=False)
+    
+    # Ward linkage for hierarchical clustering
+    Z = sch.linkage(condensed_dist, method='ward')
+    
+    # Create Dendrogram using Plotly Figure Factory
+    fig = ff.create_dendrogram(
+        dist.values, 
+        labels=tickers, 
+        linkagefun=lambda x: sch.linkage(x, method='ward'),
+        color_threshold=float(np.percentile(Z[:, 2], 70)) # color top 30% of splits differently
+    )
+    
+    fig.update_layout(
+        title="🌳 Dendrogram Hierarchiczny (Zagnieżdżona Struktura Ryzyka)",
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(15,15,25,0.9)",
+        height=500,
+        xaxis_title="Zgrupowane Aktywa",
+        yaxis_title="Dystans (Brak Korelacji)",
+        font=dict(family="Inter", color="white")
+    )
+    fig.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+    fig.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+    
+    return fig
 
 
 def compute_correlation_network(returns_df: pd.DataFrame, metrics_df: pd.DataFrame = None) -> "go.Figure | None":
