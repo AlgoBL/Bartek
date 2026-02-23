@@ -1230,7 +1230,7 @@ elif module_selection == "🔍 Skaner":
                 df_res = df_metrics.sort_values(sort_col, ascending=False).head(10)
 
             if 'scanner_data' not in st.session_state:
-                start_date = pd.Timestamp.now() - pd.DateOffset(years=scan_years)
+                start_date = pd.Timestamp.now() - pd.DateOffset(months=int(scan_months))
                 st.session_state['scanner_data'] = load_data(
                     df_res['Ticker'].tolist(),
                     start_date=start_date.strftime("%Y-%m-%d")
