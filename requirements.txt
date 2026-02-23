@@ -5,12 +5,8 @@ plotly
 scipy
 yfinance
 pygad
-stable-baselines3
-shimmy
 scikit-learn
 matplotlib
-gym
-
 lxml
 requests
 tabulate
