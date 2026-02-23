@@ -1062,137 +1062,81 @@ if module_selection == "📉 Symulator Portfela":
 
 
 elif module_selection == "🔍 Skaner Wypukłości (BCS)":
-    st.header("🔍 Barbell Convexity Scanner (BCS)")
+    st.header("🌍 The Oracle: Autonomiczny AI Hedge Fund (Skaner V5.0)")
     st.markdown("""
-    **Cel**: Znajdowanie aktywów o asymetrycznym profilu zysku (Wypukłych/Antykruchych) do ryzykownej części portfela.
-    **Kryteria EVT**: Szukamy "Grubych Ogonów" (czyli szansy na ogromne wzrosty) przy zdefiniowanym ryzyku.
+    **Architektura V5**: Zamiast ręcznie wybierać aktywa, wystarczy że podasz Horyzont Czasowy.
+    Wielu-agentowy system zejdzie na rynki globalne, przeczyta z Rezerwy Federalnej stropy bazowe,
+    dokona syntezy prasy z całego świata i samodzielnie wybierze najlepsze aktywa używając Teorii Wartości Ekstremalnych.
     """)
     
-    # Scanner Inputs
     col_scan1, col_scan2 = st.columns([3, 1])
     
     with col_scan1:
-        scan_mode = st.radio("Tryb Skanowania", ["Manualny (Lista)", "Auto-Select (Math Score)"], horizontal=True)
-        
-        scan_tickers_str = ""
-        max_ai_tickers = 10
-        
-        if scan_mode == "Manualny (Lista)":
-            default_tickers = "TQQQ, SOXL, UPRO, TMF, SPY, QQQ, BTC-USD, ETH-USD, ARKK, UVXY, COIN, NVDA, TSLA, MSTR"
-            scan_tickers_str = st.text_area("Lista do przeskanowania (Tickery oddzielone przecinkami)", default_tickers)
-        else:
-            st.info("🤖 System przeszuka S&P 500 oraz wybrane Europejskie ETFy i wybierze najlepsze aktywa na podstawie wyniku matematycznego (Score).")
-            
-            col_ai1, col_ai2 = st.columns(2)
-            with col_ai1:
-                max_ai_tickers = st.slider("Ile tickerów wybrać?", 3, 20, 10)
-            with col_ai2:
-                # Spacer
-                st.write("")
-
+        st.info("Pamiętaj: System opiera się na matematyce grubych ogonów i NLP. Decyzje AI mają charakter edukacyjny.")
     
     with col_scan2:
-        scan_years = st.number_input("Historia (Lat)", value=3, step=1)
-        st.markdown("###") # spacer
-        scan_btn = st.button("🔎 Skanuj Wypukłość", type="primary")
-        
+        scan_years = st.number_input("Horyzont Inwestycyjny (Lata)", value=5, step=1, min_value=1, max_value=30)
+        st.markdown("###")
+        scan_btn = st.button("🚀 Uruchom Globalną Syntezę", type="primary")
+
     if scan_btn:
-        final_tickers = []
+        engine = ScannerEngine()
+        status_scan = StatusManager("Autonomiczna fuzja danych V5 uruchomiona...", expanded=True)
+        progress_scan = st.progress(0)
         
-        # 1. Determine Tickers Universe
-        if scan_mode == "Manualny (Lista)":
-            final_tickers = [x.strip().upper() for x in scan_tickers_str.split(",") if x.strip()]
-        else:
-            with st.spinner("Pobieranie listy aktywów (S&P 500 + Top 50 Global ETF)..."):
-                sp500 = get_sp500_tickers()
-                etfs = get_global_etfs() 
-                final_tickers = sp500 + etfs
-                st.toast(f"Znaleziono {len(final_tickers)} aktywów do analizy.")
+        # Callback do przekazywania stanów
+        def terminal_update(pct, msg):
+             progress_scan.progress(pct, text=msg)
+             if pct < 0.2: status_scan.info_data(msg)
+             elif pct < 0.5: status_scan.info_ai(msg)
+             elif pct < 0.8: status_scan.info_math(msg)
         
-        # Create Source Map
-        source_map = {}
-        if scan_mode == "Manualny (Lista)":
-            for t in final_tickers:
-                source_map[t] = "Manualne"
-        else:
-            # Re-fetch lists to map correctly
-            s_sp500 = get_sp500_tickers()
-            s_etfs = get_global_etfs()
-            for t in s_sp500:
-                source_map[t] = "S&P 500"
-            for t in s_etfs:
-                source_map[t] = "Top 50 Global"
+        try:
+            # Uruchomienie Pełnej Orkiestracji V5
+             v5_results = engine.run_v5_autonomous_scan(int(scan_years), progress_callback=terminal_update)
+             
+             status_scan.success("Kwantowy re-balancing i selekcja zakończone!")
+             st.toast("System AI podjął decyzje inwestycyjne.")
+             
+             st.session_state['v5_scanner_results'] = v5_results
+        except Exception as e:
+             status_scan.error(f"Krytyczny błąd w Silniku V5: {e}")
+             
+    # Renderowanie Wyników V5
+    if 'v5_scanner_results' in st.session_state:
+        res = st.session_state['v5_scanner_results']
         
-        if not final_tickers:
-            st.error("Podaj przynajmniej jeden ticker.")
+        st.divider()
+        st.subheader("🤖 Teza Makroekonomiczna Komitetu AI")
+        
+        tab_cio, tab_econ, tab_geo = st.tabs(["🤵 Raport Główny CIO", "📊 Raport Ekonomisty", "🌍 Raport Geopolityka"])
+        
+        with tab_cio:
+             st.markdown(res['cio_thesis'])
+        with tab_econ:
+             st.markdown(res['econ_report'])
+        with tab_geo:
+             st.markdown(res['geo_report'])
+             
+        st.caption(f"Mikro-Skaner przeanalizował {res['scanned_universe_size']} płynnych aktywów. Wysłano do EVT.")
+             
+        df_metrics = res['metrics_df']
+        selected_tickers = res['top_picks']
+        
+        if df_metrics.empty:
+             st.warning("EVT nie znalazł wystarczająco dużo danych do oceny lub wystąpił błąd.")
         else:
-            start_date = pd.Timestamp.now() - pd.DateOffset(years=scan_years)
+            # Filtrujemy tylko zwycięzców
+            df_res = df_metrics[df_metrics['Ticker'].isin(selected_tickers)].sort_values('Score', ascending=False)
             
-            # 2. Run Scan Engine
-            engine = ScannerEngine()
-            
-            # Use StatusManager instead of st.status context
-            status_scan = StatusManager(f"Analiza EVT dla {len(final_tickers)} aktywów...", expanded=True)
-            status_scan.info_math(f"Obliczanie metryk (Hill Alpha, Skewness, Kelly) dla {len(final_tickers)} rynków...")
+            # Fetch full chart data for presentation
+            if 'scanner_data' not in st.session_state:
+                start_date = pd.Timestamp.now() - pd.DateOffset(years=scan_years)
+                st.session_state['scanner_data'] = load_data(df_res['Ticker'].tolist(), start_date=start_date.strftime("%Y-%m-%d"))
                 
-            # Progress bar inside (optional, handled by update?)
-            # Manager logic doesn't expose inner container easily, so we just use spinner style
-            # OR pass a callback if we refactor Engine. 
-            # Engine takes progress bar object.
-            # Let's use a placeholder progress bar or just rely on text updates if engine allows.
-            # Engine expects a streamlit progress object.
-            
-            progress_scan = st.progress(0)
-            
-            # Let's adapt engine call
-            df_candidates = engine.scan_markets(final_tickers, progress_bar=progress_scan)
-            
-            # Add Source Column
-            if not df_candidates.empty:
-                df_candidates["Source"] = df_candidates["Ticker"].map(source_map).fillna("Unknown")
-            
-            if df_candidates.empty:
-                st.error("Nie udało się obliczyć metryk (brak danych lub błędne tickery).")
-                status_scan.error("Błąd podczas analizy.")
-            else:
-                progress_scan.progress(1.0, "Analiza matematyczna zakończona.")
-                
-                # 3. Auto Selection (Math Based)
-                if scan_mode == "Auto-Select (Math Score)":
-
-                    status_scan.update(label="🤖 Auto-Selekcja (Math Score)...", state="running")
-                    
-                    # Filter top 50 first by Math Score
-                    top_candidates = df_candidates.sort_values("Score", ascending=False)
-                    
-                    status_scan.info_ai(f"Wybieranie {max_ai_tickers} najlepszych aktywów wg wyniku...")
-                    selected_tickers = engine.select_best_candidates(top_candidates, max_count=max_ai_tickers)
-                    
-                    status_scan.info_ai("Selekcja zakończona.")
-                    
-                    # Filter results to show only selected
-                    df_res = df_candidates[df_candidates['Ticker'].isin(selected_tickers)]
-                    
-                    df_res = df_res.sort_values("Score", ascending=False)
-                    st.toast(f"Wybrano {len(df_res)} najlepszych kandydatów!")
-                    
-                else:
-                    df_res = df_candidates.sort_values("Score", ascending=False)
-
-                st.session_state['scanner_results'] = df_res
-                
-                # Fetch full data for charts
-                final_result_tickers = df_res['Ticker'].tolist()
-                status_scan.info_data("Pobieranie pełnej historii cen dla wykresów...")
-                chart_data = load_data(final_result_tickers, start_date=start_date.strftime("%Y-%m-%d"))
-                st.session_state['scanner_data'] = chart_data
-                
-                status_scan.success("Skanowanie zakończone!")
-                progress_scan.empty()
-                st.rerun()
-
-                        
-    # Display results if they exist in session state
+            st.session_state['scanner_results'] = df_res # Support backward compatibility for charts below
+        
+    # --- Stare Rysowanie Wyników podłącza się tutaj ---
     if 'scanner_results' in st.session_state:
         df_res = st.session_state['scanner_results']
         data = st.session_state.get('scanner_data', pd.DataFrame()) # Retrieve data for charts
