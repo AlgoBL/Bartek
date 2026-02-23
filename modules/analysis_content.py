@@ -11,7 +11,7 @@ def display_chart_guide(title, content):
         st.caption("💡 *Zrozumienie metryk to klucz do przewagi rynkowej.*")
 
 def display_analysis_report():
-    with st.expander("📊 AUTOMATYCZNY RAPORT ANALITYCZNY I REKOMENDACJE (AI)", expanded=True):
+    with st.expander("📊 AUTOMATYCZNY RAPORT ANALITYCZNY I REKOMENDACJE (AI)", expanded=False):
         st.markdown("""
         ## Synteza Strategii Sztangi i Rekomendacje Inwestycyjne
 
@@ -70,7 +70,7 @@ def display_analysis_report():
         """)
 
 def display_scanner_methodology():
-     with st.expander("🧩 METODOLOGIA SKANERA V5.1 (API-Free Local AI)", expanded=True):
+     with st.expander("🧩 METODOLOGIA SKANERA V5.1 (API-Free Local AI)", expanded=False):
         st.markdown("""
         ### Specyfikacja Techniczna: Autonomiczny Makro-Skaner V5.1 (API-Free)
 

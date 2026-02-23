@@ -276,33 +276,34 @@ if module_selection == "📉 Symulator (Sztanga)":
             """)
 
             # --- Professional Metrics Table ---
-            with st.expander("📊 Tabela Profesjonalna (Risk & Performance)", expanded=True):
-                # Organize in 3 categories
-                m_col1, m_col2, m_col3 = st.columns(3)
-                
-                with m_col1:
-                    st.markdown("**Efektywność (Risk-Adjusted)**")
-                    st.metric("Sharpe Ratio", f"{metrics['median_sharpe']:.2f}")
-                    st.metric("Sortino Ratio", f"{metrics.get('median_sortino', 0):.2f}")
-                    st.metric("Calmar Ratio", f"{metrics['median_calmar']:.2f}")
+            if not st.session_state["results_df"].empty:
+                with st.expander("📊 Tabela Profesjonalna (Risk & Performance)", expanded=False):
+                    # Organize in 3 categories
+                    m_col1, m_col2, m_col3 = st.columns(3)
+                    
+                    with m_col1:
+                        st.markdown("**Efektywność (Risk-Adjusted)**")
+                        st.metric("Sharpe Ratio", f"{metrics['median_sharpe']:.2f}")
+                        st.metric("Sortino Ratio", f"{metrics.get('median_sortino', 0):.2f}")
+                        st.metric("Calmar Ratio", f"{metrics['median_calmar']:.2f}")
 
-                with m_col2:
-                    st.markdown("**Ryzyko (Risk Mgt)**")
-                    st.metric("Max Drawdown (Avg)", f"{metrics['mean_max_drawdown']:.1%}")
-                    st.metric("VaR 95% (Wynik)", f"{metrics['var_95']:,.0f} PLN")
-                    st.metric("CVaR 95% (Krach)", f"{metrics['cvar_95']:,.0f} PLN", help="Średnia wartość kapitału w 5% najgorszych scenariuszy.")
+                    with m_col2:
+                        st.markdown("**Ryzyko (Risk Mgt)**")
+                        st.metric("Max Drawdown (Avg)", f"{metrics['mean_max_drawdown']:.1%}")
+                        st.metric("VaR 95% (Wynik)", f"{metrics['var_95']:,.0f} PLN")
+                        st.metric("CVaR 95% (Krach)", f"{metrics['cvar_95']:,.0f} PLN", help="Średnia wartość kapitału w 5% najgorszych scenariuszy.")
 
-                with m_col3:
-                    st.markdown("**Statystyka + NOWE 🆕**")
-                    st.metric("Median Volatility", f"{metrics['median_volatility']:.1%}")
-                    # Omega Ratio (new)
-                    final_returns = np.diff(wealth_paths[:, :], axis=1).flatten() / wealth_paths[:, :-1].flatten()
-                    omega = calculate_omega(final_returns)
-                    st.metric("Omega Ratio 🆕", f"{omega:.2f}", help="Omega > 1 = więcej zysku niż straty. Idealny wskaźnik dla strategii Barbell (Shadwick & Keating 2002).")
-                    # Ulcer Index (new)
-                    median_path = np.median(wealth_paths, axis=0)
-                    ulcer = calculate_ulcer_index(median_path)
-                    st.metric("Ulcer Index 🆕", f"{ulcer:.2f}", help="Mierzy 'ból inwestora' przez cały okres. Niższy = lepszy (Martin & McCann 1989).")
+                    with m_col3:
+                        st.markdown("**Statystyka + NOWE 🆕**")
+                        st.metric("Median Volatility", f"{metrics['median_volatility']:.1%}")
+                        # Omega Ratio (new)
+                        final_returns = np.diff(wealth_paths[:, :], axis=1).flatten() / wealth_paths[:, :-1].flatten()
+                        omega = calculate_omega(final_returns)
+                        st.metric("Omega Ratio 🆕", f"{omega:.2f}", help="Omega > 1 = więcej zysku niż straty. Idealny wskaźnik dla strategii Barbell (Shadwick & Keating 2002).")
+                        # Ulcer Index (new)
+                        median_path = np.median(wealth_paths, axis=0)
+                        ulcer = calculate_ulcer_index(median_path)
+                        st.metric("Ulcer Index 🆕", f"{ulcer:.2f}", help="Mierzy 'ból inwestora' przez cały okres. Niższy = lepszy (Martin & McCann 1989).")
 
             
             display_chart_guide("Tabela Profesjonalna (Hedge Fund Grade)", """
