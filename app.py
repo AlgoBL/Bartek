@@ -152,38 +152,60 @@ if module_selection == "📉 Symulator Portfela":
         st.title("⚖️ Barbell Strategy - Monte Carlo")
         
         if st.button("🚀 Symuluj Wyniki", type="primary", key="mc_run"):
-            status_mc = StatusManager("Symulacja Monte Carlo...")
-            
-            status_mc.info_math(f"Generowanie {1000} ścieżek dla horyzontu {years} lat...")
-            
-            wealth_paths = simulate_barbell_strategy(
-                n_years=years,
-                n_simulations=1000,
-                initial_captial=initial_capital,
-                safe_rate=safe_rate,
-                risky_mean=risky_mean,
-                risky_vol=risky_vol,
-                risky_kurtosis=risky_kurtosis,
-                alloc_safe=alloc_safe,
-                rebalance_strategy=rebalance_strategy.split(" ")[0],
-                threshold_percent=threshold_percent,
-                use_qmc=use_qmc,
-                use_garch=use_garch,
-                use_jump_diffusion=use_jump_diffusion
-            )
-            
-            status_mc.info_math("Obliczanie zaawansowanych metryk (Sharpe, VaR, CVaR)...")
-            metrics = calculate_metrics(wealth_paths, years)
-
-            status_mc.success("Symulacja zakończona!")
-            
-            # Save to session state
-            st.session_state['mc_results'] = {
-                "wealth_paths": wealth_paths,
-                "metrics": metrics,
-                "years": years
+            # Prepare arguments for execution
+            sim_args = {
+                "n_years": years,
+                "n_simulations": 1000,
+                "initial_captial": initial_capital,
+                "safe_rate": safe_rate,
+                "risky_mean": risky_mean,
+                "risky_vol": risky_vol,
+                "risky_kurtosis": risky_kurtosis,
+                "alloc_safe": alloc_safe,
+                "rebalance_strategy": rebalance_strategy.split(" ")[0],
+                "threshold_percent": threshold_percent,
+                "use_qmc": use_qmc,
+                "use_garch": use_garch,
+                "use_jump_diffusion": use_jump_diffusion
             }
             
+            # Submit to process pool
+            from concurrent.futures import ProcessPoolExecutor
+            if 'mc_executor' not in st.session_state:
+                st.session_state['mc_executor'] = ProcessPoolExecutor(max_workers=2)
+            
+            future = st.session_state['mc_executor'].submit(simulate_barbell_strategy, **sim_args)
+            st.session_state['mc_future'] = future
+            st.session_state['mc_task_years'] = years
+            st.session_state.pop('mc_results', None) # Clear previous results
+        
+        # Async polling fragment
+        if 'mc_future' in st.session_state and 'mc_results' not in st.session_state:
+            future = st.session_state['mc_future']
+            
+            @st.fragment(run_every="1s")
+            def poll_monte_carlo():
+                if future.done():
+                    try:
+                        wealth_paths = future.result()
+                        # Calculate metrics synchronously since it's fast
+                        metrics = calculate_metrics(wealth_paths, st.session_state['mc_task_years'])
+                        st.session_state['mc_results'] = {
+                            "wealth_paths": wealth_paths,
+                            "metrics": metrics,
+                            "years": st.session_state['mc_task_years']
+                        }
+                        st.success("Symulacja zakończona!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Błąd symulacji: {e}")
+                        st.session_state.pop('mc_future', None)
+                else:
+                    with st.spinner("⏳ Symulacja Monte Carlo działa w tle... Możesz korzystać z innych opcji."):
+                        st.info("Obliczanie ścieżek...")
+            
+            poll_monte_carlo()
+
         # Check if results exist and display
         if 'mc_results' in st.session_state:
             res = st.session_state['mc_results']
