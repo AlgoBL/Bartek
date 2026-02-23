@@ -1113,24 +1113,70 @@ elif module_selection == "🔍 Skaner Wypukłości (BCS)":
         geo = res['geo_report']
         cio = res['cio_thesis']
         
+        def make_gauge(val, title, r_min, r_max, steps, suffix=""):
+            fig = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = val,
+                title = {'text': title, 'font': {'size': 20}},
+                number = {'font': {'size': 35}, 'suffix': suffix},
+                gauge = {
+                    'axis': {'range': [r_min, r_max], 'tickwidth': 1},
+                    'bar': {'color': "rgba(0,0,0,0)"}, # Transparent bar to emphasize needle
+                    'steps': steps,
+                    'threshold': {
+                        'line': {'color': "white", 'width': 5},
+                        'thickness': 0.8,
+                        'value': val
+                    }
+                }
+            ))
+            fig.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
+            return fig
+
         col_c1, col_c2, col_c3 = st.columns(3)
         
         with col_c1:
             st.markdown(f"**📊 Ekonomista (Twarde Dane)**")
-            st.metric("Stan Oceny Makro", econ['phase'])
-            st.caption(f"Punkty Ryzyka Recesji: {econ['score']} / 8")
-            with st.expander("Detale"):
+            fig_econ = make_gauge(
+                econ['score'], "Ryzyko Recesji", 0, 8,
+                [
+                    {'range': [0, 2], 'color': "#2ecc71"},
+                    {'range': [2, 5], 'color': "#f39c12"},
+                    {'range': [5, 8], 'color': "#e74c3c"}
+                ]
+            )
+            st.plotly_chart(fig_econ, use_container_width=True)
+            st.info(f"**Stan**: {econ['phase']}")
+            with st.expander("Szczegóły The Oracle"):
                  for d in econ['details']: st.write(f"- {d}")
         
         with col_c2:
             st.markdown(f"**🌍 Geopolityk (NLP VADER)**")
-            st.metric("Sentyment Prasy", geo['label'])
-            st.caption(f"Wynik Emocjonalny (Compound): {geo['compound_sentiment']} | Analiza: {geo['analyzed_articles']} nagłówków")
+            fig_geo = make_gauge(
+                geo['compound_sentiment'], "Globalny Sentyment", -1, 1,
+                [
+                    {'range': [-1, -0.15], 'color': "#e74c3c"},
+                    {'range': [-0.15, 0.15], 'color': "#f39c12"},
+                    {'range': [0.15, 1], 'color': "#2ecc71"}
+                ]
+            )
+            st.plotly_chart(fig_geo, use_container_width=True)
+            st.info(f"**Prasa**: {geo['label']}")
+            st.caption(f"Przeanalizowano nagłówków: {geo['analyzed_articles']}")
         
         with col_c3:
             st.markdown(f"**🤵 Chief Investment Officer**")
-            st.metric("Tryb Alokacji", cio['mode'])
-            st.caption(f"Risk Meter: {cio['gauge_risk_percent']}% Defensywy")
+            fig_cio = make_gauge(
+                cio['gauge_risk_percent'], "% Defensywy (Risk-Off)", 0, 100,
+                [
+                    {'range': [0, 30], 'color': "#2ecc71"},
+                    {'range': [30, 70], 'color': "#f39c12"},
+                    {'range': [70, 100], 'color': "#e74c3c"}
+                ],
+                suffix="%"
+            )
+            st.plotly_chart(fig_cio, use_container_width=True)
+            st.info(f"**Tryb Alokacji**: {cio['mode']}")
             
         st.info(f"**Teza Inwestycyjna CIO**: {cio['description']}")
         st.success(f"**Cele Skanera**: {', '.join(cio['target_asset_classes'])}")
