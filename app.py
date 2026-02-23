@@ -1103,148 +1103,194 @@ elif module_selection == "🔍 Skaner":
     # Renderowanie Wyników V5 (API-Free)
     if 'v5_scanner_results' in st.session_state:
         res = st.session_state['v5_scanner_results']
-        
-        st.divider()
-        st.subheader("🎛️ Zegary Instrumentalne: Sentyment i Makro")
-        
+
         econ = res['econ_report']
-        geo = res['geo_report']
-        cio = res['cio_thesis']
-        
+        geo  = res['geo_report']
+        cio  = res['cio_thesis']
+        macro = res.get('macro_snapshot', {})
+
+        # ── Zegary Instrumentalne ──────────────────────────────────────────────────
+        st.divider()
+        st.subheader("🎛️ Zegary Instrumentalne: Barbell Nowcast")
+
         def make_gauge(val, title, r_min, r_max, steps, suffix=""):
             fig = go.Figure(go.Indicator(
-                mode = "gauge+number",
-                value = val,
-                title = {'text': title, 'font': {'size': 20}},
-                number = {'font': {'size': 35}, 'suffix': suffix},
-                gauge = {
+                mode="gauge+number",
+                value=val,
+                title={'text': title, 'font': {'size': 18}},
+                number={'font': {'size': 32}, 'suffix': suffix},
+                gauge={
                     'axis': {'range': [r_min, r_max], 'tickwidth': 1},
-                    'bar': {'color': "rgba(0,0,0,0)"}, # Transparent bar to emphasize needle
+                    'bar': {'color': "rgba(0,0,0,0)"},
                     'steps': steps,
                     'threshold': {
                         'line': {'color': "white", 'width': 5},
-                        'thickness': 0.8,
-                        'value': val
+                        'thickness': 0.85, 'value': val
                     }
                 }
             ))
-            fig.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
+            fig.update_layout(
+                height=280, margin=dict(l=20, r=20, t=50, b=10),
+                paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"}
+            )
             return fig
 
         col_c1, col_c2, col_c3 = st.columns(3)
-        
+
         with col_c1:
-            st.markdown(f"**📊 Ekonomista (Twarde Dane)**")
+            st.markdown("**📊 Nowcast Ryzyka Makro (7 czynników)**")
             fig_econ = make_gauge(
                 econ['score'], "Ryzyko Recesji", 0, 8,
-                [
-                    {'range': [0, 2], 'color': "#2ecc71"},
-                    {'range': [2, 5], 'color': "#f39c12"},
-                    {'range': [5, 8], 'color': "#e74c3c"}
-                ]
+                [{'range': [0, 3],   'color': "#2ecc71"},
+                 {'range': [3, 5.5], 'color': "#f39c12"},
+                 {'range': [5.5, 8], 'color': "#e74c3c"}]
             )
             st.plotly_chart(fig_econ, use_container_width=True)
             st.info(f"**Stan**: {econ['phase']}")
-            with st.expander("Szczegóły The Oracle"):
-                 for d in econ['details']: st.write(f"- {d}")
-        
+            with st.expander("🔍 Szczegóły Ekonomisty + FRED", expanded=False):
+                for d in econ['details']:
+                    st.write(f"- {d}")
+                if macro:
+                    st.markdown("**Dane FRED (makro leading):**")
+                    csp = macro.get('FRED_Credit_Spread_BAA_AAA')
+                    jcl = macro.get('FRED_Initial_Jobless_Claims')
+                    vix_ts = macro.get('VIX_TS_Ratio')
+                    cu_au = macro.get('CuAu_Ratio')
+                    bkwd = macro.get('VIX_Backwardation', False)
+                    if csp:    st.metric("Credit Spread (BAA-10Y)", f"{csp:.2f}%", help="> 3.5% = kryzys korporacyjny")
+                    if jcl:    st.metric("Wnioski o zasiłek (tygod.)", f"{jcl:,.0f}", help="> 300k = ryzyko recesji")
+                    if vix_ts: st.metric("VIX Term Structure", f"{vix_ts:.2f}",
+                                        delta="BACKWARDATION ⚠️" if bkwd else "Contango ✅")
+                    if cu_au:  st.metric("Copper/Gold Ratio", f"{cu_au:.4f}",
+                                        help="Róśnie = wzrost globalny (risk-on), maleje = risk-off")
+
         with col_c2:
-            st.markdown(f"**🌍 Geopolityk (NLP VADER)**")
+            st.markdown("**🌍 Geopolityk (NLP VADER)**")
             fig_geo = make_gauge(
                 geo['compound_sentiment'], "Globalny Sentyment", -1, 1,
-                [
-                    {'range': [-1, -0.15], 'color': "#e74c3c"},
-                    {'range': [-0.15, 0.15], 'color': "#f39c12"},
-                    {'range': [0.15, 1], 'color': "#2ecc71"}
-                ]
+                [{'range': [-1, -0.15], 'color': "#e74c3c"},
+                 {'range': [-0.15,  0.15], 'color': "#f39c12"},
+                 {'range': [ 0.15,  1.0], 'color': "#2ecc71"}]
             )
             st.plotly_chart(fig_geo, use_container_width=True)
-            st.info(f"**Prasa**: {geo['label']}")
-            st.caption(f"Przeanalizowano nagłówków: {geo['analyzed_articles']}")
-        
+            st.info(f"{geo['label']}")
+            with st.expander("📰 Prasa Szczegółowo", expanded=False):
+                c1g, c2g, c3g = st.columns(3)
+                c1g.metric("🟢 Pozytywne", f"{geo.get('positive_pct', 0):.0f}%")
+                c2g.metric("🔴 Negatywne", f"{geo.get('negative_pct', 0):.0f}%")
+                c3g.metric("⚪ Neutralne",  f"{geo.get('neutral_pct', 0):.0f}%")
+                st.caption(f"Przeanalizowano {geo['analyzed_articles']} nagłówków RSS")
+
         with col_c3:
-            st.markdown(f"**🤵 Chief Investment Officer**")
+            st.markdown("**🤵 Dyrektywa Barbella (CIO)**")
             fig_cio = make_gauge(
-                cio['gauge_risk_percent'], "% Defensywy (Risk-Off)", 0, 100,
-                [
-                    {'range': [0, 30], 'color': "#2ecc71"},
-                    {'range': [30, 70], 'color': "#f39c12"},
-                    {'range': [70, 100], 'color': "#e74c3c"}
-                ],
+                cio['gauge_risk_percent'], "Defensywność (%)", 0, 100,
+                [{'range': [0,  30], 'color': "#2ecc71"},
+                 {'range': [30, 70], 'color': "#f39c12"},
+                 {'range': [70, 100], 'color': "#e74c3c"}],
                 suffix="%"
             )
             st.plotly_chart(fig_cio, use_container_width=True)
-            st.info(f"**Tryb Alokacji**: {cio['mode']}")
-            
-        st.info(f"**Teza Inwestycyjna CIO**: {cio['description']}")
-        st.success(f"**Cele Skanera**: {', '.join(cio['target_asset_classes'])}")
-            
-        st.caption(f"Mikro-Skaner przeanalizował aktywa i wysłał najpłynniejszych kandydatów do EVT.")
-             
+            st.info(f"**Tryb**: {cio['mode']}")
+            with st.expander("🎯 Cele Risky Sleeve", expanded=True):
+                st.markdown(f"*{cio['description']}*")
+                etf_focus = cio.get('etf_focus', [])
+                if etf_focus:
+                    st.success(f"🔎 ETF Focus: `{'`, `'.join(etf_focus)}`")
+                kelly_m = cio.get('kelly_multiplier', 1.0)
+                st.metric("Mnożnik Kelly (CIO)", f"{kelly_m:.0%}",
+                          help="CIO skaluje wielkość pozycji wg reżimu makro. Risk-Off = zmniejsz ryzyko.")
+
+        # ── Wyniki Rankingu EVT ──────────────────────────────────────────────────
         df_metrics = res['metrics_df']
         selected_tickers = res['top_picks']
-        
+
+        if cio.get('regime') == 'risk_off':
+            st.warning("🛑 **Tryb BUNKIER**: CIO wstrzymał skan części ryzykownej Barbella."
+                       " W obecnym reżimie makro nie zaleca się ekspozycji na ryzykowne aktywa.")
+
         if df_metrics.empty:
-             st.warning("EVT nie znalazł wystarczająco dużo danych do oceny lub wystąpił błąd.")
+            st.warning("EVT nie znalazł wystarczająco dużo danych do oceny lub wystąpił błąd.")
         else:
-            # Filtrujemy tylko zwycięzców
-            df_res = df_metrics[df_metrics['Ticker'].isin(selected_tickers)].sort_values('Score', ascending=False)
-            
-            # Fetch full chart data for presentation
+            sort_col = "Barbell Score" if "Barbell Score" in df_metrics.columns else "Score"
+            if selected_tickers:
+                df_res = df_metrics[df_metrics['Ticker'].isin(selected_tickers)].sort_values(sort_col, ascending=False)
+            else:
+                df_res = df_metrics.sort_values(sort_col, ascending=False).head(10)
+
             if 'scanner_data' not in st.session_state:
                 start_date = pd.Timestamp.now() - pd.DateOffset(years=scan_years)
-                st.session_state['scanner_data'] = load_data(df_res['Ticker'].tolist(), start_date=start_date.strftime("%Y-%m-%d"))
-                
-            st.session_state['scanner_results'] = df_res # Support backward compatibility for charts below
-        
-    # --- Stare Rysowanie Wyników podłącza się tutaj ---
+                st.session_state['scanner_data'] = load_data(
+                    df_res['Ticker'].tolist(),
+                    start_date=start_date.strftime("%Y-%m-%d")
+                )
+            st.session_state['scanner_results'] = df_res
+
+
     if 'scanner_results' in st.session_state:
         df_res = st.session_state['scanner_results']
         data = st.session_state.get('scanner_data', pd.DataFrame()) # Retrieve data for charts
                         
-        # Formatting
-        st.subheader("🏆 Wyniki Rankingu Antykruchości")
-        
-        # Apply coloring style
-        def highlight_score(val):
-            color = '#2ecc71' if val > 50 else '#e74c3c' if val < 0 else ''
-            return f'color: {color}; font-weight: bold'
-            
-        # Add selection column
-        df_display = df_res.copy()
+        st.divider()
+        st.subheader("🏆 Ranking Antykruchości (Barbell Score)")
+        st.caption("Barbell Score = ważony Z-Score: EVT Prawy Ogón (+), Skewness (+), Omega (+), Momentum (+), Hurst (+), EVT Lewy Ogón (kara), Amihud (kara).")
+
+        def highlight_barbell(val):
+            if isinstance(val, (int, float)):
+                if val > 0.5:   return 'color: #2ecc71; font-weight: bold'
+                if val < -0.3:  return 'color: #e74c3c; font-weight: bold'
+            return ''
+
+        def highlight_hurst(val):
+            if isinstance(val, (int, float)):
+                if val > 0.55:  return 'color: #2ecc71'
+                if val < 0.45:  return 'color: #3498db'
+            return ''
+
+        display_cols = [
+            "Ticker", "Barbell Score", "EVT Shape (Tail)", "EVT Left Tail",
+            "Omega", "Hurst", "Momentum_1Y",
+            "Skewness", "Annual Return", "Volatility",
+            "Sharpe", "Sortino", "Max Drawdown", "Kelly Safe (50%)"
+        ]
+        display_cols = [c for c in display_cols if c in df_res.columns]
+
+        df_display = df_res[display_cols].copy()
         df_display.insert(0, "Wybierz", False)
 
-        # Dynamic height calculation: (Rows + Header) * Height per row
-        # Approx 35px per row + 38px header + buffer
-        dynamic_height = (len(df_res) + 1) * 35 + 3
+        format_dict = {}
+        for col_ in ["Annual Return", "Volatility", "Momentum_1Y", "Max Drawdown", "Kelly Safe (50%)"]:
+            if col_ in df_display.columns: format_dict[col_] = "{:.1%}"
+        for col_ in ["Barbell Score", "Skewness", "EVT Shape (Tail)", "EVT Left Tail",
+                     "Omega", "Hurst", "Sharpe", "Sortino"]:
+            if col_ in df_display.columns: format_dict[col_] = "{:.2f}"
+
+        dynamic_height = (len(df_res) + 1) * 38 + 10
+
+        try:
+            styled = df_display.style.format(format_dict)
+            if "Barbell Score" in df_display.columns:
+                styled = styled.applymap(highlight_barbell, subset=["Barbell Score"])
+            if "Hurst" in df_display.columns:
+                styled = styled.applymap(highlight_hurst, subset=["Hurst"])
+        except Exception:
+            styled = df_display
 
         edited_df_scan = st.data_editor(
-            df_display.style.format({
-                "Annual Return": "{:.1%}",
-                "Volatility": "{:.1%}",
-                "Skewness": "{:.2f}",
-                "Kurtosis": "{:.2f}",
-                "EVT Shape (Tail)": "{:.2f}",
-                "Kelly Safe (50%)": "{:.1%}",
-                "Sharpe": "{:.2f}",
-                "Sortino": "{:.2f}",
-                "Max Drawdown": "{:.1%}"
-            }).applymap(highlight_score, subset=['Score']),
-            use_container_width=True,
-            height=dynamic_height,
+            styled, use_container_width=True, height=dynamic_height,
             column_config={
-                "Wybierz": st.column_config.CheckboxColumn(
-                    "Wybierz",
-                    help="Zaznacz, aby przenieść do Symulatora",
-                    default=False,
-                )
+                "Wybierz": st.column_config.CheckboxColumn("Wybierz", help="Zaznacz aby przenieść do Symulatora", default=False),
+                "Hurst":           st.column_config.NumberColumn("Hurst H", help="> 0.55 🟢 Trend | 0.45-0.55 Losowy | < 0.45 🔵 MR"),
+                "EVT Left Tail":   st.column_config.NumberColumn("Crash Risk", help="Niższy = bezpieczniejszy. > 0.5 = dyskwalifikacja z Risky Sleeve."),
+                "Barbell Score":   st.column_config.NumberColumn("🦸 Barbell Score", help="Główny wskaźnik selekcji (AQR-style ważony Z-Score, 7 czynników)"),
+                "Momentum_1Y":     st.column_config.NumberColumn("Momentum 12M", help="Zwrot z ostatnich 12M minus 1M (Jegadeesh & Titman 1993)"),
+                "Omega":           st.column_config.NumberColumn("Omega Ratio", help="> 1.0 = więcej zysku niż straty. Nie zakłada normalności (Shadwick 2002)."),
             },
-            disabled=list(df_res.columns) # Disable editing for metrics, enable only for checkbox
+            disabled=display_cols,
         )
-        
-        # Selection Logic
+
         selected_rows = edited_df_scan[edited_df_scan["Wybierz"]]
-        
+
         if not selected_rows.empty:
             if st.button(f"➡️ Przenieś zaznaczone ({len(selected_rows)}) do Symulatora", type="primary"):
                 tickers_to_transfer = selected_rows["Ticker"].tolist()
