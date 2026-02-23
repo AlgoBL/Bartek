@@ -276,7 +276,7 @@ if module_selection == "📉 Symulator (Sztanga)":
             """)
 
             # --- Professional Metrics Table ---
-            if not st.session_state["results_df"].empty:
+            if "results_df" in st.session_state and not st.session_state["results_df"].empty:
                 with st.expander("📊 Tabela Profesjonalna (Risk & Performance)", expanded=False):
                     # Organize in 3 categories
                     m_col1, m_col2, m_col3 = st.columns(3)
