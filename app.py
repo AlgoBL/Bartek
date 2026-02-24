@@ -138,11 +138,11 @@ def get_vanguard_report(score, macro, geo_report):
     cycle, _, _, _ = determine_business_cycle(macro)
     
     if score > 70:
-        return "⚠️ ALARM: Wysokie ryzyko systemowe. Dark Pools i VIX wskazują na kaskadową zmienność. Rekomendacja: Obrona kapitału.", "#e74c3c"
+        return "ALARM: Wysokie ryzyko systemowe. Dark Pools i VIX wskazują na kaskadową zmienność. Rekomendacja: Obrona kapitału.", "#e74c3c"
     elif score < 35 and sent > 0.1:
-        return "✅ STATUS: Rynek w silnym reżimie Risk-On. Płynność wspiera wzrosty. Rekomendacja: Ekspansja w Risky Sleeve.", "#2ecc71"
+        return "STATUS: Rynek w silnym reżimie Risk-On. Płynność wspiera wzrosty. Rekomendacja: Ekspansja w Risky Sleeve.", "#2ecc71"
     else:
-        return f"⚖️ STATUS: Reżim mieszany. Faza {cycle}. Rynek szuka kierunku przy stabilnych warunkach finansowych.", "#3498db"
+        return f"STATUS: Reżim mieszany. Faza {cycle}. Rynek szuka kierunku przy stabilnych warunkach finansowych.", "#3498db"
 
 def home():
     st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -171,13 +171,16 @@ def home():
     
     # --- TOP HEADER: INTELLIGENCE REPORT ---
     st.markdown(f"""
-    <div style='background-color: #0d0e12; padding: 20px; border-radius: 12px; border-left: 10px solid {report_color}; margin-bottom: 40px;'>
+    <div style='background-color: #0d0e12; padding: 20px; border-radius: 12px; border-left: 10px solid {report_color}; margin-bottom: 5px;'>
         <h4 style='margin: 0; color: #888; font-size: 14px; letter-spacing: 1px;'>VANGUARD INTELLIGENCE REPORT</h4>
-        <h2 style='margin: 5px 0 0 0; color: white; font-size: 22px;'>{report_text}</h2>
+        <h2 style='margin: 5px 0 0 0; color: white; font-size: 20px; line-height: 1.4;'>Raport: {report_text}</h2>
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+    # Extra explicit spacing to prevent Plotly overlap
+    st.write("")
+    st.write("")
+    st.markdown("<div style='margin-bottom: 60px;'></div>", unsafe_allow_html=True)
 
     # --- MAIN GAUGES ---
     col_t1, col_t2 = st.columns([2, 1])
