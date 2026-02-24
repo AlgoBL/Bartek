@@ -140,7 +140,7 @@ def draw_mini_gauge(title, value, min_val, max_val, invert=False, suffix=""):
             ]
         }
     ))
-    fig.update_layout(height=150, margin=dict(l=15, r=15, t=45, b=10), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
+    fig.update_layout(height=160, margin=dict(l=15, r=15, t=55, b=10), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
     return fig
 
 def get_vanguard_report(score, macro, geo_report):
@@ -158,7 +158,7 @@ def home():
     st.markdown(apply_styling(), unsafe_allow_html=True)
     
     # Moderate top padding (lowered content)
-    st.markdown("<style>div.block-container{padding-top:3.5rem;}</style>", unsafe_allow_html=True)
+    st.markdown("<style>div.block-container{padding-top:5rem;}</style>", unsafe_allow_html=True)
 
     # Handle Legacy Navigation (force_navigate)
     if "force_navigate" in st.session_state:
