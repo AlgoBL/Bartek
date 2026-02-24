@@ -127,7 +127,6 @@ def draw_mini_gauge(title, value, min_val, max_val, invert=False, suffix=""):
         mode="gauge+number",
         value=value,
         number={'suffix': suffix, 'font': {'size': 20, 'color': 'white', 'family': "Inter"}},
-        title={'text': title, 'font': {'size': 14, 'color': '#888', 'family': "Inter"}},
         gauge={
             'axis': {'range': [min_val, max_val], 'tickwidth': 1, 'tickcolor': "#444", 'tickfont': {'size': 8}},
             'bar': {'color': c},
@@ -140,7 +139,7 @@ def draw_mini_gauge(title, value, min_val, max_val, invert=False, suffix=""):
             ]
         }
     ))
-    fig.update_layout(height=160, margin=dict(l=15, r=15, t=55, b=10), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
+    fig.update_layout(height=130, margin=dict(l=15, r=15, t=15, b=10), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
     return fig
 
 def get_vanguard_report(score, macro, geo_report):
