@@ -31,10 +31,25 @@ def translate_ticker_for_stooq(ticker: str) -> str:
         
     return t
 
+import threading
+_YF_LOCK = threading.Lock()
+
 def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = None, period: str = None, auto_adjust: bool = True) -> pd.DataFrame:
-    # W yfinance przy jednym tickerze czasami otrzymujemy Series. 
-    # Dla spójności używamy group_by='ticker' aby dostać ustrukturyzowany DataFrame.
-    kwargs = {"progress": False, "auto_adjust": auto_adjust}
+    # Zabezpieczenie na wyścigi wątków (thread-safety) we wbudowanym module cacheującym YFinance
+    if len(tickers) == 1:
+        # History jest bezpieczne wielowątkowo
+        tkr = yf.Ticker(tickers[0])
+        kw = {"auto_adjust": auto_adjust}
+        if start and end:
+            kw["start"] = start
+            kw["end"] = end
+        elif period:
+            kw["period"] = period
+        else:
+            kw["period"] = "1y"
+        return tkr.history(**kw)
+        
+    kwargs = {"progress": False, "auto_adjust": auto_adjust, "threads": False}
     if start and end:
         kwargs["start"] = start
         kwargs["end"] = end
@@ -43,7 +58,9 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
     else:
         kwargs["period"] = "1y" # domyślnie 1 rok
 
-    data = yf.download(tickers, **kwargs)
+    # Wymuszenie sekwencyjnego logowania w yfinance globals
+    with _YF_LOCK:
+        data = yf.download(tickers, **kwargs)
     return data
 
 def _fetch_from_stooq_sync(tickers: List[str], start: str = None, end: str = None) -> pd.DataFrame:
@@ -65,8 +82,7 @@ def _fetch_from_stooq_sync(tickers: List[str], start: str = None, end: str = Non
             
         data.columns = pd.MultiIndex.from_tuples(new_columns)
         
-        # Swap levels to match yfinance format: (Ticker, Price)
-        data = data.swaplevel(i=0, j=1, axis=1)
+        # Do not swap levels here to match yfinance default format: (Price, Ticker)
         data.sort_index(axis=1, level=0, inplace=True)
     else:
         # Jeden ticker, struktura:  Open High Low Close Volume

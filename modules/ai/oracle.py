@@ -110,22 +110,29 @@ class TheOracle:
             
             # 9. Market Breadth Task (RSP vs SPY 1-month return)
             async def fetch_breadth():
+                out = {}
                 try:
                     from modules.data_provider import fetch_data
                     # Pobieramy ostatni miesiąc by ocenić czy małe spółki nadążają
                     df = await asyncio.to_thread(fetch_data, ["RSP", "SPY"], period="1mo")
-                    if not df.empty and "Close" in df.columns.levels[0] if isinstance(df.columns, pd.MultiIndex) else False:
-                        if isinstance(df.columns, pd.MultiIndex):
+                    if df.empty: return out
+                    
+                    closes = None
+                    if isinstance(df.columns, pd.MultiIndex):
+                        if "Close" in df.columns.levels[0]:
                             closes = df["Close"]
-                        else:
-                            closes = df
-                        if "RSP" in closes.columns and "SPY" in closes.columns:
-                            rsp_ret = (closes["RSP"].iloc[-1] / closes["RSP"].iloc[0]) - 1
-                            spy_ret = (closes["SPY"].iloc[-1] / closes["SPY"].iloc[0]) - 1
-                            return {"RSP_1M_Return": rsp_ret, "SPY_1M_Return": spy_ret, "Breadth_Momentum": rsp_ret - spy_ret}
+                        elif "Close" in df.columns.levels[1]:
+                            closes = df.xs("Close", axis=1, level=1)
+                    elif "Close" in df.columns:
+                        closes = df
+                        
+                    if closes is not None and "RSP" in closes.columns and "SPY" in closes.columns:
+                        rsp_ret = (closes["RSP"].iloc[-1] / closes["RSP"].iloc[0]) - 1
+                        spy_ret = (closes["SPY"].iloc[-1] / closes["SPY"].iloc[0]) - 1
+                        out = {"RSP_1M_Return": rsp_ret, "SPY_1M_Return": spy_ret, "Breadth_Momentum": rsp_ret - spy_ret}
                 except Exception as e:
                     logger.warning(f"Błąd Market Breadth: {e}")
-                return {}
+                return out
                 
             breadth_task = asyncio.create_task(fetch_breadth())
             
