@@ -157,8 +157,8 @@ def get_vanguard_report(score, macro, geo_report):
 def home():
     st.markdown(apply_styling(), unsafe_allow_html=True)
     
-    # Minimize top padding
-    st.markdown("<style>div.block-container{padding-top:1rem;}</style>", unsafe_allow_html=True)
+    # Moderate top padding (lowered content)
+    st.markdown("<style>div.block-container{padding-top:3.5rem;}</style>", unsafe_allow_html=True)
 
     # Handle Legacy Navigation (force_navigate)
     if "force_navigate" in st.session_state:
