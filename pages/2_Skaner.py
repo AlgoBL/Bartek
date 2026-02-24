@@ -289,6 +289,33 @@ if 'v5_scanner_results' in st.session_state:
             st.metric("Mnożnik Kelly (CIO)", f"{kelly_m:.0%}",
                       help="CIO skaluje wielkość pozycji wg reżimu makro. Risk-Off = zmniejsz ryzyko.")
 
+    # ── TDA Crash Indicator ──────────────────────────────────────────────────
+    tda = res.get('tda_results', {})
+    if tda and not tda.get('indicator', pd.Series(dtype=float)).empty:
+        st.divider()
+        st.subheader("🪐 Topological Data Analysis (Betti-0 Crash Indicator)")
+        
+        tda_c1, tda_c2 = st.columns([1, 2])
+        fragility = tda.get('current_fragility', 0.0)
+        is_crash = tda.get('crash_warning', False)
+        threshold = tda.get('threshold_10p', 0.0)
+        
+        with tda_c1:
+            st.metric("Indeks Kruchości Rynku (Betti-0 Death)", f"{fragility:.4f}",
+                      delta="KRACH (Topologiczny)" if is_crash else "Spokojnie",
+                      delta_color="inverse" if is_crash else "normal")
+            st.info("TDA bada 'kształt' chmury danych rynkowych. Niski czas życia komponentów Betti-0 sugeruje, że rynek zapada się w jeden, silnie skorelowany monolit (Contagion/Zaraza).")
+            st.caption(f"Próg ostrzegawczy (10. percentyl): {threshold:.4f}")
+            
+        with tda_c2:
+            tda_series = tda['indicator']
+            fig_tda = px.line(x=tda_series.index, y=tda_series.values, 
+                              title="Krzywa Persystencji Betti-0 w Czasie")
+            fig_tda.add_hline(y=threshold, line_dash="dash", line_color="red", annotation_text="Strefa Krachu")
+            fig_tda.update_layout(template="plotly_dark", height=250, margin=dict(t=30, b=10),
+                                  yaxis_title="Dystans Śmierci Betti-0", xaxis_title="")
+            st.plotly_chart(fig_tda, use_container_width=True)
+
     # ── Wyniki Rankingu EVT ──────────────────────────────────────────────────
     df_metrics = res['metrics_df']
     selected_tickers = res['top_picks']

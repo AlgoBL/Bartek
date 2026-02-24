@@ -285,6 +285,8 @@ def simulate_barbell_strategy(
     rough_eta: float = 1.9,            # vol-of-vol
     rough_rho: float = -0.70,          # spot-vol correlation
     custom_scenarios: list = None,     # [{"year": 5, "drop_pct": 0.40}]
+    use_fbm: bool = False,             # Fractional Brownian Motion
+    fbm_hurst: float = 0.5,            # Hurst exponent for fBM
 ):
     """
     Monte Carlo Simulation z:
@@ -300,7 +302,14 @@ def simulate_barbell_strategy(
     df = max(2.1, risky_kurtosis)
     
     # ─── Random Shocks: Copula selection ────────────────────────────────────
-    if use_rough_vol:
+    if use_fbm:
+        from modules.vanguard_math import generate_fbm_paths
+        fbm = generate_fbm_paths(fbm_hurst, n_simulations, total_days)
+        # We need independent increments (fGn) to act as standard shocks
+        fbm_padded = np.column_stack([np.zeros(n_simulations), fbm])
+        standardized_shocks = np.diff(fbm_padded, axis=1)
+        rough_daily_vols = None
+    elif use_rough_vol:
         # Rough Bergomi: zwraca vol_paths i spot_shocks z korelacją spot-vol
         vol_paths, spot_shocks_2d = simulate_rough_bergomi_vol(
             n_sims=n_simulations, n_days=total_days,

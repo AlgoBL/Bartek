@@ -257,6 +257,37 @@ class ScannerEngine:
 
         metrics_df = self.scan_markets(liquid_assets, progress_callback=evt_cb)
 
+        cb(0.85, "TDA: Ocenianie kruchości strukturalnej chmury rynkowej (Homologia Betti-0)...")
+        tda_results = {"indicator": pd.Series(dtype=float), "current_fragility": 0.0, "crash_warning": False, "threshold_10p": 0.0}
+        try:
+            from modules.vanguard_math import calculate_tda_betti_0_persistence
+            # Bierzemy max 50 najbardziej płynnych by policzyć macierz bez limitów RAM
+            tda_data = self.fetch_bulk_data(liquid_assets[:50])
+            if isinstance(tda_data.columns, pd.MultiIndex):
+                if 'Close' in tda_data.columns.get_level_values(0):
+                    rets_df = tda_data['Close'].pct_change().dropna()
+                else:
+                    rets_df = tda_data.pct_change().dropna()
+            else:
+                rets_df = tda_data.pct_change().dropna()
+                
+            rets_df = rets_df.dropna(axis=1, thresh=len(rets_df)//2).fillna(0)
+            if not rets_df.empty and len(rets_df.columns) > 5:
+                tda_ind = calculate_tda_betti_0_persistence(rets_df, window=60)
+                if not tda_ind.empty and len(tda_ind) > 0:
+                    current_frag = tda_ind.iloc[-1]
+                    hist_10p = tda_ind.quantile(0.10)
+                    is_crash = bool(current_frag < hist_10p)
+                    
+                    tda_results = {
+                        "indicator": tda_ind,
+                        "current_fragility": current_frag,
+                        "crash_warning": is_crash,
+                        "threshold_10p": hist_10p
+                    }
+        except Exception as e:
+            logger.warning(f"Błąd analizy TDA w ScannerEngine: {e}")
+
         # WARSTWA 5: Selekcja (z uwzględnieniem reżimu CIO)
         cb(0.92, "Barbell Score: Klasyfikacja kandydatów do Risky Sleeve...")
         top_picks = self.select_best_candidates(
@@ -275,4 +306,5 @@ class ScannerEngine:
             "metrics_df":            metrics_df,
             "data_backend":          backend_info,
             "sentiment_backend":     sentiment_backend,
+            "tda_results":           tda_results,
         }

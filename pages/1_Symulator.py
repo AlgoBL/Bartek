@@ -136,6 +136,19 @@ if mode == "Monte Carlo (Teoretyczny)":
         on_change=_save, args=("mc_use_jump",),
         help="Symuluje nagłe luki cenowe (Czarne Łabędzie) poprzez proces Poissona. Merton (1976)."
     )
+    use_fbm = st.sidebar.checkbox(
+        "Rynki Fraktalne (fBM)",
+        value=_saved("mc_use_fbm", False), key="mc_use_fbm",
+        on_change=_save, args=("mc_use_fbm",),
+        help="Użyj Fractional Brownian Motion (Mandelbrot) by symulować długoterminową pamięć rynków zamiast błądzenia losowego."
+    )
+    fbm_hurst = 0.5
+    if use_fbm:
+        fbm_hurst = st.sidebar.slider(
+            "Wykładnik Hursta (H)", 0.05, 0.95, value=_saved("mc_fbm_hurst", 0.65), step=0.05,
+            key="mc_fbm_hurst", on_change=_save, args=("mc_fbm_hurst",),
+            help="H > 0.5 to trend (Momentum), H < 0.5 to Mean-Reversion, H = 0.5 to Random Walk."
+        )
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 6. 🌩️ Scenario Builder")
@@ -169,7 +182,9 @@ if mode == "Monte Carlo (Teoretyczny)":
             "use_qmc": use_qmc,
             "use_garch": use_garch,
             "use_jump_diffusion": use_jump_diffusion,
-            "custom_scenarios": custom_scenarios
+            "custom_scenarios": custom_scenarios,
+            "use_fbm": use_fbm,
+            "fbm_hurst": fbm_hurst
         }
         
         # Submit to process pool

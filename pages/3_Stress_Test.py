@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+from modules.vanguard_math import compute_tail_dependence_matrix
 from modules.styling import apply_styling
 from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
 from modules.metrics import (
@@ -293,5 +294,31 @@ if 'stress_results' in st.session_state:
                 )
                 st.plotly_chart(fig_corr_time, use_container_width=True)
                 st.caption("🟢 **Wartości ujemne** (< 0): Idealna dywersyfikacja (gdy ryzykowny spada, bezpieczny rośnie). 🔴 **Wartości dodatnie** (> 0): Załamanie dywersyfikacji (wszystko spada naraz).")
+
+        # ─────────────────────────────────────────────────────────────────
+        # 🆕 DYNAMIC COPULAS: Wskaźnik "Contagion" - Macierz zależności lewego ogona (TDC)
+        # ─────────────────────────────────────────────────────────────────
+        st.divider()
+        st.subheader("🕸️ Analiza Copula: Efekt Zarazy (Tail Dependence)")
+        st.caption("W czasie krachu klasyczna korelacja zawsze dąży do 1. Zależność ogonów (TDC) ukazuje, które dokładnie aktywa pociągają się na dno (Contagion Effect).")
+
+        # Zbierzmy wszystkie testowane aktywa (bez kolumn portfolio) i policzmy TDC
+        original_cols = [c for c in df_chart.columns if c not in ["Portfolio (Barbell)", "Benchmark", "Safe_Val", "Risky_Val"]]
+        if len(original_cols) > 1:
+            asset_rets = df_chart[original_cols].pct_change().dropna()
+            if not asset_rets.empty and len(asset_rets) > 20:
+                td_matrix = compute_tail_dependence_matrix(asset_rets, q=0.15)
+                fig_cop = px.imshow(
+                    td_matrix,
+                    text_auto=".2f",
+                    color_continuous_scale="Reds",
+                    zmin=0, zmax=1,
+                    title="Macierz Zależności Dolnego Ogona (P(X < q | Y < q))"
+                )
+                fig_cop.update_layout(template="plotly_dark", height=450)
+                st.plotly_chart(fig_cop, use_container_width=True)
+                st.caption("🔴 **Czerwone wartości (bliskie 1.0)** oznaczają ekstremalny efekt zarazy: gdy ubezpieczenie nie działa. 🟢 **Białe/Jasne wartości (bliskie 0.0)** oznaczają asymetryczność w piekle rynkowym (Idealny Barbell).")
+            else:
+                st.info("Kryzys trwał za krótko na wyliczenie Gumbel/Clayton Copula TDC.")
 
 
