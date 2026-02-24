@@ -114,9 +114,6 @@ def home():
         elif target == "⚡ Stress Test":
             st.switch_page("pages/3_Stress_Test.py")
 
-    st.title("⚖️ Control Center V8")
-    st.markdown("### Autonomiczny Pulpit Nawigacyjny Sztangi")
-    
     with st.spinner("Synchronizacja z sensorami globalnymi (TheOracle)..."):
         try:
             macro, geo_report = fetch_control_center_data()
