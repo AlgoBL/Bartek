@@ -96,10 +96,22 @@ class TheOracle:
                 
             crypto_task = asyncio.create_task(fetch_crypto())
             
+            # 8. Options Data (GEX & Skew) Task
+            async def fetch_options_gex():
+                try:
+                    from modules.vanguard_math import compute_gex_and_skew
+                    return await asyncio.to_thread(compute_gex_and_skew, "SPY")
+                except Exception as e:
+                    logger.warning(f"Błąd options GEX: {e}")
+                    return {}
+                    
+            options_task = asyncio.create_task(fetch_options_gex())
+            
             # Await all fetches concurrently
             results_tickers = await asyncio.gather(*ticker_tasks)
             results_fred = await asyncio.gather(*fred_tasks)
             res_crypto = await crypto_task
+            res_options = await options_task
             
             # Populate snapshot
             for name, val in results_tickers:
@@ -111,6 +123,8 @@ class TheOracle:
                 snapshot[f"FRED_{name}"] = val
                 
             snapshot[res_crypto[0]] = res_crypto[1]
+            if res_options:
+                snapshot.update(res_options)
             
         # 2. Derived signals — Yield Curve
         y10 = snapshot.get("10Y_Treasury")

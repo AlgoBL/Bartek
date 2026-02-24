@@ -189,5 +189,166 @@ def generate_fbm_paths(H: float, n_paths: int, n_steps: int) -> np.ndarray:
         return fbm
     except np.linalg.LinAlgError:
         # Fallback do zwyklego Browna jesli macierz kowariancji by ulegla uszkodzeniu
-        fgn = np.random.randn(n_paths, n_steps)
         return np.cumsum(fgn, axis=1)
+
+# =====================================================================
+# 4. VOLATILITY SURFACE & DARK POOLS (GEX)
+# =====================================================================
+
+import scipy.stats as stats
+
+def black_scholes_gamma(S: float, K: float, T: float, r: float, sigma: float) -> float:
+    """
+    Oblicza współczynnik Gamma z modelu Blacka-Scholesa.
+    S: Spot (obecna cena)
+    K: Strike (cena wykonania)
+    T: Time to maturity (w latach)
+    r: Risk-free rate
+    sigma: Implied Volatility
+    """
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return 0.0
+    
+    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+    gamma = stats.norm.pdf(d1) / (S * sigma * np.sqrt(T))
+    return gamma
+
+def compute_gex_and_skew(ticker_symbol: str = "SPY") -> dict:
+    """
+    Pobiera dane opcyjne i oblicza:
+    1. Total Gamma Exposure (GEX) - wpływ Market Makerów na rynek.
+    2. Zero Gamma Level - próg poniżej którego rynkiem rządzi panika.
+    3. Skew Index - stosunek ceny zabezpieczeń przed krachem (OTM Puts) do spekulacji wzrostowej (OTM Calls).
+    """
+    import yfinance as yf
+    try:
+        tk = yf.Ticker(ticker_symbol)
+        expirations = tk.options
+        if not expirations:
+            return {}
+            
+        # Bierzemy najbliższe i kolejne wygaśnięcia (do 3 tygodni / 1 miesiąca wprzód minimalnie)
+        spot_history = tk.history(period="5d")
+        if spot_history.empty:
+            return {}
+        spot_price = spot_history['Close'].iloc[-1]
+        
+        total_gex = 0.0
+        gex_profile = {} # Strike -> Net GEX
+        
+        otm_puts_iv = []
+        otm_calls_iv = []
+        
+        for exp in expirations[:3]: # Analizujemy 3 najbliższe terminy by złapać front-month gamma
+            chain = tk.option_chain(exp)
+            calls = chain.calls
+            puts = chain.puts
+            
+            # Days to expiration
+            T = max((pd.to_datetime(exp) - pd.Timestamp.today()).days / 365.25, 1/365.25)
+            r = 0.045 # Ok. 4.5% wolne od ryzyka
+            
+            # Przetwarzamy CALLS
+            for idx, row in calls.iterrows():
+                K = row['strike']
+                iv = row['impliedVolatility']
+                oi = row['openInterest']
+                if np.isnan(oi) or oi == 0 or np.isnan(iv) or iv < 0.01: continue
+                
+                gamma = black_scholes_gamma(spot_price, K, T, r, iv)
+                # Call GEX is positive (Dealers are short calls, so they hedge by buying dips and selling rips if net positive)
+                # Actually standard formulation: GEX = Gamma * OI * 100 * Spot
+                scalled_gex = gamma * oi * 100 * spot_price
+                total_gex += scalled_gex
+                gex_profile[K] = gex_profile.get(K, 0) + scalled_gex
+                
+                # Check 5% OTM calls for skew
+                if K > spot_price * 1.04 and K < spot_price * 1.06:
+                    otm_calls_iv.append(iv)
+                    
+            # Przetwarzamy PUTS
+            for idx, row in puts.iterrows():
+                K = row['strike']
+                iv = row['impliedVolatility']
+                oi = row['openInterest']
+                if np.isnan(oi) or oi == 0 or np.isnan(iv) or iv < 0.01: continue
+                
+                gamma = black_scholes_gamma(spot_price, K, T, r, iv)
+                # Put GEX is negative
+                scalled_gex = -gamma * oi * 100 * spot_price
+                total_gex += scalled_gex
+                gex_profile[K] = gex_profile.get(K, 0) + scalled_gex
+                
+                # Check 5% OTM puts for skew
+                if K < spot_price * 0.96 and K > spot_price * 0.94:
+                    otm_puts_iv.append(iv)
+        
+        # Zero Gamma Level Approximation (Gdzie profil przechodzi przez 0)
+        # To uproszczenie szuka strajku z największym nagromadzeniem wolumenu wokół zera
+        sorted_strikes = sorted(gex_profile.keys())
+        cumulative_gex = []
+        c = 0
+        zero_gamma_level = spot_price
+        
+        # OTM Put IV / OTM Call IV
+        skew_index = 1.0
+        if otm_puts_iv and otm_calls_iv:
+            skew_index = np.mean(otm_puts_iv) / np.mean(otm_calls_iv)
+            
+        return {
+            "spot_price": spot_price,
+            "total_gex_billions": total_gex / 1e9,
+            "skew_index": skew_index,
+            "gex_status": "Positive (Stabilizing) 🟢" if total_gex > 0 else "Negative (Volatile) 🔴"
+        }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Błąd przy obliczaniu GEX dla {ticker_symbol}: {e}")
+        return {}
+
+
+# =====================================================================
+# 5. BAYESIAN KELLY MULTIPLIER
+# =====================================================================
+
+def bayesian_kelly_update(prior_prob: float, evidence_score: float, max_evidence_score: float = 10.0) -> float:
+    """
+    Dokonuje Bayesowskiej aktualizacji pewności systemu względem "zwycięstwa" (zyskownego tradu).
+    
+    prior_prob: Początkowe bazowe prawdopodobieństwo po stronie CIO (np. 0.5).
+    evidence_score: Nowy sygnał np. z Oracle (od -max_evidence_score do +max_evidence_score).
+    max_evidence_score: Maksymalna teoretyczna siła sygnału.
+    
+    Zwraca uaktualnione prawdopodobieństwo sukcesu (Posterior), które można wrzucić do Kelly'ego.
+    """
+    # Likelihood ratio. Jeśli evidence > 0, L > 1 (zwiększamy wiarę).
+    # Normalizujemy evidence do [-1, 1]
+    norm_evidence = np.clip(evidence_score / max_evidence_score, -0.99, 0.99)
+    
+    # Przełożenie znormalizowanego sygnału na Likelihood
+    # np. sygnał +0.5 -> L = (1+0.5)/(1-0.5) = 1.5/0.5 = 3.0
+    L = (1 + norm_evidence) / (1 - norm_evidence)
+    
+    posterior_prob = (prior_prob * L) / (prior_prob * L + (1 - prior_prob))
+    return posterior_prob
+
+def dynamic_bayesian_kelly(returns: pd.Series, prior_prob: float, evidence: float, win_loss_ratio: float = None) -> float:
+    """
+    Oblicza frakcję Kelly'ego ze zaktualizowanym Bayesowskim prawdopodobieństwem.
+    f_star = P - (1-P)/(W/L)
+    """
+    p_asterix = bayesian_kelly_update(prior_prob, evidence)
+    
+    if win_loss_ratio is None:
+        mean_win = returns[returns > 0].mean() if len(returns[returns > 0]) > 0 else 0
+        mean_loss = abs(returns[returns < 0].mean()) if len(returns[returns < 0]) > 0 else 0
+        if mean_loss == 0 or np.isnan(mean_loss):
+            win_loss_ratio = 1.0
+        else:
+            win_loss_ratio = mean_win / mean_loss
+
+    if win_loss_ratio == 0:
+        return 0.0
+        
+    kelly_f = p_asterix - ((1 - p_asterix) / win_loss_ratio)
+    return max(0.0, kelly_f)

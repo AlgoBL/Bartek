@@ -249,6 +249,21 @@ if 'v5_scanner_results' in st.session_state:
                                     delta="BACKWARDATION ⚠️" if bkwd else "Contango ✅")
                 if cu_au:  st.metric("Copper/Gold Ratio", f"{cu_au:.4f}",
                                     help="Róśnie = wzrost globalny (risk-on), maleje = risk-off")
+                                    
+                gex = macro.get("total_gex_billions")
+                skew = macro.get("skew_index")
+                if gex is not None and skew is not None:
+                    st.divider()
+                    st.markdown("**🌑 Dark Pools & Options (GEX):**")
+                    st.metric("Net Gamma Exposure (SPY GEX)", f"${gex:.1f} Mld", 
+                              delta=macro.get("gex_status", ""), 
+                              delta_color="normal" if gex > 0 else "inverse",
+                              help="Zastępcze szacowanie pozycji Market Makerów na SPY. Dodatni GEX to niska zmienność (kupują spadki, sprzedają wzrosty). Ujemny GEX to rynkowe eldorado zmienności.")
+                    msg_skew = "Strach (Drogie Puts)" if skew > 1.2 else ("Chciwość" if skew < 0.8 else "Neutralnie")
+                    st.metric("Volatility Skew Index", f"{skew:.2f}", 
+                              delta=msg_skew,
+                              delta_color="inverse" if skew > 1.2 else "normal",
+                              help="Stosunek Implied Volatility: OTM Put / OTM Call. Im wyższy, tym droższe ubezpieczenie od krachu (Smart Money się boi).")
 
     with col_c2:
         _geo_backend_badge = res.get('sentiment_backend', 'unknown')

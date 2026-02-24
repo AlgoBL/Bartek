@@ -34,13 +34,31 @@ class RLTrader:
             
         return action
 
-    def get_kelly_adjustment(self, current_volatility, regime):
+    def get_kelly_adjustment(self, current_volatility, regime, extra_evidence=0.0):
         """
         Returns a multiplier for the Kelly Fraction based on RL logic / Market State.
+        Now uses Bayesian Probability updating (Vanguard V7.0)
         """
+        from modules.vanguard_math import bayesian_kelly_update
+        
+        # Base neutral prior
+        prior = 0.5 
+        evidence = extra_evidence
+        
         if regime == "High Volatility (Risk-Off)":
-            return 0.0 # Sit out
-        elif current_volatility < 0.10: # Calm bull market
-            return 1.2 # Boost
-        else:
-            return 1.0 # Normal
+            evidence -= 6.0
+        elif regime == "Low Volatility (Risk-On)":
+            evidence += 3.0
+            
+        if current_volatility < 0.12:
+            evidence += 3.0
+        elif current_volatility > 0.25:
+            evidence -= 4.0
+            
+        posterior = bayesian_kelly_update(prior, evidence, max_evidence_score=10.0)
+        
+        # Scale posterior [0, 1] to a Kelly Multiplier [0, ~2.0]
+        # 0.5 prior -> 1.0 multiplier
+        multiplier = posterior * 2.0
+        return max(0.0, min(1.5, multiplier)) # Cap at 1.5x leverage
+
