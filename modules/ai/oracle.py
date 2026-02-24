@@ -15,9 +15,10 @@ FRED_SERIES = {
     "Credit_Spread_BAA_AAA": "BAA10Y",   # Spread korporacyjny BBB-10Y
     "Initial_Jobless_Claims": "IC4WSA",  # Wnioski o zasiłek
     "ISM_Manufacturing_PMI":  "MANEMP",  # Proxy PMI
-    "M2_YoY_Growth":          "M2SL",    # M2
+    "M2_YoY_Growth":          "M2SL&units=pc1", # M2 Podaż pieniądza (% zmiana r/r)
     "TED_Spread":             "TEDRATE", # Ryzyko kredytowe bankowe
     "HY_Spread":              "BAMLH0A0HYM2", # High Yield Option-Adjusted Spread
+    "Real_Yield_10Y":         "DFII10",  # 10Y Real Yield (TIPS)
 }
 
 async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_id: str) -> tuple[str, float | None]:
@@ -107,11 +108,33 @@ class TheOracle:
                     
             options_task = asyncio.create_task(fetch_options_gex())
             
+            # 9. Market Breadth Task (RSP vs SPY 1-month return)
+            async def fetch_breadth():
+                try:
+                    from modules.data_provider import fetch_data
+                    # Pobieramy ostatni miesiąc by ocenić czy małe spółki nadążają
+                    df = await asyncio.to_thread(fetch_data, ["RSP", "SPY"], period="1mo")
+                    if not df.empty and "Close" in df.columns.levels[0] if isinstance(df.columns, pd.MultiIndex) else False:
+                        if isinstance(df.columns, pd.MultiIndex):
+                            closes = df["Close"]
+                        else:
+                            closes = df
+                        if "RSP" in closes.columns and "SPY" in closes.columns:
+                            rsp_ret = (closes["RSP"].iloc[-1] / closes["RSP"].iloc[0]) - 1
+                            spy_ret = (closes["SPY"].iloc[-1] / closes["SPY"].iloc[0]) - 1
+                            return {"RSP_1M_Return": rsp_ret, "SPY_1M_Return": spy_ret, "Breadth_Momentum": rsp_ret - spy_ret}
+                except Exception as e:
+                    logger.warning(f"Błąd Market Breadth: {e}")
+                return {}
+                
+            breadth_task = asyncio.create_task(fetch_breadth())
+            
             # Await all fetches concurrently
             results_tickers = await asyncio.gather(*ticker_tasks)
             results_fred = await asyncio.gather(*fred_tasks)
             res_crypto = await crypto_task
             res_options = await options_task
+            res_breadth = await breadth_task
             
             # Populate snapshot
             for name, val in results_tickers:
@@ -125,6 +148,8 @@ class TheOracle:
             snapshot[res_crypto[0]] = res_crypto[1]
             if res_options:
                 snapshot.update(res_options)
+            if res_breadth:
+                snapshot.update(res_breadth)
             
         # 2. Derived signals — Yield Curve
         y10 = snapshot.get("10Y_Treasury")

@@ -43,7 +43,7 @@ def calculate_regime_score(macro, geo_report):
     if gex < 0: score += 15.0
     elif gex > 5: score -= 10.0
     
-    # 3. Sentiment
+    # 3. Sentiment & Defcon
     sent = geo_report.get("compound_sentiment", 0.0)
     score -= sent * 15.0
     
@@ -55,6 +55,22 @@ def calculate_regime_score(macro, geo_report):
     if hy > 6.0: score += 15.0
     elif hy < 4.0: score -= 5.0
     
+    # 5. Płynność i Grawitacja (V8.5)
+    m2_yoy = macro.get("FRED_M2_YoY_Growth")
+    if m2_yoy is not None:
+        if m2_yoy < 0: score += 15.0
+        elif m2_yoy > 4.0: score -= 10.0
+        
+    real_yield = macro.get("FRED_Real_Yield_10Y")
+    if real_yield is not None:
+        if real_yield > 2.0: score += 10.0
+        elif real_yield < 0.5: score -= 10.0
+        
+    breadth = macro.get("Breadth_Momentum")
+    if breadth is not None:
+        if breadth < -0.03: score += 10.0 # Rynek ciągnie tylko promil spółek (niezdrowy trend)
+        elif breadth > 0.01: score -= 5.0
+    
     return max(1.0, min(100.0, score))
 
 def determine_business_cycle(macro):
@@ -63,11 +79,11 @@ def determine_business_cycle(macro):
     pmi = macro.get("FRED_ISM_Manufacturing_PMI", 50.0)
     
     if yc < 0:
-        return "Spowolnienie (Slowdown)", "Zacieśnianie polityki przez bank centralny. Inwersja krzywej rentowności.", "📉", "#f39c12"
+        return "Spowolnienie (Slowdown)", "Zacieśnianie polityki przez bank centralny. Inwersja krzywej.", "📉", "#f39c12"
     elif claims > 300000 and yc >= 0:
         return "Recesja (Recession)", "Kryzys gospodarczy. Rosnące bezrobocie, dno rynkowe.", "💀", "#e74c3c"
     elif pmi < 50 and yc > 0.5:
-        return "Odrodzenie (Recovery)", "Dno za nami. Stymulacja systemowa, hossa na rynkach dyskontuje poprawę.", "🌱", "#3498db"
+        return "Odrodzenie (Recovery)", "Dno za nami. Stymulacja systemowa dyskontuje poprawę.", "🌱", "#3498db"
     else:
         return "Ekspansja (Expansion)", "Silny wzrost gospodarczy. Zyski rosną, optymizm na rynkach.", "🚀", "#2ecc71"
 
@@ -96,12 +112,24 @@ def draw_regime_radar(score):
         }
     ))
     fig.update_layout(
-        height=400,
+        height=350,
         margin=dict(l=20, r=20, t=50, b=20),
         paper_bgcolor="rgba(0,0,0,0)",
         font={'color': "white"}
     )
     return fig
+
+def make_sensor_card(title, value, icon, color, desc):
+    return f"""
+    <div style='background-color: #1a1c23; padding: 20px; border-radius: 12px; border-top: 4px solid {color}; border-bottom: 1px solid #333; height: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.3);'>
+        <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
+            <h4 style='margin: 0; color: #e0e0e0; font-size: 16px;'>{title}</h4>
+            <span style='font-size: 24px;'>{icon}</span>
+        </div>
+        <h2 style='margin: 0; color: {color}; font-size: 28px; font-weight: bold;'>{value}</h2>
+        <p style='color: #888; font-size: 12px; margin-top: 8px; line-height: 1.3;'>{desc}</p>
+    </div>
+    """
 
 def home():
     st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -114,7 +142,7 @@ def home():
         elif target == "⚡ Stress Test":
             st.switch_page("pages/3_Stress_Test.py")
 
-    with st.spinner("Synchronizacja z sensorami globalnymi (TheOracle)..."):
+    with st.spinner("Oko Saurona kalibruje sensory globalne (TheOracle)..."):
         try:
             macro, geo_report = fetch_control_center_data()
         except Exception as e:
@@ -127,60 +155,13 @@ def home():
 
     score = calculate_regime_score(macro, geo_report)
     
-    # --- RADAR REŻIMU ---
-    st.plotly_chart(draw_regime_radar(score), use_container_width=True)
-    
-    st.divider()
-
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.markdown('### ☣️ Zegar Zagłady (Doomsday Matrix)')
-        
-        c1, c2, c3 = st.columns(3)
-        
-        # 1. VIX Term Structure
-        bkwd = macro.get("VIX_Backwardation", False)
-        vix_ts = macro.get("VIX_TS_Ratio", 0.0)
-        vix_icon = "🔥 Panika (Backwardation)" if bkwd else "🛡️ Spokój (Contango)"
-        vix_color = "#e74c3c" if bkwd else "#2ecc71"
-        
-        with c1:
-            st.markdown(f"<div style='background-color: #1e1e1e; padding: 15px; border-radius: 10px; border-left: 5px solid {vix_color}; text-align: center;'>"
-                        f"<h4 style='margin-bottom: 5px;'>Krzywa VIX</h4>"
-                        f"<h2 style='margin: 0; color: {vix_color};'>{vix_ts:.2f}</h2>"
-                        f"<p style='margin-top: 5px; color: #aaaaaa;'>{vix_icon}</p>"
-                        f"</div>", unsafe_allow_html=True)
-
-        # 2. Yield Curve
-        yc_spread = macro.get("Yield_Curve_Spread", 0.0)
-        yc_inv = macro.get("Yield_Curve_Inverted", False)
-        yc_icon = "⚠️ Odwrócona" if yc_inv else "✅ Rosnąca"
-        yc_color = "#e74c3c" if yc_inv else "#2ecc71"
-        
-        with c2:
-            st.markdown(f"<div style='background-color: #1e1e1e; padding: 15px; border-radius: 10px; border-left: 5px solid {yc_color}; text-align: center;'>"
-                        f"<h4 style='margin-bottom: 5px;'>Spread Rentowności (US)</h4>"
-                        f"<h2 style='margin: 0; color: {yc_color};'>{yc_spread:.2f}%</h2>"
-                        f"<p style='margin-top: 5px; color: #aaaaaa;'>{yc_icon}</p>"
-                        f"</div>", unsafe_allow_html=True)
-
-        # 3. NLP Sentiment
-        sent = geo_report.get("compound_sentiment", 0.0)
-        sent_icon = "📰 Negatywny" if sent < -0.15 else ("📰 Neutralny" if sent < 0.15 else "📰 Pozytywny")
-        sent_color = "#e74c3c" if sent < -0.15 else ("#f39c12" if sent < 0.15 else "#2ecc71")
-        
-        with c3:
-            st.markdown(f"<div style='background-color: #1e1e1e; padding: 15px; border-radius: 10px; border-left: 5px solid {sent_color}; text-align: center;'>"
-                        f"<h4 style='margin-bottom: 5px;'>Global Sentyment</h4>"
-                        f"<h2 style='margin: 0; color: {sent_color};'>{sent:.2f}</h2>"
-                        f"<p style='margin-top: 5px; color: #aaaaaa;'>{sent_icon}</p>"
-                        f"</div>", unsafe_allow_html=True)
-                        
-    with col2:
+    # --- GÓRNY PANEL ---
+    col_t1, col_t2 = st.columns([3, 2])
+    with col_t1:
+        st.plotly_chart(draw_regime_radar(score), use_container_width=True)
+    with col_t2:
         st.markdown('### 🏭 Zegar Biznesowy')
         phase, desc, icon, color = determine_business_cycle(macro)
-        
         st.markdown(f"""
         <div style='background-color: #1e1e1e; padding: 25px; border-radius: 15px; text-align: center; border: 2px solid {color}'>
             <h1 style='font-size: 60px; margin: 0;'>{icon}</h1>
@@ -188,6 +169,94 @@ def home():
             <p style='color: #dddddd; font-size: 14px; margin-top: 15px;'>{desc}</p>
         </div>
         """, unsafe_allow_html=True)
+        
+    st.divider()
+    
+    # --- ODCZYTY SENSORÓW ---
+    st.markdown('### 🎛️ Sensory Taktyczne: Oko Saurona (V8.5)')
+    
+    # 1. Hydraulika (M2)
+    m2_yoy = macro.get("FRED_M2_YoY_Growth")
+    if m2_yoy is not None:
+        m2_color = "#2ecc71" if m2_yoy > 0 else "#e74c3c"
+        m2_desc = "Drukarki włączone (Zalew gotówki, Hossa)" if m2_yoy > 2.0 else ("Zacieśnianie ilościowe (Wysychanie)" if m2_yoy < 0 else "Neutralna Płynność")
+        m2_val = f"{m2_yoy:.2f}% r/r"
+    else:
+        m2_color, m2_desc, m2_val = "#7f8c8d", "Brak danych z FRED", "N/A"
+
+    # 2. Grawitacja (Real Yield)
+    ry = macro.get("FRED_Real_Yield_10Y")
+    if ry is not None:
+        ry_color = "#e74c3c" if ry > 2.0 else ("#f1c40f" if ry > 0.5 else "#2ecc71")
+        ry_desc = "Tani pieniądz napędza spekulację (Risk-On)." if ry <= 0.5 else "Koszt pieniądza ściąga w dół wyceny tech."
+        ry_val = f"{ry:.2f}%"
+    else:
+        ry_color, ry_desc, ry_val = "#7f8c8d", "Brak danych z FRED", "N/A"
+
+    # 3. Defcon Geopolityczny
+    sent = geo_report.get("compound_sentiment", 0.0)
+    if sent < -0.4: defcon, d_col, d_desc = 1, "#e74c3c", "Globalna destabilizacja. Szoki podażowe. Uciekaj do bezpiecznej bazy sztangi!"
+    elif sent < -0.15: defcon, d_col, d_desc = 2, "#e67e22", "Podwyższone ryzyko konfliktów. Ostrzeżenie przed eskalacją."
+    elif sent < 0.1: defcon, d_col, d_desc = 3, "#f1c40f", "Niestabilność lokalna. Średni poziom napięć na świecie."
+    elif sent < 0.3: defcon, d_col, d_desc = 4, "#3498db", "Zwykły szum geopolityczny. Rynek ignoruje mroczne ryzyka."
+    else: defcon, d_col, d_desc = 5, "#2ecc71", "Era pokoju. Geopolityczna nuda nie wywiera presji inflacyjnej."
+    defcon_val = f"DEFCON {defcon}"
+
+    # 4. Prześwietlenie (Market Breadth)
+    breadth = macro.get("Breadth_Momentum")
+    if breadth is not None:
+        br_color = "#2ecc71" if breadth > -0.01 else "#e74c3c"
+        br_desc = "Zdrowy Byk (Szeroki udział małych/średnich spółek)" if breadth > -0.01 else "Terminalnie Chory Rynek (Hossę ciągną nieliczne Big Techy)"
+        br_val = f"{breadth*100:.1f} p.p."
+    else:
+        br_color, br_desc, br_val = "#7f8c8d", "Brak odczytu RSP vs SPY", "N/A"
+
+    # 5. Doomsday: VIX Curve & Yield Curve
+    vix_ts = macro.get("VIX_TS_Ratio", 0.0)
+    bkwd = macro.get("VIX_Backwardation", False)
+    vix_col = "#e74c3c" if bkwd else "#2ecc71"
+    vix_desc = "Cena strachu w krótkim terminie przerosła długi (Panika)" if bkwd else "Rynek ubezpieczeń funkcjonuje normalnie (Contango)"
+    
+    yc_sp = macro.get("Yield_Curve_Spread", 0.0)
+    yc_inv = macro.get("Yield_Curve_Inverted", False)
+    yc_col = "#e74c3c" if yc_inv else "#2ecc71"
+    yc_desc = "Odwrócona struktura oprocentowania (Kredyt Bankowy zagraża Reccesją)" if yc_inv else "Naturalne premie za długie zamrożenie (Stabilność)"
+
+    # 6. Kasyno: GEX & Skew
+    gex = macro.get("total_gex_billions")
+    if gex is not None:
+        gex_col = "#2ecc71" if gex > 0 else "#e74c3c"
+        gex_desc = "Dealerzy kupują spadki by hedgować portfele (Zamrożona zmienność)" if gex > 0 else "GEX na minusie. Dealerzy napędzają wyprzedaże. Rajdy dołujące."
+        gex_val = f"${gex:.1f}B"
+    else:
+        gex_col, gex_desc, gex_val = "#7f8c8d", "Brak danych Opcji", "N/A"
+        
+    skew = macro.get("skew_index")
+    if skew is not None:
+        skew_col = "#e74c3c" if skew > 1.2 else ("#f1c40f" if skew > 1.05 else "#2ecc71")
+        skew_desc = "Extremalny popyt na OTM Put. Smart Money dyskontuje krach." if skew > 1.2 else "Bilans pomiędzy callami a putami stabilny."
+        skew_val = f"{skew:.2f}"
+    else:
+        skew_col, skew_desc, skew_val = "#7f8c8d", "", "N/A"
+
+    # WIDGET GRID
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(make_sensor_card("🚰 Hydraulika (M2 YoY)", m2_val, "💸", m2_color, m2_desc), unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(make_sensor_card("🌡️ Grawitacja (Real Yield)", ry_val, "⚓", ry_color, ry_desc), unsafe_allow_html=True)
+    with c2:
+        st.markdown(make_sensor_card("🌍 Geopolityka", defcon_val, "☢️", d_col, d_desc), unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(make_sensor_card("🩻 Prześwietlenie Hossy", br_val, "🩺", br_color, br_desc), unsafe_allow_html=True)
+    with c3:
+        st.markdown(make_sensor_card("⚠️ Spread (USA 10Y-2Y)", f"{yc_sp:.2f}%", "⏳", yc_col, yc_desc), unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(make_sensor_card("🔥 VIX Term Structure", f"{vix_ts:.2f}", "📉", vix_col, vix_desc), unsafe_allow_html=True)
+    with c4:
+        st.markdown(make_sensor_card("🌑 Dark Pools GEX", gex_val, "🎰", gex_col, gex_desc), unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(make_sensor_card("🛡️ Skew Index", skew_val, "⚖️", skew_col, skew_desc), unsafe_allow_html=True)
 
 pages = {
     "Start": [
