@@ -133,6 +133,17 @@ def draw_mini_gauge(title, value, min_val, max_val, invert=False, suffix=""):
     fig.update_layout(height=140, margin=dict(l=10, r=10, t=40, b=10), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
     return fig
 
+def get_vanguard_report(score, macro, geo_report):
+    sent = geo_report.get("compound_sentiment", 0)
+    cycle, _, _, _ = determine_business_cycle(macro)
+    
+    if score > 70:
+        return "⚠️ ALARM: Wysokie ryzyko systemowe. Dark Pools i VIX wskazują na kaskadową zmienność. Rekomendacja: Obrona kapitału.", "#e74c3c"
+    elif score < 35 and sent > 0.1:
+        return "✅ STATUS: Rynek w silnym reżimie Risk-On. Płynność wspiera wzrosty. Rekomendacja: Ekspansja w Risky Sleeve.", "#2ecc71"
+    else:
+        return f"⚖️ STATUS: Reżim mieszany. Faza {cycle}. Rynek szuka kierunku przy stabilnych warunkach finansowych.", "#3498db"
+
 def home():
     st.markdown(apply_styling(), unsafe_allow_html=True)
     
