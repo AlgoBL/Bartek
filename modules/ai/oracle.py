@@ -19,6 +19,7 @@ FRED_SERIES = {
     "TED_Spread":             "TEDRATE", # Ryzyko kredytowe bankowe
     "HY_Spread":              "BAMLH0A0HYM2", # High Yield Option-Adjusted Spread
     "Real_Yield_10Y":         "DFII10",  # 10Y Real Yield (TIPS)
+    "Financial_Stress_Index": "STLFSI4", # St. Louis Fed Financial Stress Index
 }
 
 async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_id: str) -> tuple[str, float | None]:
@@ -58,6 +59,7 @@ class TheOracle:
             "SP500":          "^GSPC",
             "MOVE_Index":     "MOVE",     # Zmienność obligacji (CBOE)
             "Baltic_Dry":     "BDRY",     # Baltic Dry Index proxy (ETF)
+            "Treasury_Bond_ETF":"TLT",     # iShares 20+ Year Treasury Bond ETF
         }
 
         # RSS — nagłówki finansowe
@@ -108,33 +110,24 @@ class TheOracle:
                     
             options_task = asyncio.create_task(fetch_options_gex())
             
-            # 9. Market Breadth Task (RSP vs SPY 1-month return)
-            async def fetch_breadth():
-                out = {}
-                try:
-                    from modules.data_provider import fetch_data
-                    # Pobieramy ostatni miesiąc by ocenić czy małe spółki nadążają
-                    df = await asyncio.to_thread(fetch_data, ["RSP", "SPY"], period="1mo")
-                    if df.empty: return out
-                    
-                    closes = None
-                    if isinstance(df.columns, pd.MultiIndex):
-                        if "Close" in df.columns.levels[0]:
-                            closes = df["Close"]
-                        elif "Close" in df.columns.levels[1]:
-                            closes = df.xs("Close", axis=1, level=1)
-                    elif "Close" in df.columns:
-                        closes = df
-                        
-                    if closes is not None and "RSP" in closes.columns and "SPY" in closes.columns:
-                        rsp_ret = (closes["RSP"].iloc[-1] / closes["RSP"].iloc[0]) - 1
-                        spy_ret = (closes["SPY"].iloc[-1] / closes["SPY"].iloc[0]) - 1
-                        out = {"RSP_1M_Return": rsp_ret, "SPY_1M_Return": spy_ret, "Breadth_Momentum": rsp_ret - spy_ret}
-                except Exception as e:
-                    logger.warning(f"Błąd Market Breadth: {e}")
-                return out
                 
             breadth_task = asyncio.create_task(fetch_breadth())
+            
+            # 10. Bond Volatility Proxy Task
+            async def fetch_bond_vol():
+                try:
+                    from modules.data_provider import fetch_data
+                    df = await asyncio.to_thread(fetch_data, "TLT", period="1mo")
+                    if not df.empty:
+                        # Obliczamy roczną zmienność z ostatnich 20 dni
+                        rets = df["Close"].pct_change().dropna()
+                        vol = rets.std() * (252 ** 0.5) * 100
+                        return {"Bond_Vol_Proxy": vol}
+                except Exception as e:
+                    logger.warning(f"Błąd Bond Vol Proxy: {e}")
+                return {}
+                
+            bond_vol_task = asyncio.create_task(fetch_bond_vol())
             
             # Await all fetches concurrently
             results_tickers = await asyncio.gather(*ticker_tasks)
@@ -142,6 +135,7 @@ class TheOracle:
             res_crypto = await crypto_task
             res_options = await options_task
             res_breadth = await breadth_task
+            res_bond_vol = await bond_vol_task
             
             # Populate snapshot
             for name, val in results_tickers:
@@ -157,6 +151,8 @@ class TheOracle:
                 snapshot.update(res_options)
             if res_breadth:
                 snapshot.update(res_breadth)
+            if res_bond_vol:
+                snapshot.update(res_bond_vol)
             
         # 2. Derived signals — Yield Curve
         y10 = snapshot.get("10Y_Treasury")
