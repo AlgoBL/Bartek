@@ -1,205 +1,535 @@
 """
-Efficient Frontier Module — Intelligent Barbell
-Computes the Efficient Frontier via Monte Carlo portfolio sampling.
-Highlights: Max Sharpe, Min Volatility, Max Omega portfolios.
-Reference: Markowitz (1952), Shadwick & Keating (2002).
+frontier.py — Intelligent Barbell v3.0 (Advanced Portfolio Optimization)
+
+Implementuje trzy rygorystyczne metody optymalizacji:
+  1. HRP  — Hierarchical Risk Parity (Lopez de Prado 2016)
+  2. CVaR — Minimum CVaR (Rockafellar & Uryasev 2000)
+  3. BL   — Black-Litterman z widokami CIO (He & Litterman 1999)
+  4. MC   — Monte Carlo sampling (legacy, Markowitz 1952) — zachowany
+
+Referencje:
+  - Lopez de Prado, M. (2016). Building Diversified Portfolios that Outperform Out-of-Sample.
+  - Rockafellar, R.T. & Uryasev, S. (2000). Optimization of Conditional Value-at-Risk.
+  - Black, F. & Litterman, R. (1992). Global Portfolio Optimization.
 """
 import numpy as np
 import pandas as pd
+import scipy.cluster.hierarchy as sch
+from scipy.optimize import minimize, LinearConstraint
+from scipy.linalg import block_diag
 import plotly.graph_objects as go
 import plotly.express as px
 from modules.metrics import calculate_omega
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. HRP — Hierarchical Risk Parity
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _corr_to_dist(corr: np.ndarray) -> np.ndarray:
+    """Distance matrix d_ij = sqrt(0.5*(1 - rho_ij)). Lopez de Prado (2016)."""
+    dist = np.sqrt(np.maximum(0.5 * (1.0 - corr), 0.0))
+    np.fill_diagonal(dist, 0.0)
+    return dist
+
+
+def _get_quasi_diag(linkage: np.ndarray) -> list:
+    """Sort clustered assets to minimise distance between adjacent items."""
+    n = int(linkage[-1, 3])  # total leaves
+    order = [n - 1]          # start from root
+    while True:
+        new_order = []
+        for cluster in order:
+            if cluster < len(linkage) + 1:   # leaf
+                new_order.append(cluster)
+            else:
+                # Split into left / right children
+                idx = int(cluster) - (len(linkage) + 1)
+                left  = int(linkage[idx, 0])
+                right = int(linkage[idx, 1])
+                new_order.extend([left, right])
+        if new_order == order:
+            break
+        order = new_order
+    return [int(x) for x in order if x < (len(linkage) + 1)]
+
+
+def _recursive_bisection(cov: np.ndarray, sorted_items: list) -> np.ndarray:
+    """
+    Allocate weights by recursive bisection + inverse-variance within clusters.
+    """
+    weights = np.ones(len(sorted_items))
+    cluster_items = [sorted_items]
+
+    while cluster_items:
+        cluster_items = [
+            sub[i: j]
+            for sub in cluster_items
+            for i, j in ((0, len(sub) // 2), (len(sub) // 2, len(sub)))
+            if len(sub) > 1
+        ]
+        for sub in cluster_items:
+            if len(sub) == 0:
+                continue
+            # Cluster variance via inverse-variance weights
+            cov_sub = cov[np.ix_(sub, sub)]
+            inv_var = 1.0 / np.diag(cov_sub)
+            w_sub = inv_var / inv_var.sum()
+            # Portfolio variance of this cluster
+            var_left  = float(w_sub @ cov_sub @ w_sub)
+
+            complement = [x for x in sorted_items if x not in sub]
+            if not complement:
+                continue
+            cov_comp = cov[np.ix_(complement, complement)]
+            inv_var_c = 1.0 / np.diag(cov_comp)
+            w_comp = inv_var_c / inv_var_c.sum()
+            var_right = float(w_comp @ cov_comp @ w_comp)
+
+            # Allocation factor
+            alpha = 1.0 - var_left / (var_left + var_right + 1e-10)
+            weights[sub] *= alpha
+            weights[complement] *= (1.0 - alpha)
+
+    return weights / weights.sum()
+
+
+def compute_hrp(returns_df: pd.DataFrame, risk_free_rate: float = 0.04) -> dict:
+    """
+    Hierarchical Risk Parity portfolio — Lopez de Prado (2016).
+
+    Steps:
+      1. Compute correlation matrix
+      2. Convert to distance matrix
+      3. Hierarchical clustering (Ward linkage)
+      4. Quasi-diagonal reordering
+      5. Recursive bisection allocation
+
+    Returns dict with weights, expected return, volatility, Sharpe, fig.
+    """
+    returns = returns_df.copy()
+    # Belka Tax
+    returns.mask(returns > 0, returns * 0.81, inplace=True)
+
+    corr = returns.corr().values
+    cov  = returns.cov().values * 252
+    mu   = returns.mean().values * 252
+
+    dist     = _corr_to_dist(corr)
+    linkage  = sch.linkage(dist[np.triu_indices(len(dist), k=1)], method="ward")
+    sorted_i = _get_quasi_diag(linkage)
+
+    # Map back to 0..n-1 indices
+    n = len(returns_df.columns)
+    sorted_i = [x for x in sorted_i if x < n]
+    weights_sorted = _recursive_bisection(cov, sorted_i)
+
+    # Full weight vector
+    w = np.zeros(n)
+    for rank, asset_idx in enumerate(sorted_i):
+        w[asset_idx] = weights_sorted[rank]
+    w = w / w.sum()
+
+    port_return = float(w @ mu)
+    port_vol    = float(np.sqrt(w @ cov @ w))
+    rf_taxed    = risk_free_rate * 0.81
+    sharpe      = (port_return - rf_taxed) / port_vol if port_vol > 0 else 0
+    daily_r     = (returns.values @ w)
+    omega       = float(min(calculate_omega(daily_r), 10.0))
+
+    tickers = returns_df.columns.tolist()
+    return {
+        "method":    "HRP",
+        "weights":   {t: float(w[i]) for i, t in enumerate(tickers)},
+        "return":    port_return,
+        "volatility":port_vol,
+        "sharpe":    sharpe,
+        "omega":     omega,
+        "linkage":   linkage,
+        "sorted_i":  sorted_i,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. CVaR Optimization — Rockafellar & Uryasev (2000)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_min_cvar(
+    returns_df: pd.DataFrame,
+    alpha: float = 0.05,
+    risk_free_rate: float = 0.04,
+    max_weight: float = 0.40,
+) -> dict:
+    """
+    Minimise CVaR_α portfolio (Expected Shortfall at level 1-α).
+
+    Linear programme formulation — Rockafellar & Uryasev (2000):
+      min  VaR + (1/(alpha*T)) * sum(z_t)
+      s.t. z_t >= -r_t'w - VaR,  z_t >= 0,  sum(w)=1, w>=0
+
+    Solved via scipy.optimize.minimize (SLSQP).
+    Also computes Max-Sharpe and Max-Omega as reference points.
+    """
+    returns = returns_df.copy()
+    returns.mask(returns > 0, returns * 0.81, inplace=True)
+
+    R   = returns.values          # (T, n)
+    T, n = R.shape
+    mu  = R.mean(axis=0) * 252
+    cov = np.cov(R.T) * 252
+    rf  = risk_free_rate * 0.81
+
+    def _cvar(w: np.ndarray) -> float:
+        port_r = R @ w
+        var    = np.percentile(port_r, alpha * 100)
+        tail   = port_r[port_r <= var]
+        return -float(np.mean(tail)) if len(tail) > 0 else 0.0
+
+    def _neg_sharpe(w: np.ndarray) -> float:
+        ret = float(w @ mu)
+        vol = float(np.sqrt(w @ cov @ w))
+        return -(ret - rf) / vol if vol > 0 else 0.0
+
+    def _neg_omega(w: np.ndarray) -> float:
+        return -float(min(calculate_omega(R @ w), 20.0))
+
+    bounds = [(0, max_weight)] * n
+    cons   = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
+    w0     = np.ones(n) / n
+
+    # ── Min CVaR ──
+    res_cvar = minimize(_cvar, w0, method="SLSQP", bounds=bounds, constraints=cons,
+                        options={"maxiter": 1000, "ftol": 1e-9})
+    w_cvar = np.abs(res_cvar.x); w_cvar /= w_cvar.sum()
+
+    # ── Max Sharpe ──
+    res_sharpe = minimize(_neg_sharpe, w0, method="SLSQP", bounds=bounds, constraints=cons,
+                          options={"maxiter": 1000, "ftol": 1e-9})
+    w_sharpe = np.abs(res_sharpe.x); w_sharpe /= w_sharpe.sum()
+
+    # ── Max Omega ──
+    res_omega = minimize(_neg_omega, w0, method="SLSQP", bounds=bounds, constraints=cons,
+                         options={"maxiter": 500, "ftol": 1e-7})
+    w_omega = np.abs(res_omega.x); w_omega /= w_omega.sum()
+
+    tickers = returns_df.columns.tolist()
+
+    def _port_stats(w):
+        ret = float(w @ mu)
+        vol = float(np.sqrt(w @ cov @ w)) if n > 1 else 0.0
+        sh  = (ret - rf) / vol if vol > 0 else 0.0
+        cv  = _cvar(w)
+        om  = float(min(calculate_omega(R @ w), 10.0))
+        return {"return": ret, "volatility": vol, "sharpe": sh, "cvar": cv, "omega": om,
+                "weights": {t: float(w[i]) for i, t in enumerate(tickers)}}
+
+    return {
+        "method":    "CVaR",
+        "min_cvar":  _port_stats(w_cvar),
+        "max_sharpe":_port_stats(w_sharpe),
+        "max_omega": _port_stats(w_omega),
+        "alpha":     alpha,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. Black-Litterman — He & Litterman (1999)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_black_litterman(
+    returns_df: pd.DataFrame,
+    cio_views: dict | None = None,
+    risk_aversion: float = 2.5,
+    tau: float = 0.05,
+    risk_free_rate: float = 0.04,
+) -> dict:
+    """
+    Black-Litterman model — He & Litterman (1999).
+
+    1. Prior: π = δ × Σ × w_mkt  (equilibrium CAPM returns)
+    2. Views:  P × μ = Q + ε,  Ω = diag(uncertainty)
+    3. Posterior: E[r] = [(τΣ)⁻¹ + P'Ω⁻¹P]⁻¹ × [(τΣ)⁻¹π + P'Ω⁻¹Q]
+
+    cio_views: dict {ticker: view_return}  — CIO expected annual returns.
+               None → use market-cap weight prior only.
+
+    Returns portfolio weights, expected returns, and diagnostics.
+    """
+    returns = returns_df.copy()
+    returns.mask(returns > 0, returns * 0.81, inplace=True)
+
+    tickers = returns_df.columns.tolist()
+    n       = len(tickers)
+    mu_hist = returns.mean().values * 252
+    Sigma   = returns.cov().values * 252
+    rf      = risk_free_rate * 0.81
+
+    # Market weights — equal weight prior (proxy for market cap)
+    w_mkt = np.ones(n) / n
+
+    # Prior (equilibrium returns)
+    pi = risk_aversion * Sigma @ w_mkt
+
+    # ── Build views matrix from CIO ──────────────────────────────────────
+    if cio_views and len(cio_views) > 0:
+        view_tickers = [t for t in cio_views if t in tickers]
+        k = len(view_tickers)
+        P = np.zeros((k, n))
+        Q = np.zeros(k)
+        for i, t in enumerate(view_tickers):
+            j = tickers.index(t)
+            P[i, j] = 1.0
+            Q[i]    = cio_views[t] * 0.81   # After Belka Tax
+
+        # Uncertainty: proportional to variance of each asset
+        omega = np.diag([tau * float(Sigma[tickers.index(t), tickers.index(t)])
+                         for t in view_tickers])
+
+        # Posterior expected returns
+        tauSigma_inv = np.linalg.inv(tau * Sigma)
+        Omega_inv    = np.linalg.inv(omega)
+        M   = np.linalg.inv(tauSigma_inv + P.T @ Omega_inv @ P)
+        mu_bl = M @ (tauSigma_inv @ pi + P.T @ Omega_inv @ Q)
+    else:
+        mu_bl = pi.copy()
+
+    # ── Optimise Max-Sharpe on BL expected returns ───────────────────────
+    def _neg_sharpe_bl(w):
+        ret = float(w @ mu_bl)
+        vol = float(np.sqrt(w @ Sigma @ w))
+        return -(ret - rf) / vol if vol > 0 else 0.0
+
+    bounds = [(0, 0.4)] * n
+    cons   = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
+    w0     = w_mkt.copy()
+    res    = minimize(_neg_sharpe_bl, w0, method="SLSQP",
+                      bounds=bounds, constraints=cons, options={"maxiter": 1000})
+    w_bl   = np.abs(res.x); w_bl /= w_bl.sum()
+
+    port_ret = float(w_bl @ mu_bl)
+    port_vol = float(np.sqrt(w_bl @ Sigma @ w_bl))
+    sharpe   = (port_ret - rf) / port_vol if port_vol > 0 else 0.0
+    omega    = float(min(calculate_omega(returns.values @ w_bl), 10.0))
+
+    return {
+        "method":            "Black-Litterman",
+        "weights":           {t: float(w_bl[i]) for i, t in enumerate(tickers)},
+        "return":            port_ret,
+        "volatility":        port_vol,
+        "sharpe":            sharpe,
+        "omega":             omega,
+        "prior_returns":     {t: float(pi[i]) for i, t in enumerate(tickers)},
+        "posterior_returns": {t: float(mu_bl[i]) for i, t in enumerate(tickers)},
+        "views_used":        list(cio_views.keys()) if cio_views else [],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. Plotly — Combined Visualisation
+# ══════════════════════════════════════════════════════════════════════════════
 
 def compute_efficient_frontier(
     returns_df: pd.DataFrame,
-    n_portfolios: int = 3000,
+    n_portfolios: int = 2000,
     risk_free_rate: float = 0.04,
     barbell_weights: dict = None,
+    cio_views: dict = None,
 ) -> dict:
     """
-    Compute the Efficient Frontier by random sampling portfolio weights.
+    Compute Efficient Frontier + HRP + CVaR + Black-Litterman portfolios.
 
     Parameters
     ----------
-    returns_df : DataFrame of daily returns, columns = asset tickers
-    n_portfolios : number of random portfolios to sample
-    risk_free_rate : annual risk-free rate
-    barbell_weights : dict {ticker: weight} of the current Barbell strategy (optional overlay)
+    returns_df     : DataFrame of daily returns, columns = asset tickers
+    n_portfolios   : number of random MC portfolios (background scatter)
+    risk_free_rate : annual risk-free rate (pre-tax)
+    barbell_weights: dict {ticker: weight} — current Barbell strategy overlay
+    cio_views      : dict {ticker: annual_return} — CIO views for Black-Litterman
 
     Returns
     -------
-    dict with:
-        fig : Plotly figure
-        portfolios_df : DataFrame of all random portfolios
-        max_sharpe : dict
-        min_vol : dict
-        max_omega : dict
+    dict with fig, portfolios_df, max_sharpe, min_vol, max_omega,
+         hrp, cvar_opt, black_litterman
     """
-    tickers = returns_df.columns.tolist()
+    tickers  = returns_df.columns.tolist()
     n_assets = len(tickers)
 
     if n_assets < 2:
         return {"error": "Potrzeba co najmniej 2 aktywów do obliczeń granicy efektywnej."}
 
-    # Apply 19% Belka Tax to positive returns for realistic net expectations
+    # Belka Tax copy
     returns_taxed = returns_df.copy()
     returns_taxed.mask(returns_taxed > 0, returns_taxed * 0.81, inplace=True)
-    
+
     mean_returns = returns_taxed.mean() * 252
-    cov_matrix = returns_taxed.cov() * 252
-    rf_taxed = risk_free_rate * 0.81
+    cov_matrix   = returns_taxed.cov() * 252
+    rf_taxed     = risk_free_rate * 0.81
 
-    results = {
-        "Return": [],
-        "Volatility": [],
-        "Sharpe": [],
-        "Omega": [],
-        "Weights": [],
-    }
-
+    # ── Monte Carlo sampling (background) ────────────────────────────────
+    results = {"Return": [], "Volatility": [], "Sharpe": [], "Omega": [], "Weights": []}
     np.random.seed(42)
 
     for _ in range(n_portfolios):
-        # Random weights (Dirichlet ensures they sum to 1)
-        weights = np.random.dirichlet(np.ones(n_assets))
-
-        port_return = np.dot(weights, mean_returns)
-        port_vol = np.sqrt(weights @ cov_matrix.values @ weights)
-        sharpe = (port_return - rf_taxed) / port_vol if port_vol > 0 else 0
-
-        # Omega from taxed daily returns
-        port_daily_returns_taxed = returns_taxed.values @ weights
-        omega = calculate_omega(port_daily_returns_taxed, threshold=0.0)
-        omega = min(omega, 10.0)  # cap for visualization
-
-        results["Return"].append(port_return)
-        results["Volatility"].append(port_vol)
-        results["Sharpe"].append(sharpe)
-        results["Omega"].append(omega)
-        results["Weights"].append(weights)
+        w = np.random.dirichlet(np.ones(n_assets))
+        ret = float(np.dot(w, mean_returns))
+        vol = float(np.sqrt(w @ cov_matrix.values @ w))
+        sh  = (ret - rf_taxed) / vol if vol > 0 else 0
+        om  = min(calculate_omega(returns_taxed.values @ w), 10.0)
+        results["Return"].append(ret)
+        results["Volatility"].append(vol)
+        results["Sharpe"].append(sh)
+        results["Omega"].append(om)
+        results["Weights"].append(w)
 
     df = pd.DataFrame(results)
-
-    # Key portfolios
     idx_max_sharpe = df["Sharpe"].idxmax()
-    idx_min_vol = df["Volatility"].idxmin()
-    idx_max_omega = df["Omega"].idxmax()
+    idx_min_vol    = df["Volatility"].idxmin()
+    idx_max_omega  = df["Omega"].idxmax()
 
-    def get_portfolio_info(idx):
+    def _port_info(idx):
         row = df.iloc[idx]
-        return {
-            "return": row["Return"],
-            "volatility": row["Volatility"],
-            "sharpe": row["Sharpe"],
-            "omega": row["Omega"],
-            "weights": {t: w for t, w in zip(tickers, row["Weights"])},
-        }
+        return {"return": row["Return"], "volatility": row["Volatility"],
+                "sharpe": row["Sharpe"], "omega": row["Omega"],
+                "weights": {t: w for t, w in zip(tickers, row["Weights"])}}
 
-    max_sharpe_port = get_portfolio_info(idx_max_sharpe)
-    min_vol_port = get_portfolio_info(idx_min_vol)
-    max_omega_port = get_portfolio_info(idx_max_omega)
+    max_sharpe_port = _port_info(idx_max_sharpe)
+    min_vol_port    = _port_info(idx_min_vol)
+    max_omega_port  = _port_info(idx_max_omega)
 
-    # --- Build Plotly Figure ---
+    # ── Advanced portfolios ───────────────────────────────────────────────
+    hrp_result = compute_hrp(returns_df, risk_free_rate)
+    cvar_result = compute_min_cvar(returns_df, alpha=0.05, risk_free_rate=risk_free_rate)
+    bl_result   = compute_black_litterman(returns_df, cio_views=cio_views,
+                                          risk_free_rate=risk_free_rate)
+
+    # ── Build Plotly figure ───────────────────────────────────────────────
     fig = go.Figure()
 
-    # All portfolios — colored by Sharpe
+    # Background MC scatter
     fig.add_trace(go.Scatter(
-        x=df["Volatility"] * 100,
-        y=df["Return"] * 100,
+        x=df["Volatility"] * 100, y=df["Return"] * 100,
         mode="markers",
-        marker=dict(
-            color=df["Sharpe"],
-            colorscale="Viridis",
-            size=4,
-            opacity=0.6,
-            colorbar=dict(title="Sharpe Ratio"),
-            showscale=True,
-        ),
-        text=[
-            f"Sharpe: {s:.2f}<br>Omega: {o:.2f}"
-            for s, o in zip(df["Sharpe"], df["Omega"])
-        ],
+        marker=dict(color=df["Sharpe"], colorscale="Viridis", size=4,
+                    opacity=0.5, colorbar=dict(title="Sharpe"), showscale=True),
+        text=[f"Sharpe: {s:.2f}<br>Omega: {o:.2f}"
+              for s, o in zip(df["Sharpe"], df["Omega"])],
         hovertemplate="%{text}<br>Vol: %{x:.1f}%<br>Return: %{y:.1f}%<extra></extra>",
-        name="Portfele losowe",
+        name="Portfele losowe (MC)",
     ))
 
-    # Star markers for key portfolios
-    star_configs = [
-        (max_sharpe_port, "⭐ Max Sharpe", "gold", "star"),
-        (min_vol_port, "🔵 Min Volatility", "cyan", "diamond"),
-        (max_omega_port, "🟢 Max Omega", "lime", "triangle-up"),
-    ]
-
-    for port, label, color, symbol in star_configs:
+    # MC key portfolios
+    for port, label, color, sym in [
+        (max_sharpe_port, "⭐ MC Max Sharpe",  "gold",  "star"),
+        (min_vol_port,    "🔵 MC Min Vol",     "cyan",  "diamond"),
+        (max_omega_port,  "🟢 MC Max Omega",   "lime",  "triangle-up"),
+    ]:
         fig.add_trace(go.Scatter(
-            x=[port["volatility"] * 100],
-            y=[port["return"] * 100],
+            x=[port["volatility"] * 100], y=[port["return"] * 100],
             mode="markers+text",
-            marker=dict(color=color, size=18, symbol=symbol,
-                        line=dict(color="white", width=2)),
-            text=[label],
-            textposition="top right",
-            textfont=dict(color=color, size=11),
-            hovertemplate=(
-                f"<b>{label}</b><br>"
-                f"Return: {port['return']*100:.1f}%<br>"
-                f"Vol: {port['volatility']*100:.1f}%<br>"
-                f"Sharpe: {port['sharpe']:.2f}<br>"
-                f"Omega: {port['omega']:.2f}<extra></extra>"
-            ),
+            marker=dict(color=color, size=16, symbol=sym,
+                        line=dict(color="white", width=1.5)),
+            text=[label], textposition="top right",
+            textfont=dict(color=color, size=10),
+            hovertemplate=(f"<b>{label}</b><br>"
+                           f"Return: {port['return']*100:.1f}%<br>"
+                           f"Vol: {port['volatility']*100:.1f}%<br>"
+                           f"Sharpe: {port['sharpe']:.2f}<extra></extra>"),
             name=label,
         ))
 
-    # Barbell portfolio overlay
+    # HRP
+    hrp_vol = hrp_result.get("volatility", 0) * 100
+    hrp_ret = hrp_result.get("return", 0) * 100
+    fig.add_trace(go.Scatter(
+        x=[hrp_vol], y=[hrp_ret], mode="markers+text",
+        marker=dict(color="#ff6b35", size=20, symbol="hexagram",
+                    line=dict(color="white", width=2)),
+        text=["🟠 HRP"], textposition="bottom right",
+        textfont=dict(color="#ff6b35", size=11),
+        hovertemplate=(f"<b>🟠 HRP (Lopez de Prado 2016)</b><br>"
+                       f"Return: {hrp_ret:.1f}%<br>Vol: {hrp_vol:.1f}%<br>"
+                       f"Sharpe: {hrp_result.get('sharpe', 0):.2f}<extra></extra>"),
+        name="🟠 HRP",
+    ))
+
+    # CVaR Min
+    cv = cvar_result.get("min_cvar", {})
+    if cv:
+        fig.add_trace(go.Scatter(
+            x=[cv["volatility"] * 100], y=[cv["return"] * 100],
+            mode="markers+text",
+            marker=dict(color="#e040fb", size=20, symbol="pentagon",
+                        line=dict(color="white", width=2)),
+            text=["🟣 Min CVaR"], textposition="top left",
+            textfont=dict(color="#e040fb", size=11),
+            hovertemplate=(f"<b>🟣 Min CVaR₅ (Rockafellar & Uryasev 2000)</b><br>"
+                           f"Return: {cv['return']*100:.1f}%<br>"
+                           f"Vol: {cv['volatility']*100:.1f}%<br>"
+                           f"CVaR: {cv['cvar']*100:.1f}%<extra></extra>"),
+            name="🟣 Min CVaR",
+        ))
+
+    # Black-Litterman
+    bl_vol = bl_result.get("volatility", 0) * 100
+    bl_ret = bl_result.get("return", 0) * 100
+    fig.add_trace(go.Scatter(
+        x=[bl_vol], y=[bl_ret], mode="markers+text",
+        marker=dict(color="#00e5ff", size=20, symbol="star-square",
+                    line=dict(color="white", width=2)),
+        text=["🔷 BL"], textposition="top right",
+        textfont=dict(color="#00e5ff", size=11),
+        hovertemplate=(f"<b>🔷 Black-Litterman (He & Litterman 1999)</b><br>"
+                       f"Return: {bl_ret:.1f}%<br>Vol: {bl_vol:.1f}%<br>"
+                       f"Sharpe: {bl_result.get('sharpe', 0):.2f}<br>"
+                       f"Widoki CIO: {len(bl_result.get('views_used', []))}<extra></extra>"),
+        name="🔷 Black-Litterman",
+    ))
+
+    # Barbell overlay
     if barbell_weights:
         w_arr = np.array([barbell_weights.get(t, 0.0) for t in tickers])
-        w_arr = w_arr / w_arr.sum() if w_arr.sum() > 0 else w_arr
-        bb_ret = float(np.dot(w_arr, mean_returns))
-        bb_vol = float(np.sqrt(w_arr @ cov_matrix.values @ w_arr))
-        bb_sharpe = (bb_ret - rf_taxed) / bb_vol if bb_vol > 0 else 0
-        bb_daily_taxed = returns_taxed.values @ w_arr
-        bb_omega = float(min(calculate_omega(bb_daily_taxed), 10.0))
-
+        s = w_arr.sum()
+        if s > 0:
+            w_arr /= s
+        bb_ret  = float(np.dot(w_arr, mean_returns))
+        bb_vol  = float(np.sqrt(w_arr @ cov_matrix.values @ w_arr))
+        bb_sh   = (bb_ret - rf_taxed) / bb_vol if bb_vol > 0 else 0
+        bb_om   = float(min(calculate_omega(returns_taxed.values @ w_arr), 10.0))
         fig.add_trace(go.Scatter(
-            x=[bb_vol * 100],
-            y=[bb_ret * 100],
-            mode="markers+text",
-            marker=dict(color="red", size=22, symbol="x",
+            x=[bb_vol * 100], y=[bb_ret * 100], mode="markers+text",
+            marker=dict(color="red", size=24, symbol="x",
                         line=dict(color="white", width=2)),
-            text=["🎯 Twój Barbell"],
-            textposition="bottom right",
+            text=["🎯 Twój Barbell"], textposition="bottom right",
             textfont=dict(color="red", size=12),
-            hovertemplate=(
-                f"<b>🎯 Twoja Strategia Barbell</b><br>"
-                f"Return: {bb_ret*100:.1f}%<br>"
-                f"Vol: {bb_vol*100:.1f}%<br>"
-                f"Sharpe: {bb_sharpe:.2f}<br>"
-                f"Omega: {bb_omega:.2f}<extra></extra>"
-            ),
+            hovertemplate=(f"<b>🎯 Twoja Strategia Barbell</b><br>"
+                           f"Return: {bb_ret*100:.1f}%<br>Vol: {bb_vol*100:.1f}%<br>"
+                           f"Sharpe: {bb_sh:.2f}<br>Omega: {bb_om:.2f}<extra></extra>"),
             name="🎯 Twój Barbell",
         ))
 
     fig.update_layout(
-        title="📐 Granica Efektywna — Markowitz (1952)",
+        title="📐 Granica Efektywna — HRP + Min CVaR + Black-Litterman + MC (Markowitz 1952)",
         xaxis_title="Ryzyko (Volatility) [%]",
         yaxis_title="Oczekiwana Stopa Zwrotu [%]",
-        template="plotly_dark",
-        height=550,
-        legend=dict(orientation="v", x=1.12, y=1),
+        template="plotly_dark", height=600,
+        legend=dict(orientation="v", x=1.02, y=1),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(15,15,25,0.9)",
         font=dict(family="Inter", color="white"),
-        hovermode="closest"
+        hovermode="closest",
     )
-    fig.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
-    fig.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
+    fig.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1,
+                     spikedash="dot", spikemode="across")
+    fig.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1,
+                     spikedash="dot", spikemode="across")
 
     return {
-        "fig": fig,
-        "portfolios_df": df,
-        "max_sharpe": max_sharpe_port,
-        "min_vol": min_vol_port,
-        "max_omega": max_omega_port,
-        "error": None,
+        "fig":              fig,
+        "portfolios_df":    df,
+        "max_sharpe":       max_sharpe_port,
+        "min_vol":          min_vol_port,
+        "max_omega":        max_omega_port,
+        "hrp":              hrp_result,
+        "cvar_opt":         cvar_result,
+        "black_litterman":  bl_result,
+        "error":            None,
     }

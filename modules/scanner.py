@@ -20,6 +20,9 @@ import scipy.spatial.distance as ssd
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
+from modules.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 try:
     import networkx as nx
@@ -50,7 +53,8 @@ def evt_pot_right_tail(returns: np.ndarray, threshold_quantile: float = 0.90) ->
     try:
         xi, _, _ = genpareto.fit(exc, floc=0)
         return float(xi)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"EVT Right Tail fit failed: {e}")
         return np.nan
 
 
@@ -73,7 +77,8 @@ def evt_pot_left_tail(returns: np.ndarray, threshold_quantile: float = 0.05) -> 
     try:
         xi, _, _ = genpareto.fit(exc, floc=0)
         return float(xi)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"EVT Left Tail fit failed: {e}")
         return np.nan
 
 

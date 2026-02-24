@@ -1,15 +1,84 @@
 
 import numpy as np
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+# ─── Sentiment Backend (FinBERT > VADER fallback) ────────────────────────────
+_SENTIMENT_BACKEND = "none"
+
+try:
+    from modules.logger import setup_logger
+    logger = setup_logger(__name__)
+    from transformers import pipeline as _hf_pipeline
+    import torch as _torch
+
+    # Try loading FinBERT; falls back to distilroberta if unavailable
+    _FINBERT_MODEL = "ProsusAI/finbert"
+    _finbert_pipe = _hf_pipeline(
+        "text-classification",
+        model=_FINBERT_MODEL,
+        device=0 if _torch.cuda.is_available() else -1,
+        truncation=True,
+        max_length=512,
+    )
+    _SENTIMENT_BACKEND = "finbert"
+except Exception as e:
+    logger.warning(f"Błąd ładowania FinBERT: {e} -> Fallback do VADER")
+    _finbert_pipe = None
+
+if _SENTIMENT_BACKEND != "finbert":
+    try:
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VADERAnalyzer
+        _vader_analyzer = _VADERAnalyzer()
+        _SENTIMENT_BACKEND = "vader"
+    except Exception as e:
+        logger.error(f"Całkowity brak NLP (Vader fail): {e}")
+        _vader_analyzer = None
+        _SENTIMENT_BACKEND = "none"
+
+
+def _score_text(text: str) -> float:
+    """
+    Returns compound sentiment score in [-1, +1].
+    Priority: FinBERT → VADER → 0.0 (neutral fallback).
+    """
+    if _SENTIMENT_BACKEND == "finbert" and _finbert_pipe is not None:
+        try:
+            result = _finbert_pipe(text[:512])[0]
+            label = result["label"].lower()   # 'positive', 'negative', 'neutral'
+            score = float(result["score"])    # confidence 0-1
+            if label == "positive":
+                return score
+            elif label == "negative":
+                return -score
+            else:
+                return 0.0
+        except Exception as e:
+            logger.warning(f"Błąd parsowania RSS: {e}")
+            pass
+
+    if _SENTIMENT_BACKEND == "vader" and _vader_analyzer is not None:
+        try:
+            return float(_vader_analyzer.polarity_scores(text)["compound"])
+        except Exception as e:
+            logger.warning(f"Błąd pobierania RSS ({url}): {e}")
+            pass
+
+    return 0.0
+
+
+def get_sentiment_backend() -> str:
+    """Returns which backend is active: 'finbert', 'vader', or 'none'."""
+    return _SENTIMENT_BACKEND
+
+
+# ─── LocalEconomist ───────────────────────────────────────────────────────────
 
 class LocalEconomist:
     """
     Ekonomista Makro v2.0 — Wielowymiarowy Nowcast Ryzyka.
-    
+
     Zamiast prostych reguł IF/ELSE, oblicza ważony Z-Score z 7 zmiennych makro.
     Metodologia: Ang & Bekaert (2002), Hamilton (1989), OECD CLI.
-    
+
     Misja Barbellowa: Identyfikuje fazy cyklu koniunkturalnego, by wskazać
     Skaner w stronę OCHRONY (Safe Sleeve) lub ATAKU na Wypukłość (Risky Sleeve).
     """
@@ -32,7 +101,6 @@ class LocalEconomist:
         # 1. Yield Curve (Hamilton 1989) ─────────────────────────────────
         spread = oracle_snapshot.get("Yield_Curve_Spread", 0.5)
         if spread is None: spread = 0.5
-        # Normalizujemy: negatywny spread → ryzyko 1.0, spread > 2.0 → brak ryzyka 0.0
         signals["yield_curve"] = float(np.clip(-spread / 2.0 + 0.5, 0, 1))
         if spread < 0:
             details.append(f"KRYTYCZNE ⛔: Inwersja Krzywej ({spread:.2f}%). Historycznie recesja w ciągu 12-18M.")
@@ -43,7 +111,6 @@ class LocalEconomist:
 
         # 2. VIX Poziom (Whaley 2009) ────────────────────────────────────
         vix = oracle_snapshot.get("VIX_1M") or oracle_snapshot.get("VIX_Volatility") or 15.0
-        # VIX 10 = bardzo spokój, VIX 45 = kryzys (normalizacja 10–50)
         signals["vix_level"] = float(np.clip((vix - 10) / 40, 0, 1))
         if vix > 35:
             details.append(f"PANIKA 🔴 (VIX={vix:.0f}): Historyczny krach. Idealne środowisko dla Safe Sleeve.")
@@ -56,14 +123,13 @@ class LocalEconomist:
         ts_ratio = oracle_snapshot.get("VIX_TS_Ratio")
         backwardation = oracle_snapshot.get("VIX_Backwardation", False)
         if ts_ratio is not None:
-            # Backwardation (spot > futures) = krótkoterminowy strach strukturalny
             signals["vix_term_structure"] = float(np.clip((ts_ratio - 0.8) / 0.4, 0, 1))
             if backwardation:
-                details.append(f"VIX BACKWARDATION 🔴 (ratio={ts_ratio:.2f}): Panika krótkoterminowa. Typowe przy nagłych krachach.")
+                details.append(f"VIX BACKWARDATION 🔴 (ratio={ts_ratio:.2f}): Panika krótkoterminowa.")
             else:
-                details.append(f"VIX Contango 🟢 (ratio={ts_ratio:.2f}): Rynek spokojny. Stale rosnąca zmienność długoterm.")
+                details.append(f"VIX Contango 🟢 (ratio={ts_ratio:.2f}): Rynek spokojny.")
         else:
-            signals["vix_term_structure"] = 0.3  # Brak danych = neutralny
+            signals["vix_term_structure"] = 0.3
 
         # 4. DXY (Dollar Strength) ────────────────────────────────────────
         dxy = oracle_snapshot.get("US_Dollar_Index") or 100.0
@@ -78,7 +144,6 @@ class LocalEconomist:
         # 5. Credit Spread (FRED BAA10Y) ──────────────────────────────────
         credit_spread = oracle_snapshot.get("FRED_Credit_Spread_BAA_AAA")
         if credit_spread is not None and credit_spread > 0:
-            # Historycznie: < 1.5% = spokój, > 4% = kryzys (Fama 1986)
             signals["credit_spread"] = float(np.clip((credit_spread - 1.5) / 3.5, 0, 1))
             if credit_spread > 3.5:
                 details.append(f"KRYZYS KREDYTOWY ⛔ (spread={credit_spread:.2f}%): Rynek obligacji korporacyjnych w strachu.")
@@ -87,21 +152,18 @@ class LocalEconomist:
             else:
                 details.append(f"ZDROWY DŁUG 🟢 (spread={credit_spread:.2f}%): Niskie ryzyko defaultu.")
         else:
-            signals["credit_spread"] = 0.2  # Brak FRED → neutralny
+            signals["credit_spread"] = 0.2
 
-        # 6. Copper/Gold Ratio (barometr wzrostu) ─────────────────────────
+        # 6. Copper/Gold Ratio ────────────────────────────────────────────
         cu_au = oracle_snapshot.get("CuAu_Ratio")
         if cu_au is not None:
-            # Rosnący Cu/Au = ryzyko ON (miedź > złoto = wzrost gospodarczy dominuje)
-            # Typ. zakres: 0.15–0.40 dla Cu/Au (oz na oz)
-            signals["cu_au_ratio"] = float(np.clip(1.0 - (cu_au - 0.1) / 0.3, 0, 1))  # Niski = dobrze
+            signals["cu_au_ratio"] = float(np.clip(1.0 - (cu_au - 0.1) / 0.3, 0, 1))
         else:
             signals["cu_au_ratio"] = 0.3
 
-        # 7. Copper Trend (momentum) ───────────────────────────────────────
+        # 7. Copper Trend ─────────────────────────────────────────────────
         copper = oracle_snapshot.get("Copper")
         if copper:
-            # Prosta heurystyka: jeśli cena Cu > 4.0 USD/lb → boom przemysłowy
             signals["copper_trend"] = float(np.clip(1.0 - (copper - 3.0) / 2.0, 0, 1))
         else:
             signals["copper_trend"] = 0.3
@@ -112,10 +174,8 @@ class LocalEconomist:
             for key in self._FACTOR_WEIGHTS
             if key in signals
         )
-        # Skalujemy do 0–8 dla zachowania kompatybilności
         risk_score = float(composite_risk * 8.0)
 
-        # 9. Faza cyklu na podstawie composite score
         if risk_score >= 5.5:
             phase = "OBRONA (Ryzyko Recesji / Panika Systemowa)"
             color = "red"
@@ -136,29 +196,45 @@ class LocalEconomist:
         }
 
 
+# ─── LocalGeopolitics ─────────────────────────────────────────────────────────
+
 class LocalGeopolitics:
     """
-    Geopolityk v2.0 — VADER NLP z wagowaniem wiadomości ekonomicznych.
-    
-    Analiza sentymentu nagłówków z RSS. Wiadomości finansowe są ważniejsze
-    niż ogólne (wyższy multiplikator). Dodano dekompozycję na pos/neg/neu.
+    Geopolityk v3.0 — FinBERT NLP (z fallbackiem VADER).
+
+    Zamiana VADER (2014) na FinBERT (ProsusAI/finbert) — model BERT
+    pretrenowany na tekstach finansowych (Financial PhraseBank + Reuters).
+    FinBERT rozumie kontekst finansowy: "rate hike" → negative (nie neutral),
+    "beat expectations" → positive (nie neutral).
+
+    Hierarchia backendu:
+      1. FinBERT (transformers) — najdokładniejszy dla tekstów finansowych
+      2. VADER (vaderSentiment)  — szybki, reguły leksykalne
+      3. Neutral 0.0             — brak bibliotek
+
+    Wagi: wiadomości finansowe (słowa kluczowe) mają wagę 2×.
+    Metodologia: Malo et al. (2014) FinancialPhraseBank, Huang et al. (2023) FinBERT.
     """
 
     FINANCIAL_KEYWORDS = {
         "recession", "crash", "crisis", "default", "collapse", "panic",
         "bank run", "inflation", "rate hike", "fed", "sanctions",
-        "bull", "rally", "growth", "boom", "expansion"
+        "bull", "rally", "growth", "boom", "expansion", "earnings",
+        "gdp", "cpi", "ppi", "fomc", "ecb", "rate cut", "quantitative",
+        "yield", "spread", "unemployment", "layoffs", "bankruptcy",
     }
 
-    def __init__(self):
-        self.analyzer = SentimentIntensityAnalyzer()
-
     def analyze_news(self, oracle_news: list) -> dict:
+        backend = get_sentiment_backend()
+
         if not oracle_news:
             return {
-                "compound_sentiment": 0.0, "label": "NEUTRALNY (Brak Danych)",
-                "color": "gray", "analyzed_articles": 0,
-                "positive_pct": 0, "negative_pct": 0, "neutral_pct": 0
+                "compound_sentiment": 0.0,
+                "label": "NEUTRALNY (Brak Danych)",
+                "color": "gray",
+                "analyzed_articles": 0,
+                "positive_pct": 0, "negative_pct": 0, "neutral_pct": 0,
+                "sentiment_backend": backend,
             }
 
         total_compound = 0.0
@@ -167,16 +243,15 @@ class LocalGeopolitics:
 
         for news in oracle_news:
             text = news["title"] + ". " + news.get("summary", "")
-            scores = self.analyzer.polarity_scores(text)
+            is_financial = any(kw in text.lower() for kw in self.FINANCIAL_KEYWORDS)
+            weight = 2.0 if is_financial else 1.0
 
-            # Waga: wiadomości finansowe są 2× ważniejsze
-            weight = 2.0 if any(kw in text.lower() for kw in self.FINANCIAL_KEYWORDS) else 1.0
+            score = _score_text(text)
+            total_compound += score * weight
 
-            total_compound += scores["compound"] * weight
-
-            if scores["compound"] >= 0.05:
+            if score >= 0.05:
                 pos_count += 1
-            elif scores["compound"] <= -0.05:
+            elif score <= -0.05:
                 neg_count += 1
             else:
                 neu_count += 1
@@ -207,28 +282,30 @@ class LocalGeopolitics:
             "positive_pct":       round(pos_count / n * 100, 1),
             "negative_pct":       round(neg_count / n * 100, 1),
             "neutral_pct":        round(neu_count / n * 100, 1),
+            "sentiment_backend":  backend,
         }
 
+
+# ─── LocalCIO ─────────────────────────────────────────────────────────────────
 
 class LocalCIO:
     """
     Główny Dyrektor Inwestycyjny v2.0 — Barbell Allocation Engine.
-    
+
     Syntetyzuje Ekonomistę + Geopolityka → decyzja o trybie Barbella.
     Kluczowa rola: wybrać FOKUS dla skanera EVT:
       • Risk-On  → Szukaj aktywów z dodatnim prawym ogonem (krypto, tech, commodities)
       • Risk-Off → Priorytet: obligacje krótkoterminowe, złoto, USD cash
-    
+
     Metodologia: Risk Parity Portfolio (Bridgewater), Regime-Conditional Allocation
     (Ang & Bekaert 2004), Fat-Tail Kelly (Thorp 2006).
     """
 
-    # Mapy klas aktywów per reżim (dla Skanera EVT)
     ASSET_MAP = {
         "risk_on": {
             "target_classes":    ["Tech", "Crypto", "Emerging Markets", "Growth", "Commodities"],
             "etf_focus":         ["QQQ", "TQQQ", "BTC-USD", "EEM", "XLE", "ARKK"],
-            "kelly_multiplier":  1.0,   # Pełna ekspozycja Kelly
+            "kelly_multiplier":  1.0,
             "description": "Środowisko Goldilocks. Skaner szuka aktywów o maksymalnej WYPUKŁOŚCI (fat right tail). "
                            "Idealni kandydaci: wysoka beta, dodatni skew, Hurst > 0.55.",
             "gauge": 10,
@@ -236,7 +313,7 @@ class LocalCIO:
         "neutral": {
             "target_classes":    ["Value", "Dividend", "Quality", "Diversified", "Real Assets"],
             "etf_focus":         ["VYM", "SCHD", "IVV", "GLD", "VNQ"],
-            "kelly_multiplier":  0.5,   # Połowa Kelly (ostrożnie)
+            "kelly_multiplier":  0.5,
             "description": "Środowisko ostrzegawcze. Skaner szuka stabilnych aktywów z dobrą relacją Omega > 1.0 "
                            "i niskim Max Drawdown. Dywidendy + Realne Aktywa.",
             "gauge": 50,
@@ -244,7 +321,7 @@ class LocalCIO:
         "risk_off": {
             "target_classes":    ["Short-Duration Bonds", "Gold", "Cash USD", "Defensive"],
             "etf_focus":         ["BIL", "SGOV", "GLD", "UUP", "XLU"],
-            "kelly_multiplier":  0.1,   # Minimalny Kelly — ochrona kapitału
+            "kelly_multiplier":  0.1,
             "description": "Środowisko kryzysu. Skaner przełącza się w tryb BUNKER: "
                            "szuka aktywów z negatywną korelacją do akcji (Safe Haven). "
                            "Część ryzykowna Barbella zmniejsza się do minimum.",
@@ -255,28 +332,22 @@ class LocalCIO:
     def synthesize_thesis(self, econ_analysis: dict, geo_analysis: dict, horizon_years: int) -> dict:
         """
         Oblicza Master Risk Score i decyduje o trybie Barbella.
-        
+
         Ekonomista: ~ 70% wagi (twarde dane)
         Geopolityka: ~ 30% wagi (miękkie sygnały rynkowe)
-        
+
         Wynik: 0–100 (0 = pełen Risk-On, 100 = pełen Risk-Off).
         """
-        # Ekonomista: score 0–8 → skalujemy do 0–0.7
         econ_score_norm = (econ_analysis["score"] / 8.0) * 0.70
+        geo_sentiment   = geo_analysis["compound_sentiment"]
+        geo_risk_norm   = ((1.0 - geo_sentiment) / 2.0) * 0.30
 
-        # Geopolityk: sentiment -1..+1 → ryzyko = (1 - sentiment) / 2 → 0..1 → * 0.30
-        geo_sentiment  = geo_analysis["compound_sentiment"]
-        geo_risk_norm  = ((1.0 - geo_sentiment) / 2.0) * 0.30  # -1.0 → 1.0, 1.0 → 0.0
-
-        # Łącznie: composite_risk 0..1
         composite_risk = econ_score_norm + geo_risk_norm
         gauge_value    = int(np.clip(composite_risk * 100, 0, 100))
 
-        # Horyzont — długi horyzont zachęca do większej tolerancji ryzyka
         if horizon_years >= 10 and composite_risk < 0.65:
-            composite_risk = max(0, composite_risk - 0.08)  # Lekka korekta w dół (Risk-On bias)
+            composite_risk = max(0, composite_risk - 0.08)
 
-        # Tryb Barbella
         if composite_risk >= 0.60:
             regime = "risk_off"
             mode   = "BUNKIER (Risk-Off)"
@@ -290,7 +361,7 @@ class LocalCIO:
         asset_info = self.ASSET_MAP[regime]
 
         return {
-            "master_risk_score":   round(composite_risk * 25, 2),  # 0–25 dla wstecznej kompatybilności
+            "master_risk_score":   round(composite_risk * 25, 2),
             "gauge_risk_percent":  gauge_value,
             "composite_risk_0_1":  round(composite_risk, 3),
             "mode":                mode,

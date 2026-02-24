@@ -265,3 +265,195 @@ def calculate_drawdown_analytics(prices):
         "pain_index": pain,
         "drawdown_at_risk_95": dd_at_risk_95,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOWE METRYKI NAUKOWE v3.0 (2026 upgrade)
+# Referencje: Bailey & de Prado (2012), Rachev et al. (2007), Sortino & Satchell (2001)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def calculate_sterling_ratio(cagr: float, prices) -> float:
+    """
+    Sterling Ratio = CAGR / |Average Drawdown Depth|.
+    Lepsza od Calmar: uwzględnia średnią głębokość, nie tylko max.
+    Referencja: Sortino & Satchell (2001).
+    """
+    if isinstance(prices, pd.Series):
+        arr = prices.values
+    else:
+        arr = np.asarray(prices, dtype=float)
+    peaks = np.maximum.accumulate(arr)
+    dds   = (arr - peaks) / (peaks + 1e-10)
+    avg_dd = float(np.mean(dds[dds < 0])) if np.any(dds < 0) else -1e-10
+    return cagr / abs(avg_dd) if avg_dd != 0 else np.inf
+
+
+def calculate_burke_ratio(
+    returns,
+    cagr: float,
+    rf: float = 0.04,
+    modified: bool = True,
+) -> float:
+    """
+    Burke Ratio = (CAGR - RF) / sqrt(sum(DD_i^2)).
+    Modified = True → divides by sqrt(T) for length-independence.
+    Penalizuje wiele drawdownów, nie tylko największy.
+    Referencja: Burke (1994).
+    """
+    returns = np.asarray(returns, dtype=float)
+    # Reconstruct price series from returns
+    prices = np.cumprod(1 + returns)
+    peaks  = np.maximum.accumulate(prices)
+    dds    = (prices - peaks) / (peaks + 1e-10)
+    sum_dd_sq = float(np.sum(dds ** 2))
+    if sum_dd_sq <= 0:
+        return np.inf
+    denominator = np.sqrt(sum_dd_sq / len(returns)) if modified else np.sqrt(sum_dd_sq)
+    return (cagr - rf * 0.81) / denominator if denominator > 0 else 0.0
+
+
+def calculate_rachev_ratio(
+    returns,
+    alpha: float = 0.05,
+    beta: float = 0.05,
+) -> float:
+    """
+    Rachev Ratio = ETL_alpha(gain) / ETL_beta(loss).
+    ETL = Expected Tail Loss (= CVaR).
+
+    Mierzy asymetrię ogonów — IDEALNA dla strategii Barbell:
+      Rachev >> 1 → gruby prawy ogon (zyski) dominuje nad lewym (straty).
+    Referencja: Biglova et al. (2004), Rachev et al. (2007).
+    """
+    returns = np.asarray(returns, dtype=float)
+    # Gain tail (upper alpha quantile)
+    var_gain = np.percentile(returns, (1 - alpha) * 100)
+    upper    = returns[returns >= var_gain]
+    etl_gain = float(np.mean(upper)) if len(upper) > 0 else 0.0
+
+    # Loss tail (lower beta quantile)
+    var_loss = np.percentile(returns, beta * 100)
+    lower    = returns[returns <= var_loss]
+    etl_loss = float(np.mean(np.abs(lower))) if len(lower) > 0 else 1e-10
+
+    return etl_gain / etl_loss if etl_loss > 0 else np.inf
+
+
+def calculate_probabilistic_sharpe(
+    observed_sr: float,
+    benchmark_sr: float,
+    n: int,
+    skewness: float = 0.0,
+    kurtosis: float = 3.0,
+) -> float:
+    """
+    Probabilistic Sharpe Ratio — P(SR* > SR_benchmark).
+    Uwzględnia skewness i kurtosis przy ocenie istotności statystycznej SR.
+    Referencja: Bailey & de Prado (2012).
+
+    PSR > 0.95 → SR jest statystycznie istotne (p > 5%).
+    """
+    if n < 2:
+        return 0.5
+    sr_std = np.sqrt(
+        (1 - skewness * observed_sr + ((kurtosis - 1) / 4) * observed_sr ** 2)
+        / (n - 1)
+    )
+    if sr_std <= 0:
+        return 1.0 if observed_sr > benchmark_sr else 0.0
+    z = (observed_sr - benchmark_sr) / sr_std
+    return float(norm.cdf(z))
+
+
+def calculate_deflated_sharpe(
+    observed_sr: float,
+    n: int,
+    n_trials: int,
+    skewness: float = 0.0,
+    kurtosis: float = 3.0,
+) -> float:
+    """
+    Deflated Sharpe Ratio — korekta na data mining / multiple testing.
+    DSR = PSR(SR_benchmark_max), gdzie SR_benchmark uwzględnia liczbę testów.
+    Referencja: Bailey & de Prado (2012) — "The Sharpe Ratio Efficient Frontier".
+
+    DSR bliskie 0 → SR to prawdopodobnie efekt przeszukiwania danych (p-hacking).
+    """
+    # Expected maximum SR under multiple testing (approx. Extreme Value Theory)
+    if n_trials < 1:
+        n_trials = 1
+    euler_gamma = 0.5772156649
+    sr_expected_max = (
+        (1 - euler_gamma) * norm.ppf(1 - 1 / n_trials)
+        + euler_gamma * norm.ppf(1 - 1 / (n_trials * np.e))
+    )
+    return calculate_probabilistic_sharpe(
+        observed_sr, sr_expected_max, n, skewness, kurtosis
+    )
+
+
+def calculate_marginal_cvar(
+    weights: np.ndarray,
+    returns_matrix: np.ndarray,
+    alpha: float = 0.05,
+) -> np.ndarray:
+    """
+    Marginal CVaR = ∂CVaR/∂w_i.
+    Wkład każdego aktywa w ryzyko ogonowe portfela.
+
+    Metodologia: komponent CVaR = w_i × β_i,
+    gdzie β_i = E[r_i | r_portfolio <= VaR].
+    Referencja: Scaillet (2004), Rockafellar & Uryasev (2000).
+
+    Returns vector of length n_assets.
+    """
+    weights   = np.asarray(weights, dtype=float)
+    port_ret  = returns_matrix @ weights
+    var_level = np.percentile(port_ret, alpha * 100)
+    tail_mask = port_ret <= var_level
+
+    if tail_mask.sum() == 0:
+        return np.zeros(len(weights))
+
+    # Component CVaR: E[r_i | tail] × w_i
+    tail_returns   = returns_matrix[tail_mask]
+    mean_tail      = tail_returns.mean(axis=0)        # (n_assets,)
+    marginal_cvar  = weights * mean_tail               # component contribution
+    return marginal_cvar
+
+
+def calculate_tci(
+    returns_matrix: np.ndarray,
+    alpha: float = 0.05,
+) -> np.ndarray:
+    """
+    Tail Correlation Index (TCI) — kondycjonalna korelacja w ogonach.
+    TCI_ij = Corr(r_i, r_j | r_i <= VaR_i  AND  r_j <= VaR_j).
+
+    Wysoki TCI → aktywa crash razem (ryzyko systemowe, bad for Barbell).
+    Niski TCI  → dywersyfikacja utrzymuje się w kryzysach (good for Barbell).
+    Referencja: Joe (1997), Embrechts et al. (2002).
+
+    Returns (n_assets, n_assets) matrix.
+    """
+    R = np.asarray(returns_matrix, dtype=float)
+    n = R.shape[1]
+    # VaR per asset (alpha-quantile)
+    var_per_asset = np.percentile(R, alpha * 100, axis=0)
+
+    tci = np.eye(n)
+    for i in range(n):
+        for j in range(i + 1, n):
+            # Joint tail: both in lower alpha-tail simultaneously
+            mask = (R[:, i] <= var_per_asset[i]) & (R[:, j] <= var_per_asset[j])
+            if mask.sum() < 5:
+                tci[i, j] = tci[j, i] = 0.0
+                continue
+            r_i = R[mask, i]
+            r_j = R[mask, j]
+            if r_i.std() > 0 and r_j.std() > 0:
+                c = float(np.corrcoef(r_i, r_j)[0, 1])
+            else:
+                c = 0.0
+            tci[i, j] = tci[j, i] = c
+    return tci

@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import scipy.cluster.hierarchy as sch
 import streamlit as st
+from modules.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 class PortfolioArchitect:
     def __init__(self):
@@ -111,9 +114,7 @@ class PortfolioArchitect:
             return hrp_weights.to_dict()
             
         except Exception as e:
-            print(f"DEBUG ERROR: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"DEBUG ERROR (HRP Allocation failed): {e}")
             # st.error(f"HRP Allocation Error: {e}")
             # Fallback to Equal Weight
             n = len(prices_df.columns)

@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+from config import TAX_BELKA
 from modules.analysis_content import display_chart_guide
 
 # ─── Persistence helpers ────────────────────────────────────────────────────
@@ -157,11 +158,11 @@ def compute_waterfall(init_cap, wealth_matrix, inf_matrix, annual_expenses,
     market_gain = float(median_final - init_cap - total_contrib + sum(
         annual_expenses * (1 + inflation_base)**y for y in range(max(0, horizon - years_to_retirement))
     ))
-    tax_cost = max(0, market_gain * 0.19)
+    tax_cost = max(0, market_gain * TAX_BELKA)
     inflation_cost = init_cap * ((1 + inflation_base)**horizon - 1)
 
     measures = ["absolute", "relative", "relative", "relative", "relative", "relative", "total"]
-    x_labels = ["Kapitał Startowy", "+ Wpłaty", "+ Zysk Rynkowy", "- Podatek 19%", "- Inflacja Realna", "- Wypłaty", "Majątek Końcowy"]
+    x_labels = ["Kapitał Startowy", "+ Wpłaty", "+ Zysk Rynkowy", f"- Podatek {TAX_BELKA*100:.0f}%", "- Inflacja Realna", "- Wypłaty", "Majątek Końcowy"]
     y_values = [init_cap, total_contrib, max(0, market_gain), -tax_cost, -inflation_cost, -total_withdrawal, median_final]
 
     return x_labels, y_values, measures
@@ -240,11 +241,38 @@ def render_emerytura_module():
     fire_number = annual_expenses / 0.035
     current_swr = annual_expenses / init_cap if init_cap > 0 else 0
 
+    # Deterministic FIRE Time Math
+    real_return = (1 + ret_return) / (1 + inflation) - 1
+    if init_cap >= fire_number:
+        years_to_fire = 0
+    elif enable_contributions and annual_contrib > 0:
+        if real_return == 0:
+            years_to_fire = (fire_number - init_cap) / annual_contrib
+        else:
+            val1 = fire_number + annual_contrib / real_return
+            val2 = init_cap + annual_contrib / real_return
+            if val2 <= 0 or val1 / val2 <= 0:
+                years_to_fire = float('inf')
+            else:
+                years_to_fire = np.log(val1 / val2) / np.log(1 + real_return)
+    else:
+        if real_return > 0:
+            years_to_fire = np.log(fire_number / init_cap) / np.log(1 + real_return)
+        else:
+            years_to_fire = float('inf')
+
     # KPI Row
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("FIRE Number (SWR 3.5%)", f"{fire_number:,.0f} PLN")
-    col2.metric("Twoje obecne SWR", f"{current_swr:.2%}")
-    col3.metric("Lat do emerytury", f"{years_to_retirement}")
+    
+    if years_to_fire == 0:
+        col2.metric("Czas do FIRE", "Osiągnięty! 🎉", help="Masz wystarczająco kapitału.")
+    elif years_to_fire == float('inf'):
+        col2.metric("Czas do FIRE", "Nigdy 😢", help="Inflacja pożera kapitał szybciej niż oszczędzasz.")
+    else:
+        col2.metric("Czas do FIRE", f"{years_to_fire:.1f} lat", help="Lata do wolności przy podanych wpłatach i stopie zwrotu.")
+        
+    col3.metric("Twoje obecne SWR", f"{current_swr:.2%}")
     col4.metric("Okres emerytury", f"{years_in_retirement} lat")
 
     st.markdown("---")
@@ -486,40 +514,70 @@ def render_emerytura_module():
         col_seq, col_opt = st.columns(2)
 
         with col_seq:
-            st.markdown("### ⚡ Ryzyko Sekwencji — Fatalny Start")
-            bad_ret = st.slider("Strata w pierwszych latach (%)", -30, -1, value=-10, key="rem_bad_ret") / 100.0
-            bad_years = st.slider("Liczba złych lat", 1, 10, value=5, key="rem_bad_yrs")
+            st.markdown("### ⚡ Ryzyko Sekwencji — Animacja Krachu")
+            st.caption("Zobacz, jak krach rynkowy 📉 w **1. roku emerytury** (od 0% do -50%) wpływa na całe Twoje życie.")
 
             wm_bad, _ = run_mc_retirement(
                 init_cap, annual_expenses, annual_contrib, ret_return, ret_vol, horizon, 300,
                 years_to_retirement, inflation, enable_contributions=enable_contributions,
                 contrib_during_retirement=contrib_during_retirement, withdrawal_strategy=withdrawal_strategy, flexible_pct=flexible_pct
             )
-
-            # Override first `bad_years` — deterministyczny scenariusz
-            w_seq = np.zeros(horizon + 1)
-            w_seq[0] = init_cap
-            for y in range(horizon):
-                r = bad_ret if y < bad_years else ret_return
-                r_taxed = r * 0.81 if r > 0 else r
-                w_seq[y+1] = max(0, w_seq[y] * (1 + r_taxed))
-                inf_f = (1 + inflation) ** y
-                if y >= years_to_retirement:
-                    w_seq[y+1] -= annual_expenses * inf_f
-                elif enable_contributions:
-                    w_seq[y+1] += annual_contrib * inf_f
-                w_seq[y+1] = max(0, w_seq[y+1])
-
             p50_normal = np.percentile(wm_bad, 50, axis=0)
 
-            fig_seq = go.Figure()
-            fig_seq.add_trace(go.Scatter(x=years_arr, y=p50_normal, name="Mediana (normalny rynek)", line=dict(color='#00ff88', width=2)))
-            fig_seq.add_trace(go.Scatter(x=years_arr, y=w_seq, name=f"Fatalny Start ({bad_years} lat po {bad_ret:.0%})", line=dict(color='#ff4444', width=3, dash='dot')))
-            fig_seq.add_vline(x=retirement_age, line_dash="dash", line_color="#00ccff", annotation_text="Emerytura")
-            fig_seq.update_layout(title="Ryzyko Sekwencji vs Mediana", template="plotly_dark", height=400, hovermode="x unified", xaxis_title="Wiek", yaxis_title="PLN")
-            fig_seq.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot")
-            fig_seq.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot")
-            st.plotly_chart(fig_seq, use_container_width=True)
+            # --- Animated First Year Crash ---
+            frames_seq = []
+            crash_levels = np.arange(0, -0.55, -0.05) # 0%, -5%, ..., -50%
+            
+            for crash in crash_levels:
+                w_seq = np.zeros(horizon + 1)
+                w_seq[0] = init_cap
+                for y in range(horizon):
+                    # Szok TYLKO w pierwszym roku emerytury
+                    r = crash if y == years_to_retirement else ret_return 
+                    r_taxed = r * 0.81 if r > 0 else r
+                    w_seq[y+1] = max(0, w_seq[y] * (1 + r_taxed))
+                    inf_f = (1 + inflation) ** y
+                    if y >= years_to_retirement:
+                        w_seq[y+1] -= annual_expenses * inf_f
+                    elif enable_contributions:
+                        w_seq[y+1] += annual_contrib * inf_f
+                    w_seq[y+1] = max(0, w_seq[y+1])
+                
+                frames_seq.append(go.Frame(
+                    data=[
+                        go.Scatter(x=years_arr, y=p50_normal, name="Mediana", line=dict(color='#00ff88', width=2)),
+                        go.Scatter(x=years_arr, y=w_seq, name=f"Krach {crash*100:.0f}%", line=dict(color='#ff4444', width=3, dash='dot'))
+                    ],
+                    name=f"Crash_{crash*100:.0f}"
+                ))
+
+            fig_seq_anim = go.Figure(
+                data=frames_seq[0].data,
+                frames=frames_seq,
+                layout=go.Layout(
+                    title="Animacja Ogonów: Black Swan na starcie emerytury",
+                    template="plotly_dark", height=400,
+                    xaxis=dict(title="Wiek", range=[current_age, current_age + horizon]),
+                    yaxis=dict(title="Kapitał (PLN)"),
+                    hovermode="x unified",
+                    updatemenus=[dict(
+                        type="buttons", showactive=False, y=1.15, x=0,
+                        buttons=[
+                            dict(label="▶ Odtwórz Krach", method="animate", args=[None, dict(frame=dict(duration=500, redraw=True), fromcurrent=True)]),
+                            dict(label="⏸ Zresetuj", method="animate", args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate")])
+                        ]
+                    )],
+                    sliders=[dict(
+                        steps=[dict(method="animate", args=[[f.name], dict(mode="immediate", frame=dict(duration=0, redraw=True))], label=f"{c*100:.0f}%") for f, c in zip(frames_seq, crash_levels)],
+                        transition=dict(duration=0), currentvalue=dict(prefix="Krach w 1. roku: ", visible=True),
+                        len=0.9, x=0.05
+                    )]
+                )
+            )
+            fig_seq_anim.add_vline(x=retirement_age, line_dash="dash", line_color="#00ccff", annotation_text="Start Emerytury")
+            fig_seq_anim.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot")
+            fig_seq_anim.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot")
+            st.plotly_chart(fig_seq_anim, use_container_width=True)
 
         with col_opt:
             st.markdown("### 🎯 Retirement Age Optimizer")

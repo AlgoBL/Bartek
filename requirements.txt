@@ -17,3 +17,34 @@ networkx           # MST Correlation Network (Mantegna 1999)
 arch               # GARCH(1,1) Volatility Clustering (Bollerslev 1986)
 numba              # JIT Compiler dla pętli Monte Carlo
 # torch            # LSTM Regime Detector (opcjonalne — heavy, ~700MB)
+
+# =============================================================================
+# === NOWE ZALEŻNOŚCI v6.0 (2026) =============================================
+# =============================================================================
+
+# --- 3.2 FinBERT — NLP finansowy (zastępuje VADER) ---------------------------
+# Wymagane: pip install torch transformers
+# VADER zostaje jako fallback gdy transformers niedostępny
+transformers>=4.38.0       # FinBERT / distilroberta-financial-sentiment
+torch>=2.2.0               # PyTorch backend dla transformers + TCN
+# Opcja lżejsza (CPU-only):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# --- 3.3 TCN / LSTM — aktywny (był szkieletem) --------------------------------
+# torch już powyżej — TCN zaimplementowany w lstm_observer.py
+# Opcjonalnie heavy:
+# torchaudio>=2.2.0
+# torchvision>=0.17.0
+
+# --- 3.4 Polars — szybszy DataFrame (10-50x vs Pandas dla >500 tickerów) -----
+polars>=0.20.0             # Zero-copy Apache Arrow backend
+
+# --- 3.5 Celery + Redis — asynchroniczne długie zadania ----------------------
+celery>=5.3.6              # Kolejka zadań
+redis>=5.0.1               # Klient Redis (broker)
+# Alternatywny broker (bez Redis, Windows-friendly):
+# celery[sqlalchemy]       # SQLite jako broker (wolniejszy, nie wymaga Redis)
+
+# --- Dodatkowe (NLP) ----------------------------------------------------------
+vaderSentiment             # Fallback sentyment (gdy brak transformers)
+feedparser                 # RSS dla Oracle (nagłówki finansowe)

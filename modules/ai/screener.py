@@ -1,6 +1,6 @@
-import yfinance as yf
 import pandas as pd
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
+from modules.data_provider import fetch_data
 
 class FundamentalScreener:
     """
@@ -36,7 +36,7 @@ class FundamentalScreener:
         print(f"Pobieranie historii dla {len(tickers)} aktywów...")
         
         # Pobieranie "hurtowe" jest o wiele szybsze
-        data = yf.download(tickers, period="1mo", threads=True, progress=False)
+        data = fetch_data(tickers, period="1mo", auto_adjust=True)
         
         liquid_tickers = []
         if 'Volume' in data:

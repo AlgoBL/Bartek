@@ -3,6 +3,9 @@ import pandas as pd
 import streamlit as st
 import requests
 import io
+from modules.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 @st.cache_data
 def get_sp500_tickers():
@@ -25,6 +28,7 @@ def get_sp500_tickers():
         tickers = [t.replace('.', '-') for t in tickers]
         return tickers
     except Exception as e:
+        logger.warning(f"Nie udało się pobrać S&P 500: {e}. Używam zapasowej listy.")
         st.warning("Nie udało się pobrać pełnej listy S&P 500. Używam listy zapasowej.")
         # Top 20 liquid stocks (fallback)
         return ['AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'META', 'TSLA', 'BRK-B', 'UNH', 'JNJ', 'JPM', 'XOM', 'V', 'PG', 'MA', 'HD', 'CVX', 'ABBV', 'MRK', 'PEP']

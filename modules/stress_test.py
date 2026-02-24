@@ -46,14 +46,61 @@ CRISIS_SCENARIOS = {
         "description": "Agresywne podwyżki stóp Fed. SPY -25%, TLT -40%.",
         "benchmark": "SPY",
     },
+    "📉 Stagflacja (1973-1974)": {
+        "start": "1973-01-11",
+        "end": "1974-10-03",
+        "recovery_end": "1980-07-17",
+        "description": "Kryzys naftowy (OPEC) i najwyższa od lat inflacja. S&P500 stracił 48%.",
+        "benchmark": "^GSPC",
+    },
+    "💣 Krach 1987 (Black Monday)": {
+        "start": "1987-10-14",
+        "end": "1987-10-20",
+        "recovery_end": "1989-07-26",
+        "description": "Największy jednodniowy krach na Wall Street (-22.6%).",
+        "benchmark": "^GSPC",
+    },
+    "🌎 Kryzys Długu EM / LTCM (1998)": {
+        "start": "1998-07-17",
+        "end": "1998-08-31",
+        "recovery_end": "1998-11-23",
+        "description": "Bankructwo Rosji i upadek funduszu ratunkowego LTCM.",
+        "benchmark": "^GSPC",
+    },
 }
+
+def run_custom_shock(safe_weight: float, risky_shock: float, safe_shock: float, initial_capital: float = 100000.0) -> dict:
+    """
+    Symuluje natychmiastowy szok cenowy na portfelu bazując bezpośrednio na podanych spadkach.
+    """
+    risky_weight = 1.0 - safe_weight
+    
+    val_safe_start = initial_capital * safe_weight
+    val_risky_start = initial_capital * risky_weight
+    
+    # After shock
+    val_safe_end = val_safe_start * (1.0 - safe_shock)
+    val_risky_end = val_risky_start * (1.0 - risky_shock)
+    
+    total_end = val_safe_end + val_risky_end
+    total_loss_pct = (initial_capital - total_end) / initial_capital
+    
+    return {
+        "initial": initial_capital,
+        "final": total_end,
+        "loss_pct": total_loss_pct,
+        "safe_value": val_safe_end,
+        "risky_value": val_risky_end,
+        "message": f"Przy szoku w bezpiecznej przystani -{safe_shock*100:.1f}% i kasowym zrzucie aktywów ryzykownych o -{risky_shock*100:.1f}%, stracisz {total_loss_pct*100:.1f}% kapitału całkowitego."
+    }
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _load_crisis_data(tickers: list, start: str, recovery_end: str) -> pd.DataFrame:
     """Downloads historical data for the crisis + recovery period."""
     try:
-        data = yf.download(tickers, start=start, end=recovery_end, progress=False, auto_adjust=True)
+        from modules.data_provider import fetch_data
+        data = fetch_data(tickers, start=start, end=recovery_end, auto_adjust=True)
         if isinstance(data.columns, pd.MultiIndex):
             data = data["Close"]
         else:

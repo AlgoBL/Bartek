@@ -1,7 +1,11 @@
 
-import yfinance as yf
 import pandas as pd
 import streamlit as st
+from modules.data_provider import fetch_data
+from modules.logger import setup_logger
+from modules.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 @st.cache_data
 def load_data(tickers, start_date="2000-01-01", end_date=None):
@@ -13,7 +17,7 @@ def load_data(tickers, start_date="2000-01-01", end_date=None):
         tickers = [tickers]
         
     try:
-        data = yf.download(tickers, start=start_date, end=end_date, progress=False, auto_adjust=False)
+        data = fetch_data(tickers, start=start_date, end=end_date, auto_adjust=False)
         
         # yfinance > 0.2 returns MultiIndex (Price, Ticker) if multiple tickers, 
         # or just (Price) if single ticker BUT sometimes still MultiIndex.
@@ -47,5 +51,5 @@ def load_data(tickers, start_date="2000-01-01", end_date=None):
         return data.dropna()
         
     except Exception as e:
-        st.error(f"Błąd pobierania danych z Yahoo Finance: {e}")
+        logger.error(f"Błąd pobierania danych z Yahoo Finance: {e}")
         return pd.DataFrame()

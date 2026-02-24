@@ -9,6 +9,10 @@ from modules.ai.architect import PortfolioArchitect
 from modules.ai.optimizer import GeneticOptimizer
 from modules.ai.trader import RLTrader
 import streamlit as st
+from config import TAX_BELKA, RISK_FREE_RATE_PL
+from modules.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 @jit(nopython=True, cache=True)
 def _compute_garch_variance(var_series, eps, omega_g, alpha_g, beta_g, total_days):
@@ -63,46 +67,231 @@ def generate_student_t_copula_shocks(n_sims, n_days, n_assets, df=4, correlation
     try:
         chol = np.linalg.cholesky(correlation_matrix)
     except np.linalg.LinAlgError:
-        # Fallback to PCA or eigen decomposition if not positive-definite, but for simplicity:
         chol = np.eye(n_assets)
 
-    # 1. Generate independent normal samples
     z = np.random.normal(0, 1, size=(n_sims, n_days, n_assets))
-    
-    # 2. Introduce correlation
     correlated_z = np.einsum('ij,kMj->kMi', chol, z)
-    
-    # 3. Generate mixing variable (Chi-square distributed)
     chi2 = np.random.chisquare(df, size=(n_sims, n_days, 1))
-    
-    # 4. Construct Student-t shocks
     t_shocks = correlated_z * np.sqrt(df / chi2)
-    
-    # Standardize to variance = 1 (approx)
     std_t = np.sqrt(df / (df - 2)) if df > 2 else 1.0
     return t_shocks / std_t
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ARCHIMEDEAN COPULAS — Referencja: Nelson (2006), Joe (1997)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _sample_clayton_copula(n: int, theta: float = 2.0) -> np.ndarray:
+    """
+    Clayton Copula — dolna zależność ogonów (lower tail dependence).
+    Modeluje kryzysy gdzie wszystko spada razem.
+    Zależność ogonowa: λ_L = 2^(-1/θ), λ_U = 0.
+    θ → 0: niezależność; θ → ∞: komonotoniczność.
+    """
+    # Conditional inversion method (bivariate)
+    u   = np.random.uniform(0, 1, n)
+    p   = np.random.uniform(0, 1, n)
+    # v = conditional quantile of Clayton
+    exponent = -theta / (1 + theta)
+    v = u * ((p ** exponent) - 1 + u ** (-theta)) ** (-1 / theta)
+    v = np.clip(v, 1e-8, 1 - 1e-8)
+    return np.column_stack([u, v])
+
+
+def _sample_gumbel_copula(n: int, theta: float = 2.0) -> np.ndarray:
+    """
+    Gumbel Copula — górna zależność ogonów (upper tail dependence).
+    Modeluje boom gdzie wszystko rośnie razem.
+    Zależność ogonowa: λ_U = 2 - 2^(1/θ), λ_L = 0.
+    θ = 1: niezależność; θ → ∞: komonotoniczność.
+    """
+    # Stable distribution simulation (Gumbel Fréchet method)
+    from scipy.stats import levy_stable
+    alpha_s = 1.0 / theta
+    # Simulate from Positive Stable distribution
+    phi = np.pi * (np.random.uniform(0, 1, n) - 0.5)
+    e   = np.random.exponential(1, n)
+    W   = (np.sin(alpha_s * phi) / np.cos(phi)) ** (1 / alpha_s) \
+          * (np.cos(phi - alpha_s * phi) / e) ** ((1 - alpha_s) / alpha_s)
+    # Transform uniform marginals through Gumbel generator inverse
+    e1 = np.random.exponential(1, n)
+    e2 = np.random.exponential(1, n)
+    u  = np.exp(-(e1 / W) ** (1 / theta))
+    v  = np.exp(-(e2 / W) ** (1 / theta))
+    u  = np.clip(u, 1e-8, 1 - 1e-8)
+    v  = np.clip(v, 1e-8, 1 - 1e-8)
+    return np.column_stack([u, v])
+
+
+def _sample_frank_copula(n: int, theta: float = 3.0) -> np.ndarray:
+    """
+    Frank Copula — symetryczna zależność ogonów.
+    Brak ekstremalnej zależności ogonów: λ_L = λ_U = 0.
+    Modeluje liniową zależność bez efektu kryzysowego.
+    """
+    u = np.random.uniform(0, 1, n)
+    p = np.random.uniform(0, 1, n)
+    if abs(theta) < 1e-6:
+        return np.column_stack([u, p])  # independence
+    # Conditional inverse
+    num = -np.log(1 - (1 - np.exp(-theta)) / (np.exp(-theta * p) * (1 / u - 1) + 1))
+    v   = np.clip(num / theta, 1e-8, 1 - 1e-8)
+    return np.column_stack([u, v])
+
+
+def generate_archimedean_copula_shocks(
+    n_sims: int, n_days: int,
+    family: str = "clayton",
+    theta: float = 2.0,
+    df_marginal: float = 4.0,
+) -> np.ndarray:
+    """
+    Generuje wstrząsy z Kopuły Archimedejskiej (bivariate → rozszerzenie przez PIT).
+
+    Parameters
+    ----------
+    n_sims      : liczba symulacji
+    n_days      : liczba dni
+    family      : 'clayton' | 'gumbel' | 'frank'
+    theta       : parametr kopuły (siła zależności)
+    df_marginal : stopnie swobody dla marginalnego rozkładu t
+
+    Returns
+    -------
+    (n_sims, n_days) array of standardized shocks
+    """
+    total = n_sims * n_days
+    if family == "gumbel":
+        uv = _sample_gumbel_copula(total, theta)
+    elif family == "frank":
+        uv = _sample_frank_copula(total, theta)
+    else:  # clayton (default)
+        uv = _sample_clayton_copula(total, theta)
+
+    from scipy.stats import t as t_dist
+    std_t = np.sqrt(df_marginal / (df_marginal - 2)) if df_marginal > 2 else 1.0
+    # PIT: uniform → Student-t marginals
+    u_clipped = np.clip(uv[:, 0], 1e-6, 1 - 1e-6)
+    shocks = t_dist.ppf(u_clipped, df=df_marginal) / std_t
+    return shocks.reshape(n_sims, n_days)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUGH VOLATILITY — Rough Bergomi (Gatheral et al. 2018)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def simulate_rough_bergomi_vol(
+    n_sims: int,
+    n_days: int,
+    H: float = 0.1,
+    xi0: float = 0.04,     # initial variance level (e.g. vol²=20% → xi0=0.04)
+    eta: float = 1.9,      # vol-of-vol
+    rho: float = -0.70,    # spot-vol correlation (leverage effect)
+    seed: int | None = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Rough Bergomi Stochastic Volatility (Gatheral, Jaisson & Rosenbaum 2018).
+
+    Volatility obeys fractional Brownian motion with Hurst H ≈ 0.1 (rough):
+      V(t) = xi(t) * exp(eta * W^H(t) - 0.5*eta²*t^(2H))
+    gdzie W^H jest fBM z wykładnikiem H.
+
+    Kluczowe różnice od GARCH:
+    - Hurst H ≈ 0.1 → bardzo "szorstka" ścieżka zmienności
+    - Power-law decay covariancji: Cov(V_s, V_t) ~ |t-s|^(2H)
+    - Brak wykładniczego zanikania jak w GARCH
+    - Lepsza dopasowanie do implied vol surface (Gatheral 2018)
+
+    Returns
+    -------
+    vol_paths  : (n_sims, n_days) instantaneous volatiliy paths
+    spot_shocks: (n_sims, n_days) correlated spot shocks (ρ z vol)
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    dt = 1.0 / 252.0
+    times = np.arange(1, n_days + 1) * dt  # (n_days,)
+
+    # ── Approximate fBM via Cholesky of covariance matrix ─────────────────
+    # Cov(W^H_s, W^H_t) = 0.5*(s^{2H} + t^{2H} - |t-s|^{2H})
+    # For large n_days this is expensive — cap at 252 then tile
+    cov_len = min(n_days, 252)
+    cov_T   = times[:cov_len]
+    Cov = np.zeros((cov_len, cov_len))
+    for i in range(cov_len):
+        for j in range(i, cov_len):
+            s, t = cov_T[i], cov_T[j]
+            c = 0.5 * (s**(2*H) + t**(2*H) - abs(t - s)**(2*H))
+            Cov[i, j] = Cov[j, i] = c
+    # Regularise
+    Cov += np.eye(cov_len) * 1e-8
+    try:
+        L = np.linalg.cholesky(Cov)
+    except np.linalg.LinAlgError:
+        L = np.diag(np.sqrt(np.diag(Cov)))
+
+    vol_paths   = np.zeros((n_sims, n_days))
+    spot_shocks = np.zeros((n_sims, n_days))
+
+    for sim in range(n_sims):
+        # Simulate fBM path (tile if n_days > 252)
+        fbm_full = np.zeros(n_days)
+        ptr = 0
+        while ptr < n_days:
+            z_indep = np.random.normal(0, 1, cov_len)
+            fbm_seg = L @ z_indep
+            take    = min(cov_len, n_days - ptr)
+            fbm_full[ptr: ptr + take] = fbm_seg[:take]
+            ptr += take
+
+        # Rough Bergomi variance process
+        var_t = xi0 * np.exp(
+            eta * fbm_full
+            - 0.5 * eta**2 * times[:n_days]**(2*H)
+        )
+        vol_t = np.sqrt(np.maximum(var_t, 1e-8))
+        vol_paths[sim] = vol_t
+
+        # Correlated spot shocks: w_spot = ρ*w_vol + sqrt(1-ρ²)*w_indep
+        z_vol   = fbm_full / (np.std(fbm_full) + 1e-10)  # normalised
+        z_indep = np.random.normal(0, 1, n_days)
+        spot_shocks[sim] = rho * z_vol + np.sqrt(max(1 - rho**2, 0)) * z_indep
+
+    return vol_paths, spot_shocks
 
 def simulate_barbell_strategy(
     n_years=10, 
     n_simulations=1000, 
     initial_captial=10000,
-    safe_rate=0.0551,  # Polish Bonds 5.51%
+    safe_rate=RISK_FREE_RATE_PL,
     risky_mean=0.08, 
     risky_vol=0.20, 
-    risky_kurtosis=6.0, # Fat tails parameter
+    risky_kurtosis=6.0,
     alloc_safe=0.85,
     rebalance_strategy="None",
     threshold_percent=0.20,
     use_qmc=False,
     use_garch=False,
-    use_jump_diffusion=True, # Merton Jump-Diffusion
-    jump_lambda=1.5,         # Expect 1.5 jumps per year
-    jump_mean=-0.03,         # Average jump is a 3% drop
-    jump_std=0.04            # Volatility of the jump size
+    use_jump_diffusion=True,
+    jump_lambda=1.5,
+    jump_mean=-0.03,
+    jump_std=0.04,
+    # ==== NOWE v3.0 ====
+    copula_family: str = "student_t",   # 'student_t' | 'clayton' | 'gumbel' | 'frank'
+    copula_theta: float = 2.0,          # Archimedean copula strength
+    use_rough_vol: bool = False,        # Rough Bergomi (Gatheral 2018)
+    rough_hurst: float = 0.1,          # Hurst exponent H≈0.1 for rough
+    rough_eta: float = 1.9,            # vol-of-vol
+    rough_rho: float = -0.70,          # spot-vol correlation
+    custom_scenarios: list = None,     # [{"year": 5, "drop_pct": 0.40}]
 ):
     """
-    Monte Carlo Simulation with GARCH(1,1), t-Copula, and Merton Jump-Diffusion.
-    Automatically applies 19% Belka Tax to all gains.
+    Monte Carlo Simulation z:
+    - GARCH(1,1) lub Rough Bergomi zmiennością
+    - Kopuła t-Studenta (default) lub Archimedejska (Clayton/Gumbel/Frank)
+    - Merton Jump-Diffusion
+    - Belka Tax (19%) na zyski
     """
     days_per_year = 252
     total_days = n_years * days_per_year
@@ -110,8 +299,25 @@ def simulate_barbell_strategy(
     
     df = max(2.1, risky_kurtosis)
     
-    # ─── Random Shocks: Pseudo-random vs Quasi-MC (Sobol) ───────────────────
-    if use_qmc:
+    # ─── Random Shocks: Copula selection ────────────────────────────────────
+    if use_rough_vol:
+        # Rough Bergomi: zwraca vol_paths i spot_shocks z korelacją spot-vol
+        vol_paths, spot_shocks_2d = simulate_rough_bergomi_vol(
+            n_sims=n_simulations, n_days=total_days,
+            H=rough_hurst, xi0=risky_vol**2,
+            eta=rough_eta, rho=rough_rho, seed=None,
+        )
+        standardized_shocks = spot_shocks_2d
+        rough_daily_vols    = vol_paths
+    elif copula_family in ("clayton", "gumbel", "frank"):
+        standardized_shocks = generate_archimedean_copula_shocks(
+            n_sims=n_simulations, n_days=total_days,
+            family=copula_family, theta=copula_theta,
+            df_marginal=max(2.1, risky_kurtosis),
+        )
+        rough_daily_vols = None
+    elif use_qmc:
+        df = max(2.1, risky_kurtosis)
         try:
             if total_days <= 21201:
                 sampler = Sobol(d=total_days, scramble=True)
@@ -119,35 +325,40 @@ def simulate_barbell_strategy(
                 uniform_samples = sampler.random(n_sobol)[:n_simulations]
                 from scipy.stats import t as t_dist
                 std_t = np.sqrt(df / (df - 2))
-                random_shocks = t_dist.ppf(np.clip(uniform_samples, 1e-8, 1 - 1e-8), df=df)
-                standardized_shocks = random_shocks / std_t
+                standardized_shocks = t_dist.ppf(np.clip(uniform_samples, 1e-8, 1 - 1e-8), df=df) / std_t
             else:
-                raise ValueError("Too many days for Sobol, falling back")
-        except Exception:
+                raise ValueError("Too many days for Sobol")
+        except Exception as e:
+            logger.warning(f"Błąd generacji Sobola, fallback do t.rvs: {e}")
             random_shocks = t.rvs(df, size=(n_simulations, total_days))
             std_t = np.sqrt(df / (df - 2))
             standardized_shocks = random_shocks / std_t
+        rough_daily_vols = None
     else:
+        df = max(2.1, risky_kurtosis)
         random_shocks = t.rvs(df, size=(n_simulations, total_days))
         std_t = np.sqrt(df / (df - 2))
         standardized_shocks = random_shocks / std_t
-    
+        rough_daily_vols = None
+
     # ─── Merton Jump-Diffusion ──────────────────────────────────────────────
     jump_returns = np.zeros((n_simulations, total_days))
     if use_jump_diffusion:
-        # Poisson process for jump occurrences
-        # Probability of jump in a single day
         prob_jump = jump_lambda * dt
         jump_occurrences = np.random.binomial(1, prob_jump, size=(n_simulations, total_days))
-        
-        # Normal distribution for jump sizes
         jump_sizes = np.random.normal(jump_mean, jump_std, size=(n_simulations, total_days))
-        
-        # Total jump returns
         jump_returns = jump_occurrences * jump_sizes
 
-    # ─── GARCH(1,1) Volatility ──────────────────────────────────────────────
-    if use_garch:
+
+    # ─── GARCH(1,1) / Rough Bergomi Volatility ──────────────────────────────
+    if use_rough_vol and rough_daily_vols is not None:
+        # Rough Bergomi: spot_shocks already correlated with vol
+        jump_var_annual = jump_lambda * (jump_mean**2 + jump_std**2) if use_jump_diffusion else 0
+        jump_mean_annual = jump_lambda * (np.exp(jump_mean + 0.5*jump_std**2) - 1) if use_jump_diffusion else 0
+        diff_mean = risky_mean - jump_mean_annual
+        daily_mean = diff_mean * dt
+        risky_returns = np.exp(daily_mean + rough_daily_vols * standardized_shocks) - 1 + jump_returns
+    elif use_garch:
         alpha_g = 0.10
         beta_g  = 0.85
         # Compensation for jump variance to keep overall volatility target
@@ -182,6 +393,15 @@ def simulate_barbell_strategy(
         
         risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks) - 1 + jump_returns
     
+    # Apply Custom Scenarios (Manual Crash Injection)
+    if custom_scenarios:
+        for scenario in custom_scenarios:
+            yr = scenario.get("year", 1)
+            drop = scenario.get("drop_pct", 0.0)
+            day_idx = min(int(yr * days_per_year), total_days - 1)
+            # Inject a direct negative return on that specific day across all simulations
+            risky_returns[:, day_idx] -= drop
+
     # Apply 19% Belka Tax on risky gains (conservative daily approximation)
     risky_returns = np.where(risky_returns > 0, risky_returns * 0.81, risky_returns)
     
@@ -284,23 +504,34 @@ def calculate_individual_metrics(wealth_paths, years):
         "Calmar": calmar
     })
 
+from modules.metrics import calculate_sharpe, calculate_sortino, calculate_calmar, calculate_max_drawdown
+from modules.risk_manager import RiskManager
+
 def run_ai_backtest(
     safe_data, 
     risky_data, 
     initial_capital=100000,
-    safe_type="Ticker", # "Ticker" or "Fixed"
-    safe_fixed_rate=0.0551,
+    safe_type="Ticker",
+    safe_fixed_rate=RISK_FREE_RATE_PL,
     allocation_mode="AI Dynamic", 
     alloc_safe_fixed=0.85,
     kelly_params=None,
     rebalance_strategy="Monthly",
     threshold_percent=0.20,
     progress_callback=None,
-    risky_weights_dict=None 
+    risky_weights_dict=None,
+    # ==== NOWE v3.0 (Risk & Costs) ====
+    transaction_costs: dict = None,
+    risk_params: dict = None,
 ):
     """
-    Runs backtest with 19% Belka Tax automatically included in calculated returns.
+    Backtest z uwzględnieniem kosztów transakcyjnych i zarządzania ryzykiem (Stop-loss, Kelly).
     """
+    risk_m = RiskManager(transaction_costs)
+    stop_loss = risk_params.get("stop_loss", 0.0) if risk_params else 0.0
+    trailing_stop = risk_params.get("trailing_stop", 0.0) if risk_params else 0.0
+    vol_target = risk_params.get("vol_target", 0.0) if risk_params else 0.0
+
     if risky_data.empty:
         st.error("Risky data is empty.")
         return pd.DataFrame(), [], []
@@ -346,6 +577,9 @@ def run_ai_backtest(
         regimes = np.zeros(len(dates))
     
     current_holdings = {t: 0.0 for t in combined_data.columns}
+    entry_prices = {t: 0.0 for t in combined_data.columns}
+    max_prices = {t: 0.0 for t in combined_data.columns}
+    is_stopped = {t: False for t in combined_data.columns}
     cash = initial_capital
     last_rebalance_idx = 0
     total_steps = len(combined_data)
@@ -379,14 +613,25 @@ def run_ai_backtest(
                 if (i - last_rebalance_idx) >= 21:
                     should_rebalance = True
             elif rebalance_strategy == "Threshold (Shannon's Demon)":
-                val_now = sum(current_holdings[t] * prices[t] for t in combined_data.columns) + cash
                 if val_now > 0:
                    current_risky_val = sum(current_holdings[t] * prices[t] for t in risky_tickers)
                    current_risky_w = current_risky_val / val_now
-                   if allocation_mode == "Manual Fixed":
-                       target_r = 1.0 - alloc_safe_fixed
-                       if abs(current_risky_w - target_r) / target_r > threshold_percent:
-                           should_rebalance = True
+                   target_r = 1.0 - alloc_safe_fixed if allocation_mode == "Manual Fixed" else 0.5
+                   if abs(current_risky_w - target_r) / target_r > threshold_percent:
+                       should_rebalance = True
+            
+            # --- Stop Loss / Trailing Stop Check ---
+            for t in combined_data.columns:
+                if current_holdings[t] > 0 and not is_stopped[t]:
+                    max_prices[t] = max(max_prices[t], prices[t])
+                    if risk_m.check_stops(entry_prices[t], prices[t], max_prices[t], stop_loss, trailing_stop):
+                        # Exit position immediately
+                        cash += current_holdings[t] * prices[t] * (1 - risk_m.costs.get("bid_ask", 0.0002))
+                        # Deduct trading cost
+                        asset_cls = "crypto" if "BTC" in t or "ETH" in t else "etf"
+                        cash -= risk_m.calculate_transaction_cost(asset_cls, current_holdings[t]*prices[t], False)
+                        current_holdings[t] = 0
+                        is_stopped[t] = True
         
         if should_rebalance:
             prev_portfolio_val = sum(current_holdings[t] * prices[t] for t in combined_data.columns) + cash if i > 0 else initial_capital
@@ -443,8 +688,21 @@ def run_ai_backtest(
             global_weights = {}
             for t in safe_tickers: global_weights[t] = safe_weights_internal.get(t, 0) * target_safe_pct
             for t in risky_tickers: global_weights[t] = risky_weights_internal.get(t, 0) * target_risky_pct
-            for t, w in global_weights.items():
-                current_holdings[t] = (portfolio_val_now * w) / prices[t]
+            for t in combined_data.columns:
+                is_stopped[t] = False # Reset stops on rebalance
+                entry_prices[t] = prices[t]
+                max_prices[t] = prices[t]
+                
+                asset_cls = "crypto" if "BTC" in t or "ETH" in t else "etf"
+                if "FIXED_SAFE" in t: asset_cls = "bonds"
+                
+                target_val = portfolio_val_now * global_weights.get(t, 0)
+                # Deduct transaction cost on entry/rebalance
+                cost = risk_m.calculate_transaction_cost(asset_cls, target_val, True)
+                portfolio_val_now -= cost
+                
+                current_holdings[t] = (portfolio_val_now * global_weights.get(t, 0)) / prices[t]
+            
             weights_history.append(global_weights)
             last_rebalance_idx = i
         else:
@@ -462,7 +720,7 @@ def run_ai_backtest(
                 # Deduct 19% from gain
                 net_val = prev_val + (daily_gain * 0.81)
                 # To keep math consistent, we adjust 'cash' to absorb the tax loss
-                cash -= (daily_gain * 0.19)
+                cash -= (daily_gain * TAX_BELKA)
                 portfolio_value.append(net_val)
             else:
                 portfolio_value.append(raw_val)
