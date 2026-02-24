@@ -74,7 +74,6 @@ def draw_regime_radar(score):
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=score,
-        title={'text': "Regime Radar (Poziom Paniki)", 'font': {'size': 20, 'color': 'white'}},
         number={'font': {'size': 40, 'color': 'white'}, 'suffix': " / 100"},
         gauge={
             'axis': {'range': [1, 100], 'tickwidth': 1, 'tickcolor': "white"},
