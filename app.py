@@ -104,33 +104,43 @@ def draw_mini_gauge(title, value, min_val, max_val, invert=False, suffix=""):
     if value is None:
         return st.empty()
     
-    # Calculate color based on value
+    # Calculate color based on threat level
     norm_val = (value - min_val) / (max_val - min_val) if max_val != min_val else 0.5
+    
+    # Premium Palette
+    P_GREEN = "#00e676"
+    P_YELLOW = "#ffea00"
+    P_RED = "#ff1744"
+    
     if invert:
-        # High is green
-        c = "rgba(46, 204, 113, 0.8)" if norm_val > 0.6 else ("rgba(231, 76, 60, 0.8)" if norm_val < 0.3 else "rgba(243, 156, 18, 0.8)")
+        # High is GOOD
+        if norm_val > 0.65: c = P_GREEN
+        elif norm_val < 0.35: c = P_RED
+        else: c = P_YELLOW
     else:
-        # High is red
-        c = "rgba(231, 76, 60, 0.8)" if norm_val > 0.7 else ("rgba(46, 204, 113, 0.8)" if norm_val < 0.4 else "rgba(243, 156, 18, 0.8)")
+        # High is BAD
+        if norm_val > 0.65: c = P_RED
+        elif norm_val < 0.35: c = P_GREEN
+        else: c = P_YELLOW
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
-        number={'suffix': suffix, 'font': {'size': 18, 'color': 'white'}},
-        title={'text': title, 'font': {'size': 14, 'color': '#ccc'}},
+        number={'suffix': suffix, 'font': {'size': 20, 'color': 'white', 'family': "Inter"}},
+        title={'text': title, 'font': {'size': 14, 'color': '#888', 'family': "Inter"}},
         gauge={
-            'axis': {'range': [min_val, max_val], 'tickwidth': 1, 'tickcolor': "gray", 'tickfont': {'size': 8}},
+            'axis': {'range': [min_val, max_val], 'tickwidth': 1, 'tickcolor': "#444", 'tickfont': {'size': 8}},
             'bar': {'color': c},
-            'bgcolor': "#1a1c23",
+            'bgcolor': "#0d0e12",
             'borderwidth': 1,
-            'bordercolor': "#444",
+            'bordercolor': "#333",
             'steps': [
-                {'range': [min_val, (max_val-min_val)*0.4 + min_val], 'color': "rgba(46, 204, 113, 0.1)" if not invert else "rgba(231, 76, 60, 0.1)"},
-                {'range': [(max_val-min_val)*0.7 + min_val, max_val], 'color': "rgba(231, 76, 60, 0.1)" if not invert else "rgba(46, 204, 113, 0.1)"}
+                {'range': [min_val, (max_val-min_val)*0.35 + min_val], 'color': "rgba(0, 230, 118, 0.05)" if not invert else "rgba(255, 23, 68, 0.05)"},
+                {'range': [(max_val-min_val)*0.65 + min_val, max_val], 'color': "rgba(255, 23, 68, 0.05)" if not invert else "rgba(0, 230, 118, 0.05)"}
             ]
         }
     ))
-    fig.update_layout(height=140, margin=dict(l=10, r=10, t=40, b=10), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
+    fig.update_layout(height=150, margin=dict(l=15, r=15, t=45, b=10), paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"})
     return fig
 
 def get_vanguard_report(score, macro, geo_report):
@@ -147,6 +157,9 @@ def get_vanguard_report(score, macro, geo_report):
 def home():
     st.markdown(apply_styling(), unsafe_allow_html=True)
     
+    # Minimize top padding
+    st.markdown("<style>div.block-container{padding-top:1rem;}</style>", unsafe_allow_html=True)
+
     # Handle Legacy Navigation (force_navigate)
     if "force_navigate" in st.session_state:
         target = st.session_state.pop("force_navigate")
@@ -155,7 +168,7 @@ def home():
         elif target == "⚡ Stress Test":
             st.switch_page("pages/3_Stress_Test.py")
 
-    with st.spinner("Synchronizacja terminala V9.1..."):
+    with st.spinner("Synchronizacja terminala V9.4..."):
         try:
             macro, geo_report = fetch_control_center_data()
         except Exception as e:
@@ -169,105 +182,104 @@ def home():
     score = calculate_regime_score(macro, geo_report)
     report_text, report_color = get_vanguard_report(score, macro, geo_report)
     
-    # --- TOP HEADER: INTELLIGENCE REPORT ---
-    st.markdown(f"""
-    <div style='background-color: #0d0e12; padding: 15px; border-radius: 12px; border-left: 5px solid {report_color}; margin-bottom: 5px;'>
-        <p style='margin: 0; color: white; font-size: 16px; line-height: 1.4;'><b>Raport:</b> {report_text}</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Extra explicit spacing to prevent Plotly overlap
-    st.write("")
-    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
-
-    # --- MAIN GAUGES ---
+    # --- 1. MAIN GAUGES (AT THE TOP) ---
     col_t1, col_t2 = st.columns([2, 1])
     with col_t1:
         st.plotly_chart(draw_regime_radar(score), use_container_width=True)
     with col_t2:
         phase, desc, icon, color = determine_business_cycle(macro)
         st.markdown(f"""
-        <div style='background-color: #1a1c23; padding: 30px; border-radius: 15px; text-align: center; border: 1px solid #333; height: 280px; display: flex; flex-direction: column; justify-content: center;'>
+        <div style='background-color: #1a1c23; padding: 25px; border-radius: 15px; text-align: center; border: 1px solid #333; height: 280px; display: flex; flex-direction: column; justify-content: center;'>
             <h1 style='font-size: 50px; margin: 0;'>{icon}</h1>
-            <h2 style='color: {color}; margin-top: 10px; font-size: 20px;'>{phase}</h2>
-            <p style='color: #888; font-size: 12px; margin-top: 10px;'>{desc}</p>
+            <h2 style='color: {color}; margin-top: -5px; font-size: 20px;'>{phase}</h2>
+            <p style='color: #888; font-size: 13px; margin-top: 5px; line-height: 1.2;'>{desc}</p>
         </div>
         """, unsafe_allow_html=True)
         
     st.divider()
     
-    # --- 4-PILLAR GRID ---
+    # --- 2. 4-PILLAR GRID ---
     p1, p2, p3, p4 = st.columns(4)
     
     with p1:
-        st.markdown("<h4 style='text-align: center; color: #e74c3c;'>Stress & Volatility</h4>", unsafe_allow_html=True)
-        # 1. Bond Vol (MOVE Proxy)
+        st.markdown("<h4 style='text-align: center; color: #e74c3c; font-size: 16px; margin-bottom: 20px;'>Stress & Volatility</h4>", unsafe_allow_html=True)
+        # Bond Vol
         bv = macro.get("Bond_Vol_Proxy")
         if bv:
-            st.markdown("", help="MOVE Proxy: Zmienność na rynku obligacji skarbowych (TLT). Wysoka zmienność długu często wyprzedza spadki na akcjach.")
+            st.markdown("", help="MOVE Proxy: Zmienność rynku obligacji skarbowych. Skoki zmienności długu wyprzedzają panikę na EQ.")
             st.plotly_chart(draw_mini_gauge("Bond Vol (MOVE)", bv, 5, 30, invert=False, suffix="%"), use_container_width=True)
-        # 2. TED Spread
+        # TED
         ted = macro.get("FRED_TED_Spread")
         if ted:
-            st.markdown("", help="TED Spread: Różnica między oprocentowaniem kredytów międzybankowych a bonów skarbowych. Wzrost oznacza spadek zaufania w systemie bankowym.")
+            st.markdown("", help="TED Spread: Zaufanie międzybankowe. Wzrost powyżej 0.5 sugeruje kryzys płynności dolara.")
             st.plotly_chart(draw_mini_gauge("TED Spread", ted, 0, 1.0, invert=False), use_container_width=True)
-        # 3. GEX
+        # GEX
         gex = macro.get("total_gex_billions")
         if gex is not None:
-            st.markdown("", help="GEX (Gamma Exposure): Pozycjonowanie Market Makerów. Ujemny GEX (poniżej 0) oznacza 'Short Gamma' - środowisko wysokiej zmienności i kaskadowych spadków.")
+            st.markdown("", help="GEX: Pozycjonowanie dealerów opcyjnych. Ujemny GEX = wysoka zmienność (Short Gamma).")
             st.plotly_chart(draw_mini_gauge("Dark Pool GEX", gex, -10, 10, invert=True, suffix="B"), use_container_width=True)
 
     with p2:
-        st.markdown("<h4 style='text-align: center; color: #3498db;'>Macro & Policy</h4>", unsafe_allow_html=True)
-        # 1. Financial Stress Index
+        st.markdown("<h4 style='text-align: center; color: #3498db; font-size: 16px; margin-bottom: 20px;'>Macro & Policy</h4>", unsafe_allow_html=True)
+        # FCI
         fci = macro.get("FRED_Financial_Stress_Index")
         if fci is not None:
-            st.markdown("", help="Financial Stress Index (FCI): Zbiorczy wskaźnik stresu od St. Louis Fed. Wartości powyżej 0 oznaczają warunki trudniejsze niż średnia historyczna.")
+            st.markdown("", help="Financial Stress Index: Agregat stresu rynkowego od Fed. Powyżej 0 oznacza restrykcyjne warunki.")
             st.plotly_chart(draw_mini_gauge("Financial Stress", fci, -2, 5, invert=False), use_container_width=True)
-        # 2. Yield Curve
+        # YC
         yc = macro.get("Yield_Curve_Spread", 0)
-        st.markdown("", help="Yield Curve (10Y-2Y): Różnica rentowności obligacji 10-letnich i 2-letnich. Inwersja (poniżej 0) jest klasycznym sygnałem nadchodzącej recesji.")
+        st.markdown("", help="Yield Curve: Różnica 10Y-2Y. Inwersja (<0) historycznie zwiastuje recesję.")
         st.plotly_chart(draw_mini_gauge("Yield Curve", yc, -1.0, 3.0, invert=True, suffix="%"), use_container_width=True)
-        # 3. Real Yield
+        # Real Yield
         ry = macro.get("FRED_Real_Yield_10Y")
         if ry is not None:
-            st.markdown("", help="Real 10Y Yield: Rentowność obligacji po odjęciu oczekiwanej inflacji. Wysokie realne stopy to 'grawitacja' dla wycen akcji i złota.")
+            st.markdown("", help="Real 10Y Yield: Rentowność po inflacji. Wysoki realny koszt pieniądza uderza w aktywa ryzykowne.")
             st.plotly_chart(draw_mini_gauge("Real 10Y Yield", ry, -1.0, 3.0, invert=False, suffix="%"), use_container_width=True)
 
     with p3:
-        st.markdown("<h4 style='text-align: center; color: #2ecc71;'>Real Economy</h4>", unsafe_allow_html=True)
-        # 1. Baltic Dry Index
+        st.markdown("<h4 style='text-align: center; color: #2ecc71; font-size: 16px; margin-bottom: 20px;'>Real Economy</h4>", unsafe_allow_html=True)
+        # BDRY
         bdry = macro.get("Baltic_Dry")
         if bdry:
-            st.markdown("", help="Baltic Dry Index: Koszt transportu surowców drogą morską. Spadek sugeruje osłabienie globalnego handlu i popytu.")
+            st.markdown("", help="Baltic Dry Index: Koszt frachtu morskiego. Puls globalnego handlu surowcami.")
             st.plotly_chart(draw_mini_gauge("Baltic Dry", bdry, 0, 4000, invert=True), use_container_width=True)
-        # 2. Dr. Copper
+        # Copper
         cu = macro.get("Copper")
         if cu:
-            st.markdown("", help="Dr. Copper: Miedź jest używana w każdej gałęzi przemysłu. Jej cena 'ma doktorat z ekonomii' - rośnie, gdy gospodarka jest silna.")
+            st.markdown("", help="Dr. Copper: Miedź jako barometr przemysłu. Rosnące ceny sugerują ekspansję gospodarczą.")
             st.plotly_chart(draw_mini_gauge("Dr. Copper", cu, 2.0, 6.0, invert=True, suffix="$"), use_container_width=True)
-        # 3. Jobless Claims
+        # Claims
         claims = macro.get("FRED_Initial_Jobless_Claims")
         if claims:
-            st.markdown("", help="Jobless Claims: Liczba nowych wniosków o zasiłek dla bezrobotnych w USA. Nagły wzrost powyżej 250-300k to sygnał pękania rynku pracy.")
+            st.markdown("", help="Jobless Claims: Nowe wnioski o zasiłek. Nagły skok to wczesny sygnał pękania rynku pracy.")
             st.plotly_chart(draw_mini_gauge("Jobless Claims", claims/1000, 150, 400, invert=False, suffix="k"), use_container_width=True)
 
     with p4:
-        st.markdown("<h4 style='text-align: center; color: #f1c40f;'>Sent. & Breadth</h4>", unsafe_allow_html=True)
-        # 1. News Sentiment
+        st.markdown("<h4 style='text-align: center; color: #f1c40f; font-size: 16px; margin-bottom: 20px;'>Sent. & Breadth</h4>", unsafe_allow_html=True)
+        # Sentiment
         sent = geo_report.get("compound_sentiment", 0)
-        st.markdown("", help="News NLP Sentiment: Wynik analizy AI 30 najnowszych nagłówków globalnych. Skala od -1 (strach) do +1 (chciwość).")
+        st.markdown("", help="News Sentiment: Analiza AI nagłówków globalnych. Negatywny wynik sugeruje rosnący niepokój.")
         st.plotly_chart(draw_mini_gauge("News NLP", sent, -1.0, 1.0, invert=True), use_container_width=True)
-        # 2. Market Breadth
+        # Breadth
         breadth = macro.get("Breadth_Momentum")
         if breadth:
-            st.markdown("", help="Market Breadth: Różnica siły między ETF-em równoważonym (RSP) a tradycyjnym SPY. Pokazuje czy rośnie cały rynek, czy tylko kilka największych spółek.")
+            st.markdown("", help="Market Breadth: Siła RSP (Equal Weight) vs SPY. Wysokie wartości = szeroka, zdrowa hossa.")
             st.plotly_chart(draw_mini_gauge("Breadth (bp)", breadth*10000, -200, 200, invert=True), use_container_width=True)
-        # 3. Fear & Greed
+        # F&G
         fng = macro.get("Crypto_FearGreed")
         if fng:
-            st.markdown("", help="Crypto Fear & Greed: Sentyment na rynku aktywów cyfrowych. Bardzo wysokie wartości (Extreme Greed) często zwiastują lokalne szczyty.")
+            st.markdown("", help="Crypto Fear & Greed Index: Sentyment rynku krypto jako proxy dla spekulacyjnego risk-on.")
             st.plotly_chart(draw_mini_gauge("Fear & Greed", fng, 0, 100, invert=True), use_container_width=True)
+
+    st.write("")
+    st.divider()
+
+    # --- 3. BOTTOM: INTELLIGENCE REPORT ---
+    st.markdown(f"""
+    <div style='background-color: #0d0e12; padding: 18px; border-radius: 12px; border-left: 6px solid {report_color}; margin-top: 10px; border: 1px solid #333;'>
+        <p style='margin: 0; color: white; font-size: 17px; line-height: 1.5;'><b>Raport:</b> {report_text}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 pages = {
