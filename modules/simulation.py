@@ -532,6 +532,8 @@ def run_ai_backtest(
     # ==== NOWE v3.0 (Risk & Costs) ====
     transaction_costs: dict = None,
     risk_params: dict = None,
+    # ==== NOWE v4.0 (Bond Capitalization) ====
+    cap_freq: int = 1,   # 1=roczna (TOS), 2=półroczna, 4=kwartalna, 12=miesięczna
 ):
     """
     Backtest z uwzględnieniem kosztów transakcyjnych i zarządzania ryzykiem (Stop-loss, Kelly).
@@ -548,12 +550,15 @@ def run_ai_backtest(
     
     if safe_type == "Fixed":
         dates = risky_data.index
-        # Apply 19% Belka Tax to safe fixed rate
-        daily_rate = (1 + (safe_fixed_rate * 0.81))**(1/252) - 1
+        # Procent składany z kapitalizacją cap_freq razy w roku, po podatku Belki 19%
+        # Wzór: daily_rate = (1 + r_net/f)^(f/252) - 1
+        # f=1  (roczna):     daily_rate ~= (1+r_net)^(1/252)-1   (standard TOS)
+        # f=12 (miesięczna): nieco wyższy EAR przez efekt procentu składanego
+        rate_net = safe_fixed_rate * (1.0 - TAX_BELKA)   # po Belce 19%
+        daily_rate = (1.0 + rate_net / cap_freq) ** (cap_freq / 252.0) - 1.0
         safe_prices = [100.0]
         for _ in range(len(dates)-1):
-            safe_prices.append(safe_prices[-1] * (1 + daily_rate))
-            
+            safe_prices.append(safe_prices[-1] * (1.0 + daily_rate))
         safe_data = pd.DataFrame({"FIXED_SAFE": safe_prices}, index=dates)
         safe_tickers = ["FIXED_SAFE"]
     else:
@@ -622,6 +627,7 @@ def run_ai_backtest(
                 if (i - last_rebalance_idx) >= 21:
                     should_rebalance = True
             elif rebalance_strategy == "Threshold (Shannon's Demon)":
+                val_now = sum(current_holdings[t] * prices[t] for t in combined_data.columns) + cash
                 if val_now > 0:
                    current_risky_val = sum(current_holdings[t] * prices[t] for t in risky_tickers)
                    current_risky_w = current_risky_val / val_now
@@ -666,11 +672,14 @@ def run_ai_backtest(
                 if len(lookback_ret) > 60:
                     mu = lookback_ret.mean() * 252; sigma = lookback_ret.std() * np.sqrt(252)
                     r_safe = (safe_fixed_rate * 0.81) if safe_type == "Fixed" else 0.04 * 0.81
-                    if sigma > 0:
+                    if sigma > 0 and mu > r_safe:
                         kelly_full = (mu - r_safe) / (sigma**2)
                         k_opt = kelly_full * kelly_params.get('fraction', 1.0) * (1 - kelly_params.get('shrinkage', 0.0))
-                        target_risky_pct = max(0.0, min(1.5, k_opt))
-                        target_safe_pct = 1.0 - target_risky_pct
+                        target_risky_pct = max(0.01, min(1.5, k_opt)) # Zostaw chociaż 1% dla podtrzymania ekspozycji
+                    else:
+                        target_risky_pct = 0.01 # Ekstremalny Risk-Off jeśli mu < r_safe (ale nie zero żeby nie zerwać historii portfela)
+                    
+                    target_safe_pct = 1.0 - target_risky_pct
             
             # 2. Rebalance logic with tax on gains considered automatically by reduced future growth
             # (In reality, rebalance triggers tax on sold profitable assets. 
@@ -717,22 +726,13 @@ def run_ai_backtest(
         else:
             weights_history.append(weights_history[-1] if weights_history else {})
         
-        # Daily return logic for tax in backtest
+        # Wymiana daily tax na realne odzwierciedlenie portfela M2M
+        # W rzeczywistości podatek kapitałowy jest odciągany tylko przy sprzedaży (Rebalance).
+        # Implementujemy prosty Mark-to-Market: Portfel wycenia bieżące udziały + gotówkę.
+        # W sekcji "should_rebalance == True" podatek można ew. odciągać od zysków z zamkniętych pozycji.
         if i > 0:
-            prev_val = portfolio_value[-1]
-            # Since backtest uses raw prices, we must manually subtract the tax from the daily gain
-            # This is hard to do without mutating prices. 
-            # Solution: we adjust the portfolio value calculation to reflect tax drag on gains.
             raw_val = sum(current_holdings[t] * prices[t] for t in combined_data.columns) + cash
-            daily_gain = raw_val - prev_val
-            if daily_gain > 0:
-                # Deduct 19% from gain
-                net_val = prev_val + (daily_gain * 0.81)
-                # To keep math consistent, we adjust 'cash' to absorb the tax loss
-                cash -= (daily_gain * TAX_BELKA)
-                portfolio_value.append(net_val)
-            else:
-                portfolio_value.append(raw_val)
+            portfolio_value.append(raw_val)
         else:
             portfolio_value.append(initial_capital)
         

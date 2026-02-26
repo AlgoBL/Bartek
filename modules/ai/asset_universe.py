@@ -98,3 +98,48 @@ def get_global_etfs():
         # --- Volatility ---
         'UVXY', 'VIXY' # Short-term VIX (Careful!)
     ]
+
+@st.cache_data
+def get_top100_etfs():
+    """Zwraca 100 najbardziej płynnych ETF-ów."""
+    base = get_global_etfs()
+    extended = [
+        'EFA', 'VNQ', 'VIG', 'VYM', 'IVW', 'IVE', 'IWD', 'IWF', 'IJH', 'IJR',
+        'SDY', 'SCHD', 'JEPI', 'QID', 'TQQQ', 'SQQQ', 'SOXS', 'XBI', 'KRE', 'XOP',
+        'GDX', 'GDXJ', 'URA', 'COPX', 'LIT', 'PAVE', 'MOAT', 'COWZ', 'PFF', 'EMB',
+        'BKLN', 'SJNK', 'BSV', 'VGK', 'EWJ', 'MCHI', 'INDA', 'EWZ', 'EWT', 'EWY',
+        'VGK', 'EZU', 'FEZ', 'ASHR', 'KWEB', 'ARKG', 'ARKW', 'ARKF', 'UUP', 'FXI'
+    ]
+    # Unikalne
+    return list(set(base + extended))[:100]
+
+@st.cache_data
+def get_wig20_tickers():
+    """Zwraca komponenty polskiego indeksu WIG20 (Yahoo Finance format)."""
+    return [
+        "PKO.WA", "PEO.WA", "PZU.WA", "OPN.WA", "DNP.WA",
+        "ALE.WA", "CDR.WA", "LPP.WA", "SPL.WA", "BHW.WA",
+        "KRU.WA", "KTY.WA", "MBK.WA", "PGE.WA", "CPS.WA",
+        "JSW.WA", "ALR.WA", "BDX.WA", "PEP.WA", "PCO.WA"
+    ]
+
+@st.cache_data
+def get_stoxx50_tickers():
+    """Zwraca główne akcje europejskie (STOXX 50 proxy)."""
+    return [
+        "ASML.AS", "SAP.DE", "MC.PA", "OR.PA", "SU.PA", "SIE.DE", "TTE.PA", 
+        "SAN.MC", "ALV.DE", "SNY", "IBE.MC", "AIR.PA", "AI.PA", "EL.PA", 
+        "BNP.PA", "VGS.PA", "DTE.DE", "CS.PA", "ITX.MC", "ENGI.PA",
+        "MUV2.DE", "BAS.DE", "DPW.DE", "BMW.DE", "MBG.DE", "VOW3.DE",
+        "ADYEN.AS", "PRX.AS", "INGA.AS", "ABI.BR"
+    ]
+
+@st.cache_data
+def get_crypto_tickers():
+    """Zwraca główne kryptowaluty."""
+    return [
+        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
+        "ADA-USD", "AVAX-USD", "DOGE-USD", "LINK-USD", "DOT-USD",
+        "MATIC-USD", "ATOM-USD", "LTC-USD", "UNI-USD", "NEAR-USD",
+        "APT-USD", "FIL-USD", "RNDR-USD", "INJ-USD", "OP-USD"
+    ]

@@ -17,7 +17,10 @@ from modules.ai.data_loader import load_data
 from modules.analysis_content import display_analysis_report, display_scanner_methodology, display_chart_guide
 from modules.scanner import calculate_convecity_metrics, score_asset, compute_hierarchical_dendrogram
 from modules.ai.scanner_engine import ScannerEngine
-from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
+from modules.ai.asset_universe import (
+    get_sp500_tickers, get_global_etfs, get_top100_etfs,
+    get_wig20_tickers, get_stoxx50_tickers, get_crypto_tickers
+)
 from modules.ui.status_manager import StatusManager
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
 from modules.frontier import compute_efficient_frontier
@@ -379,35 +382,85 @@ if 'scanner_results' in st.session_state:
         
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        asset_filter = st.selectbox("Filtruj klasę aktywów:", ["Wszystkie", "Akcje US", "Polska (GPW)", "Krypto", "ETF / Surowce"])
+        asset_filter = st.selectbox(
+            "Filtruj klasę aktywów:", 
+            ["Wszystkie", "Akcje US (S&P 500)", "Europa (STOXX 50)", "Polska (WIG20)", "Krypto", "ETF / Surowce (Top 100)"]
+        )
     with col_f2:
         new_watch = st.text_input("Dodaj ticker do Watchlisty (np. AAPL):").strip().upper()
         if new_watch and new_watch not in st.session_state['watchlist']:
             st.session_state['watchlist'].append(new_watch)
             st.rerun()
-            
+
         watch_disp = ", ".join([f"`{t}`" for t in st.session_state['watchlist']])
         st.markdown(f"**Obserwowane**: {watch_disp if watch_disp else 'Brak'}")
         if st.button("Wyczyść Watchlistę", key="clear_watch"):
             st.session_state['watchlist'] = []
             st.rerun()
 
+    # ── Dedykowane universe dla każdej klasy aktywów ──────────────────────────
+    _CLASS_UNIVERSE = {
+        "Krypto": get_crypto_tickers(),
+        "Polska (WIG20)": get_wig20_tickers(),
+        "Akcje US (S&P 500)": get_sp500_tickers(),
+        "Europa (STOXX 50)": get_stoxx50_tickers(),
+        "ETF / Surowce (Top 100)": get_top100_etfs(),
+    }
+
+    # Przycisk „Skanuj tę klasę“ — dostępny gdy filtr != Wszystkie
+    if asset_filter != "Wszystkie":
+        _uni = _CLASS_UNIVERSE.get(asset_filter, [])
+        _btn_col, _info_col = st.columns([1, 3])
+        with _btn_col:
+            rescan_btn = st.button(
+                f"🔍 Skanuj: {asset_filter}",
+                key="rescan_class_btn",
+                type="primary",
+                help=f"Uruchamia pełną analizę EVT tylko dla klasy „{asset_filter}“ ({len(_uni)} aktywów)."
+            )
+        with _info_col:
+            st.caption(
+                f"📊 Dedykowany universe: {len(_uni)} aktywów klasy **{asset_filter}**. "
+                f"Wynik nadpisze aktualny ranking dla tej klasy."
+            )
+
+        if rescan_btn and _uni:
+            engine_cls = ScannerEngine()
+            _prog = st.progress(0, text=f"Skanowanie {asset_filter}...")
+            def _cb(p, m): _prog.progress(min(p, 1.0), text=m)
+            with st.spinner(f"Analiza EVT: {asset_filter} ({len(_uni)} aktywów)..."):
+                _new_df = engine_cls.scan_markets(_uni, progress_callback=_cb)
+            _prog.empty()
+            if not _new_df.empty:
+                # scalamy z istniejącymi wynikami (usuwamy stare wiersze tej klasy)
+                _old = st.session_state['scanner_results'].copy()
+                _old_without = _old[~_old['Ticker'].isin(_uni)]
+                st.session_state['scanner_results'] = pd.concat(
+                    [_old_without, _new_df], ignore_index=True
+                ).sort_values('Barbell Score', ascending=False)
+                # odśwież dane wykresów dla nowej klasy
+                st.session_state.pop('scanner_data', None)
+                st.toast(f"✅ Zaktualizowano wyniki dla: {asset_filter} ({len(_new_df)} aktywów)")
+                st.rerun()
+            else:
+                st.error(f"❌ **Skanowanie zakończone, ale żadne z aktywów z klasy `{asset_filter}` nie spełniło minimalnych kryteriów analizy.** (Wymagane m.in. >50 dni notowań, minimum płynności).")
+
     # Apply Filters
     df_filtered = df_res.copy()
-    if asset_filter == "Krypto":
-        df_filtered = df_filtered[df_filtered['Ticker'].str.endswith('-USD')]
-    elif asset_filter == "Polska (GPW)":
-        df_filtered = df_filtered[df_filtered['Ticker'].str.endswith('.WA')]
-    elif asset_filter == "Akcje US":
-        df_filtered = df_filtered[~df_filtered['Ticker'].str.contains(r'-USD|\.WA', regex=True)]
-        # exclude known ETFs
-        etfs = ['SPY', 'QQQ', 'TLT', 'GLD', 'EEM', 'IEF', 'IAU']
-        df_filtered = df_filtered[~df_filtered['Ticker'].isin(etfs)]
-    elif asset_filter == "ETF / Surowce":
-        etfs = ['SPY', 'QQQ', 'TLT', 'GLD', 'EEM', 'IEF', 'IAU', 'BDRY']
-        m1 = df_filtered['Ticker'].isin(etfs)
-        m2 = df_filtered['Ticker'].str.contains('ETF', case=False)
-        df_filtered = df_filtered[m1 | m2]
+    if asset_filter != "Wszystkie":
+        _uni = _CLASS_UNIVERSE.get(asset_filter, [])
+        if _uni:
+            df_filtered = df_filtered[df_filtered['Ticker'].isin(_uni)]
+        else:
+            # Fallback w razie braku zdefiniowanej listy
+            if "Krypto" in asset_filter:
+                df_filtered = df_filtered[df_filtered['Ticker'].str.endswith('-USD')]
+            elif "Polska" in asset_filter:
+                df_filtered = df_filtered[df_filtered['Ticker'].str.endswith('.WA')]
+                
+    if df_filtered.empty:
+        st.warning(f"⚠️ **Brak wyników do wyświetlenia dla klasy: `{asset_filter}`**\n\nMożliwe przyczyny:\n1. **Nie skanowano jeszcze tej klasy.** (Kliknij widoczny wyżej przycisk *🔍 Skanuj*)\n2. **Żadne aktywo z tej klasy nie spełniło rygorów analizy EVT.** Model automatycznie odrzuca aktywa ze zbyt krótką historią notowań (<50 dni) lub brakiem płynności.")
+        st.stop() # Zatrzymaj renderowanie pustych wykresów w dół strony 
 
     st.divider()
     st.subheader("🏆 Ranking Antykruchości (Barbell Score)")
@@ -448,8 +501,7 @@ if 'scanner_results' in st.session_state:
     for col_ in ["Barbell Score", "Skewness", "EVT Shape (Tail)", "EVT Left Tail",
                  "Omega", "Hurst", "Sharpe", "Sortino"]:
         if col_ in df_display.columns: format_dict[col_] = "{:.2f}"
-
-    dynamic_height = (len(df_res) + 1) * 38 + 10
+    dynamic_height = (len(df_display) + 1) * 38 + 10
 
     try:
         styled = df_display.style.format(format_dict)
@@ -567,9 +619,11 @@ if 'scanner_results' in st.session_state:
     *   **Max Drawdown**: Maksymalne obsunięcie kapitału. Mówi o tym, jak bardzo zaboli w najgorszym momencie.
     """)
     
-    # Best Asset Charts
-    best_asset = df_res.iloc[0]
-    st.subheader(f"💎 Najlepsze Aktywo: {best_asset['Ticker']}")
+    # Best Asset Charts — używamy df_filtered by wykresy odpowiadały aktualnej klasie
+    _df_for_chart = df_filtered if not df_filtered.empty else df_res
+    best_asset = _df_for_chart.iloc[0]
+    class_label = f" [{asset_filter}]" if asset_filter != "Wszystkie" else ""
+    st.subheader(f"💎 Najlepsze Aktywo{class_label}: {best_asset['Ticker']}")
     
     col_chart1, col_chart2 = st.columns(2)
     

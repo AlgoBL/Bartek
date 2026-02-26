@@ -518,9 +518,35 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
     
     if safe_type == "Tickers (Yahoo)":
         safe_tickers_str = st.sidebar.text_area("Koszyk Bezpieczny (Safe)", value=_saved("ai_safe_tickers", "TLT, IEF, GLD"), help="Obligacje, Złoto", key="ai_safe_tickers", on_change=_save, args=("ai_safe_tickers",))
+        cap_freq = 1  # bez znaczenia dla tickerów
     else:
         st.sidebar.info("Generowanie syntetycznego aktywa o stałym wzroście 5.51% rocznie.")
         safe_fixed_rate = st.sidebar.number_input("Oprocentowanie Obligacji (%)", value=_saved("ai_safe_rate", 5.51), step=0.1, key="ai_safe_rate", on_change=_save, args=("ai_safe_rate",)) / 100.0
+
+        _cap_opts = {
+            "Roczna (TOS — domyślna)": 1,
+            "Półroczna": 2,
+            "Kwartalna": 4,
+            "Miesięczna": 12,
+        }
+        _cap_label = st.sidebar.selectbox(
+            "💰 Kapitalizacja odsetek",
+            list(_cap_opts.keys()),
+            index=0,
+            key="ai_cap_freq",
+            help="Jak często odsetki są dopisywane do kapitału.\n"
+                 "Roczna = standard TOS (PKO BP).\n"
+                 "Częstsza kapitalizacja → wyższy efektywny zysk (procent składany)."
+        )
+        cap_freq = _cap_opts[_cap_label]
+        # Info: efektywna stopa roczna po podatku Belki
+        rate_net = safe_fixed_rate * (1 - 0.19)
+        ear = (1 + rate_net / cap_freq) ** cap_freq - 1
+        st.sidebar.caption(
+            f"📈 EAR po Belce: **{ear:.4%}** "
+            f"(nominalna {safe_fixed_rate:.2%} → netto {rate_net:.4%} → "
+            f"kapitalizowana {cap_freq}×/rok)"
+        )
 
     _ai_risky_opts = ["Lista (Auto Wagi)", "Manualne Wagi"]
     risky_asset_mode = st.sidebar.radio("Tryb Wyboru Aktywów Ryzykownych", _ai_risky_opts, index=_ai_risky_opts.index(_saved("ai_risky_mode", "Lista (Auto Wagi)")), key="ai_risky_mode", on_change=_save, args=("ai_risky_mode",))
@@ -604,7 +630,12 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         cost_equity = st.slider("Akcje PL/US (%)", 0.0, 1.0, value=TAX_BELKA, step=0.01, key="cost_eq") / 100.0
         cost_crypto = st.slider("Kryptowaluty (%)", 0.0, 2.0, value=0.60, step=0.1, key="cost_crypto") / 100.0
         cost_etf    = st.slider("ETF broker (%)", 0.0, 0.5, value=0.05, step=0.01, key="cost_etf") / 100.0
-        
+        cost_bonds  = st.slider(
+            "Obligacje / TOS (%)", 0.0, 0.5, value=0.0, step=0.01, key="cost_bonds",
+            help="Koszty transakcyjne zakupu i sprzedaży obligacji (dom maklerski, spread). "
+                 "Dla TOS (Obligacji Skarbowych) typowo 0% — brak prowizji w PKO BP."
+        ) / 100.0
+
         st.markdown("**Zarządzanie Ryzykiem**")
         stop_loss = st.slider("Hard Stop-Loss (%)", 0, 50, value=0, key="sl") / 100.0
         trailing_stop = st.slider("Trailing Stop (%)", 0, 30, value=0, key="ts") / 100.0
@@ -614,7 +645,7 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         "equity_pl": cost_equity,
         "etf": cost_etf,
         "crypto": cost_crypto,
-        "bonds": 0.0,
+        "bonds": cost_bonds,
         "bid_ask": 0.0002
     }
     risk_params = {
@@ -692,7 +723,8 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
                 progress_callback=update_progress,
                 risky_weights_dict=risky_weights_manual,
                 transaction_costs=trans_costs,
-                risk_params=risk_params
+                risk_params=risk_params,
+                cap_freq=cap_freq
             )
             
             status_ai.info_math("Finalizacja metryk...")
@@ -712,7 +744,9 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
             if not bench_data.empty:
                 bench_prices = bench_data["^GSPC"]
                 # Align indices
-                bench_prices = bench_prices.reindex(results.index, method='ffill').fillna(method='bfill')
+                bench_prices.index = bench_prices.index.tz_localize(None) if bench_prices.index.tz is None else bench_prices.index.tz_convert(None)
+                results_idx = results.index.tz_localize(None) if results.index.tz is None else results.index.tz_convert(None)
+                bench_prices = bench_prices.reindex(results_idx, method='ffill').ffill().bfill()
                 bench_spy = (bench_prices / bench_prices.iloc[0]) * initial_capital
                 
                 # 60/40 Portfolio (60% SPY, 40% Bonds at safe_fixed_rate)

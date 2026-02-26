@@ -188,8 +188,9 @@ def generate_fbm_paths(H: float, n_paths: int, n_steps: int) -> np.ndarray:
         fbm = np.cumsum(fgn, axis=1)
         return fbm
     except np.linalg.LinAlgError:
-        # Fallback do zwyklego Browna jesli macierz kowariancji by ulegla uszkodzeniu
-        return np.cumsum(fgn, axis=1)
+        # Fallback do zwyklego Browna jesli macierz kowariancji ulegla uszkodzeniu
+        fgn_fallback = np.random.randn(n_paths, n_steps)
+        return np.cumsum(fgn_fallback, axis=1)
 
 # =====================================================================
 # 4. VOLATILITY SURFACE & DARK POOLS (GEX)

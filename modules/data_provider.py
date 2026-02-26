@@ -66,31 +66,47 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
 def _fetch_from_stooq_sync(tickers: List[str], start: str = None, end: str = None) -> pd.DataFrame:
     stooq_tickers = [translate_ticker_for_stooq(t) for t in tickers]
     
-    # pandas_datareader data
-    data = web.DataReader(stooq_tickers, 'stooq', start=start, end=end)
-    
-    # Stooq zwraca (Attributes, Symbols). Zamieniamy Symbols z powrotem na Yahoo
-    if isinstance(data.columns, pd.MultiIndex):
-        # Translate symbols back
-        yahoo_stooq_map = {translate_ticker_for_stooq(t): t for t in tickers}
+    try:
+        # pandas_datareader data
+        data = web.DataReader(stooq_tickers, 'stooq', start=start, end=end)
         
-        # Jeśli mamy wiele tickerów: (Attribute, Symbol) np. ('Close', 'AAPL.US')
-        new_columns = []
-        for attr, sym in data.columns:
-            original_sym = yahoo_stooq_map.get(sym, sym)
-            new_columns.append((attr, original_sym))
+        if data is None or data.empty:
+            return pd.DataFrame()
             
-        data.columns = pd.MultiIndex.from_tuples(new_columns)
+        # Stooq zwraca (Attributes, Symbols). Zamieniamy Symbols z powrotem na Yahoo
+        if isinstance(data.columns, pd.MultiIndex):
+            # Translate symbols back
+            yahoo_stooq_map = {translate_ticker_for_stooq(t): t for t in tickers}
+            
+            # Jeśli mamy wiele tickerów: (Attribute, Symbol) np. ('Close', 'AAPL.US')
+            new_columns = []
+            valid_cols = False
+            for attr, sym in data.columns:
+                original_sym = yahoo_stooq_map.get(sym, sym)
+                new_columns.append((attr, original_sym))
+                if original_sym in tickers:
+                    valid_cols = True
+                    
+            if not valid_cols:
+                return pd.DataFrame()
+
+            data.columns = pd.MultiIndex.from_tuples(new_columns)
+            
+            # Do not swap levels here to match yfinance default format: (Price, Ticker)
+            data.sort_index(axis=1, level=0, inplace=True)
+        else:
+            # Jeden ticker, struktura:  Open High Low Close Volume
+            pass
+            
+        # Posortuj chronologicznie, gdyż Stooq zwraca z reguły "od najnowszego"
+        data = data.sort_index(ascending=True)
+        return data
         
-        # Do not swap levels here to match yfinance default format: (Price, Ticker)
-        data.sort_index(axis=1, level=0, inplace=True)
-    else:
-        # Jeden ticker, struktura:  Open High Low Close Volume
-        pass
-        
-    # Posortuj chronologicznie, gdyż Stooq zwraca z reguły "od najnowszego"
-    data = data.sort_index(ascending=True)
-    return data
+    except Exception as e:
+        from modules.logger import setup_logger
+        _log = setup_logger(__name__)
+        _log.warning(f"Błąd we wbudowanym czytniku Stooq: {e}")
+        return pd.DataFrame()
 
 def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = None, period: str = None, auto_adjust: bool = True) -> pd.DataFrame:
     """

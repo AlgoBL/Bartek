@@ -52,14 +52,14 @@ def _score_text(text: str) -> float:
             else:
                 return 0.0
         except Exception as e:
-            logger.warning(f"Błąd parsowania RSS: {e}")
+            logger.warning(f"Błąd analizy FinBERT: {e}")
             pass
 
     if _SENTIMENT_BACKEND == "vader" and _vader_analyzer is not None:
         try:
             return float(_vader_analyzer.polarity_scores(text)["compound"])
         except Exception as e:
-            logger.warning(f"Błąd pobierania RSS ({url}): {e}")
+            logger.warning(f"Błąd analizy VADER: {e}")
             pass
 
     return 0.0

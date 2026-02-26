@@ -97,9 +97,9 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
 
     for y in range(horizon):
         ret = annual_returns[:, y]
-        taxed_ret = np.where(ret > 0, ret * 0.81, ret)
+        # Usunięto destrukcyjny podatek potrącany corocznie z całości portfela (zał. Fundusze Akumulujące/IKE/IKZE)
         w = wealth[:, y]
-        w_new = w * (1 + taxed_ret)
+        w_new = w * (1 + ret)
 
         inf_y = inf_matrix[:, y]
         inf_factor_scalar = (1 + inflation_base) ** y  # for nominal calcs
@@ -155,15 +155,12 @@ def compute_waterfall(init_cap, wealth_matrix, inf_matrix, annual_expenses,
 
     total_contrib = annual_contrib * years_to_retirement if enable_contributions else 0
     total_withdrawal = sum(annual_expenses * (1 + inflation_base)**y for y in range(max(0, horizon - years_to_retirement)))
-    market_gain = float(median_final - init_cap - total_contrib + sum(
-        annual_expenses * (1 + inflation_base)**y for y in range(max(0, horizon - years_to_retirement))
-    ))
-    tax_cost = max(0, market_gain * TAX_BELKA)
-    inflation_cost = init_cap * ((1 + inflation_base)**horizon - 1)
-
-    measures = ["absolute", "relative", "relative", "relative", "relative", "relative", "total"]
-    x_labels = ["Kapitał Startowy", "+ Wpłaty", "+ Zysk Rynkowy", f"- Podatek {TAX_BELKA*100:.0f}%", "- Inflacja Realna", "- Wypłaty", "Majątek Końcowy"]
-    y_values = [init_cap, total_contrib, max(0, market_gain), -tax_cost, -inflation_cost, -total_withdrawal, median_final]
+    market_gain = float(median_final - init_cap - total_contrib + total_withdrawal)
+    # Wykres jest w wartościach nominalnych, więc nie ściągamy kosztu inflacji i fałszywego podatku obniżających medianę wizualnie.
+    
+    measures = ["absolute", "relative", "relative", "relative", "total"]
+    x_labels = ["Kapitał Startowy", "+ Wpłaty", "+ Zysk Rynkowy", "- Wypłaty", "Majątek Końcowy"]
+    y_values = [init_cap, total_contrib, max(0, market_gain), -total_withdrawal, median_final]
 
     return x_labels, y_values, measures
 
@@ -440,13 +437,24 @@ def render_emerytura_module():
                     for j, inf_g in enumerate(inf_range):
                         shocks_g = student_t_shocks(n_sims_grid, horizon_grid)
                         returns_g = np.exp((ret_return - 0.5 * ret_vol**2) + ret_vol * shocks_g) - 1
-                        taxed_g = np.where(returns_g > 0, returns_g * 0.81, returns_g)
+                        # Brak dziennego podatku
                         w_g = np.full((n_sims_grid, horizon_grid + 1), 0.0)
                         w_g[:, 0] = init_cap
                         ann_exp_g = init_cap * swr
+                        
                         for y in range(horizon_grid):
-                            w_g[:, y+1] = np.maximum(w_g[:, y] * (1 + taxed_g[:, y]) - ann_exp_g * (1 + inf_g)**y, 0)
-                        z_success[i, j] = np.mean(w_g[:, -1] > 0)
+                            w_g[:, y+1] = np.maximum(w_g[:, y] * (1 + returns_g[:, y]) - ann_exp_g * (1 + inf_g)**y, 0)
+                        
+                        if stoch_life:
+                            lifetimes_g = gompertz_lifetimes(current_age + years_to_retirement, n_sims_grid)
+                            successes = 0
+                            for sim_idx in range(n_sims_grid):
+                                death_yr = min(int(max(0, lifetimes_g[sim_idx] - (current_age + years_to_retirement))), horizon_grid)
+                                if w_g[sim_idx, death_yr] > 0:
+                                    successes += 1
+                            z_success[i, j] = successes / n_sims_grid
+                        else:
+                            z_success[i, j] = np.mean(w_g[:, -1] > 0)
 
             fig_heat = px.imshow(z_success, x=inf_range, y=swr_range,
                                   color_continuous_scale='RdYlGn', zmin=0, zmax=1,

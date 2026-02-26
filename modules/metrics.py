@@ -58,6 +58,9 @@ def calculate_max_drawdown(prices):
     if isinstance(prices, pd.Series):
         prices = prices.values
     
+    if len(prices) == 0:
+        return 0.0
+    
     peaks = np.maximum.accumulate(prices)
     drawdowns = (prices - peaks) / peaks
     return np.min(drawdowns)
@@ -203,6 +206,10 @@ def calculate_pain_index(prices):
         arr = prices.values
     else:
         arr = np.array(prices)
+        
+    if len(arr) == 0:
+        return 0.0
+        
     peaks = np.maximum.accumulate(arr)
     drawdowns = (arr - peaks) / peaks
     return np.mean(np.abs(drawdowns))
@@ -224,6 +231,17 @@ def calculate_drawdown_analytics(prices):
         arr = prices.values
     else:
         arr = np.array(prices)
+
+    if len(arr) == 0:
+        return {
+            "max_drawdown": 0.0,
+            "avg_drawdown_depth": 0.0,
+            "avg_drawdown_duration_days": 0.0,
+            "max_drawdown_duration_days": 0,
+            "ulcer_index": 0.0,
+            "pain_index": 0.0,
+            "drawdown_at_risk_95": 0.0,
+        }
 
     peaks = np.maximum.accumulate(arr)
     drawdowns = (arr - peaks) / peaks  # non-positive values
@@ -282,6 +300,10 @@ def calculate_sterling_ratio(cagr: float, prices) -> float:
         arr = prices.values
     else:
         arr = np.asarray(prices, dtype=float)
+        
+    if len(arr) == 0:
+        return 0.0
+        
     peaks = np.maximum.accumulate(arr)
     dds   = (arr - peaks) / (peaks + 1e-10)
     avg_dd = float(np.mean(dds[dds < 0])) if np.any(dds < 0) else -1e-10
@@ -301,8 +323,12 @@ def calculate_burke_ratio(
     Referencja: Burke (1994).
     """
     returns = np.asarray(returns, dtype=float)
+    if len(returns) == 0:
+        return 0.0
     # Reconstruct price series from returns
     prices = np.cumprod(1 + returns)
+    if len(prices) == 0:
+        return 0.0
     peaks  = np.maximum.accumulate(prices)
     dds    = (prices - peaks) / (peaks + 1e-10)
     sum_dd_sq = float(np.sum(dds ** 2))

@@ -33,24 +33,49 @@ class FundamentalScreener:
         if not tickers:
             return []
             
-        print(f"Pobieranie historii dla {len(tickers)} aktywów...")
+        from modules.logger import setup_logger
+        _log = setup_logger(__name__)
+        _log.info(f"Filtrowanie płynności dla {len(tickers)} aktywów...")
         
-        # Pobieranie "hurtowe" jest o wiele szybsze
         data = fetch_data(tickers, period="1mo", auto_adjust=True)
         
-        liquid_tickers = []
-        if 'Volume' in data:
-            vol_data = data['Volume']
-            for ticker in tickers:
-                if ticker in vol_data:
-                    # Bierzemy średni wolumen z ostatnich 20 dni giełdowych (1 miesiąc)
-                    avg_vol = vol_data[ticker].mean()
-                    if pd.notna(avg_vol) and avg_vol >= self.min_volume:
-                        liquid_tickers.append(ticker)
+        if data.empty:
+            _log.warning("Brak danych płynności — zwracam całą listę bez filtracji.")
+            return tickers
+        
+        # ── Wyodrębnij Volume niezależnie od formatu MultiIndex ────────────────
+        vol_df = None
+        if isinstance(data.columns, pd.MultiIndex):
+            lvl0 = data.columns.get_level_values(0).unique().tolist()
+            lvl1 = data.columns.get_level_values(1).unique().tolist()
+            if "Volume" in lvl0:
+                # Format (Price, Ticker) — nowy yfinance
+                vol_df = data["Volume"]
+            elif "Volume" in lvl1:
+                # Format (Ticker, Price) — stary yfinance
+                vol_df = data.xs("Volume", axis=1, level=1)
         else:
-            # Fallback jeśli YFinance zwrócił dane w innej formie dla 1 tickera
-            pass
+            # Jeden ticker — flat DataFrame
+            if "Volume" in data.columns:
+                vol_df = data[["Volume"]]
+                vol_df.columns = [tickers[0]]
 
+        if vol_df is None or vol_df.empty:
+            _log.warning("Nie udało się wyodrębnić Volume — zwracam całą listę.")
+            return tickers
+
+        liquid_tickers = []
+        for ticker in tickers:
+            if ticker in vol_df.columns:
+                avg_vol = vol_df[ticker].mean()
+                if pd.notna(avg_vol) and avg_vol >= self.min_volume:
+                    liquid_tickers.append(ticker)
+
+        if not liquid_tickers:
+            _log.warning("Filtr płynności odrzucił wszystkie aktywa — zwracam oryginalną listę.")
+            return tickers
+
+        _log.info(f"Płynne aktywa: {len(liquid_tickers)}/{len(tickers)}")
         return liquid_tickers
         
     def get_screened_universe(self, focus: str = "global") -> list:

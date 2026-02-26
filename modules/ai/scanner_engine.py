@@ -129,19 +129,33 @@ class ScannerEngine:
             return pd.DataFrame()
 
         data_bulk = self.fetch_bulk_data(tickers)
-        results   = []
 
+        # ── Helper: wyodrębnij DataFrame dla tickera niezależnie od formatu ──
+        def _extract_ticker_df(data: pd.DataFrame, ticker: str):
+            """Obsługuje oba warianty MultiIndex yfinance oraz flat DataFrame."""
+            if not isinstance(data.columns, pd.MultiIndex):
+                return data  # 1 ticker, flat columns
+
+            lvl0 = data.columns.get_level_values(0).unique().tolist()
+            lvl1 = data.columns.get_level_values(1).unique().tolist()
+
+            # Nowy yfinance: (Price, Ticker) — level 0 to np. 'Close', 'Volume'
+            if ticker in lvl1 and "Close" in lvl0:
+                df = data.xs(ticker, axis=1, level=1)
+                return df
+
+            # Stary yfinance / alternatywny format: (Ticker, Price)
+            if ticker in lvl0:
+                return data[ticker]
+
+            return pd.DataFrame()
+
+        results = []
         for i, ticker in enumerate(tickers):
             try:
-                # Wydobywamy DataFrame dla tickera z MultiIndex
-                if isinstance(data_bulk.columns, pd.MultiIndex):
-                    if ticker not in data_bulk.columns.get_level_values(0):
-                        continue
-                    df = data_bulk[ticker]
-                else:
-                    df = data_bulk
+                df = _extract_ticker_df(data_bulk, ticker)
 
-                if "Close" not in df.columns or df["Close"].dropna().empty:
+                if df.empty or "Close" not in df.columns or df["Close"].dropna().empty:
                     continue
 
                 price_series  = df["Close"].dropna()
