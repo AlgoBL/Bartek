@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from modules.styling import apply_styling
+from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html
 import datetime
 
 st.set_page_config(
@@ -12,8 +13,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-@st.cache_data(ttl=900, show_spinner=False)
-def fetch_control_center_data():
+# Smart cache keyed on date+hour — odswiezenie raz na godzine
+_CACHE_KEY = datetime.datetime.now().strftime("%Y%m%d%H")
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_control_center_data(cache_key: str = ""):
     from modules.ai.oracle import TheOracle
     from modules.ai.agents import LocalGeopolitics
     oracle = TheOracle()
@@ -516,12 +520,19 @@ def home():
         if target == "📉 Symulator": st.switch_page("pages/1_Symulator.py")
         elif target == "⚡ Stress Test": st.switch_page("pages/3_Stress_Test.py")
 
-    with st.spinner("Synchronizacja terminala V9.5..."):
+    with st.spinner(""):
+        _prog = st.progress(0, text="⚡ Synchronizacja terminala V9.5...")
         try:
-            macro, geo_report = fetch_control_center_data()
+            _prog.progress(20, text="📡 Pobieranie danych makroekonomicznych...")
+            macro, geo_report = fetch_control_center_data(cache_key=_CACHE_KEY)
+            _prog.progress(90, text="🧠 Analiza sentymentu i regimu...")
+            _prog.progress(100, text="✅ Terminal zsynchronizowany")
         except Exception as e:
+            _prog.empty()
             st.error(f"Błąd synchronizacji terminala: {e}")
             macro, geo_report = {}, {}
+        finally:
+            _prog.empty()
 
     if not macro:
         st.warning("Brak połączenia z siecią sensorów.")
@@ -530,11 +541,38 @@ def home():
     score = calculate_regime_score(macro, geo_report)
     report_text, report_color = get_vanguard_report(score, macro, geo_report)
 
-    # ─── ROW 1: MAIN GAUGE | BUSINESS CYCLE | VIX TS + SAFE HAVEN ────────────
+    # --- LIVE TICKER BAR ---------------------------------------------------------
+    try:
+        _vix_val  = macro.get("VIX_1M") or 0
+        _gold_val = macro.get("Gold") or 0
+        _oil_val  = macro.get("Crude_Oil") or 0
+        _usd_val  = macro.get("US_Dollar_Index") or 0
+        _hy_val   = macro.get("FRED_HY_Spread") or 0
+        _ticker_items = [
+            {"name": "VIX",        "value": _vix_val,  "change": 0, "suffix": ""},
+            {"name": "Gold",       "value": _gold_val,  "change": 0, "suffix": "$"},
+            {"name": "WTI",        "value": _oil_val,   "change": 0, "suffix": "$"},
+            {"name": "DXY",        "value": _usd_val,   "change": 0, "suffix": ""},
+            {"name": "HY Spread",  "value": _hy_val,    "change": 0, "suffix": "", },
+            {"name": "SCORE",      "value": score,       "change": 0, "suffix": ""},
+        ]
+        _ticker_items = [i for i in _ticker_items if i["value"] > 0]
+        if _ticker_items:
+            st.markdown(ticker_bar_html(_ticker_items), unsafe_allow_html=True)
+    except Exception:
+        pass
+
+    # --- ANIMATED ALERT BADGE ---------------------------------------------------
+    _bc, _ = st.columns([2, 5])
+    with _bc:
+        st.markdown(alert_badge_html(score), unsafe_allow_html=True)
+
+    # --- ROW 1: MAIN GAUGE | BUSINESS CYCLE | VIX TS + SAFE HAVEN --------------
     col_main, col_cycle, col_vts = st.columns([2.2, 1.0, 1.8])
 
     with col_main:
         st.plotly_chart(draw_regime_radar(score), use_container_width=True)
+
 
     with col_cycle:
         phase, desc, icon, color = determine_business_cycle(macro)
@@ -687,7 +725,76 @@ def home():
 
     st.divider()
 
-    # ─── ROW 3: INTELLIGENCE REPORT ───────────────────────────────────────────
+    # --- ROW 3: INTERACTIVE RISK MAP (Bubble Chart) ----------------------------
+    with st.expander("🗺️ Interaktywna Mapa Ryzyka / Portfela — Kliknij aby rozwinąć", expanded=False):
+        st.markdown(
+            "<p style='color:#6b7280;font-size:12px;margin:0 0 8px 0;'>"
+            "X = oczekiwany zwrot | Y = ryzyko (volatility) | Rozmiar = alokacja | Kolor = reżim"
+            "</p>", unsafe_allow_html=True
+        )
+        try:
+            _assets = [
+                {"name": "Akcje (Risky)",  "ret": 0.10, "risk": 0.18, "alloc": 0.30, "regime": "risk_on"},
+                {"name": "Obligacje",       "ret": 0.04, "risk": 0.06, "alloc": 0.50, "regime": "safe"},
+                {"name": "Złoto",           "ret": 0.07, "risk": 0.14, "alloc": 0.10, "regime": "safe"},
+                {"name": "Krypto",          "ret": 0.20, "risk": 0.65, "alloc": 0.05, "regime": "risk_on"},
+                {"name": "Cash/MMF",        "ret": 0.05, "risk": 0.01, "alloc": 0.05, "regime": "neutral"},
+            ]
+            _regime_color = {"risk_on": "#00e676", "safe": "#00ccff", "neutral": "#ffea00"}
+            _bubble_fig = go.Figure()
+            for a in _assets:
+                _bubble_fig.add_trace(go.Scatter(
+                    x=[a["ret"] * 100],
+                    y=[a["risk"] * 100],
+                    mode="markers+text",
+                    text=[a["name"]],
+                    textposition="top center",
+                    textfont=dict(color="white", size=11),
+                    marker=dict(
+                        size=max(a["alloc"] * 200, 20),
+                        color=_regime_color.get(a["regime"], "#888"),
+                        opacity=0.8,
+                        line=dict(width=2, color="rgba(255,255,255,0.3)"),
+                    ),
+                    name=a["name"],
+                    hovertemplate=(
+                        f"<b>{a['name']}</b><br>"
+                        f"Zwrot: {a['ret']*100:.1f}%<br>"
+                        f"Ryzyko: {a['risk']*100:.1f}%<br>"
+                        f"Alokacja: {a['alloc']*100:.0f}%<extra></extra>"
+                    ),
+                ))
+            _bubble_fig.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(10,11,20,0.6)",
+                height=360,
+                xaxis=dict(title="Oczekiwany Zwrot (%/rok)", gridcolor="#1c1c2e", zeroline=True, zerolinecolor="#333"),
+                yaxis=dict(title="Ryzyko — Volatility (%/rok)", gridcolor="#1c1c2e", zeroline=True, zerolinecolor="#333"),
+                showlegend=False,
+                font=dict(color="white", family="Inter"),
+                margin=dict(l=60, r=30, t=20, b=60),
+            )
+            st.plotly_chart(_bubble_fig, use_container_width=True)
+        except Exception as _e:
+            st.info(f"Mapa ryzyka niedostępna: {_e}")
+
+        # Math explainer dla Regime Score
+        with st.expander("🧮 Skąd pochodzi Regime Score?", expanded=False):
+            st.markdown(math_explainer(
+                title="Regime Score",
+                formula="Score = 50 + Σ(wagi × sygnały) — δ × NLP_Sentiment",
+                explanation=(
+                    "Każdy wskaźnik (VIX backwardation, inwersja krzywej, TED spread, STLFSI, HY Spread, "
+                    "GEX, Breadth Momentum) dostaje wagę ryzyka. Score &gt;65 = alarm, &lt;35 = risk-on. "
+                    "Sentyment NLP obniża score gdy media są optymistyczne."
+                ),
+                source="Barbell Strategy Quant v9.5 — metodologia własna + FRED + CBOE",
+            ), unsafe_allow_html=True)
+
+    st.divider()
+
+    # --- ROW 4: INTELLIGENCE REPORT -------------------------------------------
     alerts = get_active_alerts(score, macro, geo_report)
     now_str = datetime.datetime.now().strftime("%H:%M:%S")
     n_red    = sum(1 for a in alerts if "🔴" in a)
@@ -715,15 +822,46 @@ def home():
     </div>
     """, unsafe_allow_html=True)
 
+    # Math expanders dla kluczowych metryk
+    with st.expander("🧮 Jak obliczane są metryki ryzyka (VaR / CVaR / Sharpe)?", expanded=False):
+        _m1, _m2, _m3 = st.columns(3)
+        with _m1:
+            st.markdown(math_explainer(
+                title="VaR",
+                formula="VaR<sub>α</sub> = inf{x: P(L > x) ≤ 1-α}",
+                explanation="Value at Risk: maksymalna strata przy poziomie ufności α (np. 99%). "
+                            "Historyczny: kwantyl empiryczny. EVT: formuła GPD z ogona.",
+                source="Jorion (2001); McNeil & Frey (2000)",
+            ), unsafe_allow_html=True)
+        with _m2:
+            st.markdown(math_explainer(
+                title="CVaR / ES",
+                formula="CVaR<sub>α</sub> = E[L | L > VaR<sub>α</sub>]",
+                explanation="Expected Shortfall: średnia strata w najgorszych (1-α)% scenariuszach. "
+                            "EVT: CVaR = VaR/(1-ξ) + (σ-ξu)/(1-ξ). Subaddytywna (spójna).",
+                source="Artzner et al. (1999); Embrechts et al. (1997)",
+            ), unsafe_allow_html=True)
+        with _m3:
+            st.markdown(math_explainer(
+                title="Sharpe Ratio",
+                formula="SR = (R_p - R_f) / σ_p × √252",
+                explanation="Roczny zwrot nadwyżkowy ponad stopę wolną od ryzyka "
+                            "podzielony przez roczną odchylenie standardowe portfela.",
+                source="Sharpe (1966); Annualization factor √252 dni handlowych",
+            ), unsafe_allow_html=True)
+
 
 pages = {
     "Start": [
         st.Page(home, title="Strona główna", icon="🏠", default=True),
     ],
     "Narzędzia Analityczne": [
-        st.Page("pages/1_Symulator.py", title="Symulator", icon="📉"),
-        st.Page("pages/2_Skaner.py",    title="Skaner",    icon="🔍"),
-        st.Page("pages/3_Stress_Test.py", title="Stress Test", icon="⚡"),
+        st.Page("pages/1_Symulator.py",    title="Symulator",     icon="📉"),
+        st.Page("pages/2_Skaner.py",       title="Skaner",        icon="🔍"),
+        st.Page("pages/3_Stress_Test.py",  title="Stress Test",   icon="⚡"),
+        st.Page("pages/5_EVT_Analysis.py", title="EVT Tail Risk", icon="📐"),
+        st.Page("pages/6_BL_Dashboard.py", title="Black-Litterman", icon="🎯"),
+        st.Page("pages/7_DCC_Dashboard.py", title="DCC Correlacje", icon="🔗"),
     ],
     "Planowanie": [
         st.Page("pages/4_Emerytura.py", title="Emerytura", icon="🏖️"),
