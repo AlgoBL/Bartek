@@ -506,12 +506,12 @@ def get_vanguard_report(score, macro, geo_report):
 
 def home():
     st.markdown(apply_styling(), unsafe_allow_html=True)
+    # Lokalne overrides tylko dla Control Center (gauge gap i h4 margins)
     st.markdown("""
     <style>
-        div.block-container { padding-top: 0.6rem !important; padding-bottom: 0.5rem !important; }
-        div[data-testid="stVerticalBlock"] > div { gap: 0.2rem; }
-        .stPlotlyChart { margin-bottom: -8px; margin-top: -14px; }
-        h4 { margin-bottom: 4px !important; margin-top: 4px !important; }
+        div[data-testid="stVerticalBlock"] > div { gap: 0.35rem; }
+        .stPlotlyChart { margin-bottom: 0px; margin-top: 0px; }
+        h4 { margin-bottom: 6px !important; margin-top: 6px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -851,22 +851,32 @@ def home():
             ), unsafe_allow_html=True)
 
 
+
 pages = {
-    "Start": [
-        st.Page(home, title="Strona główna", icon="🏠", default=True),
+    # ─── 1. STRONA GŁÓWNA ─────────────────────────────────────────────────────
+    "🏠  Dashboard": [
+        st.Page(home, title="Control Center", icon="📡", default=True),
     ],
-    "Narzędzia Analityczne": [
-        st.Page("pages/1_Symulator.py",    title="Symulator",     icon="📉"),
-        st.Page("pages/2_Skaner.py",       title="Skaner",        icon="🔍"),
-        st.Page("pages/3_Stress_Test.py",  title="Stress Test",   icon="⚡"),
-        st.Page("pages/5_EVT_Analysis.py", title="EVT Tail Risk", icon="📐"),
-        st.Page("pages/6_BL_Dashboard.py", title="Black-Litterman", icon="🎯"),
-        st.Page("pages/7_DCC_Dashboard.py", title="DCC Correlacje", icon="🔗"),
+
+    # ─── 2. ANALIZA RYZYKA (nowe moduły naukowe) ──────────────────────────────
+    "📊  Analiza Ryzyka": [
+        st.Page("pages/5_EVT_Analysis.py",  title="EVT — Tail Risk",        icon="📐"),
+        st.Page("pages/6_BL_Dashboard.py",  title="Black-Litterman AI",     icon="🎯"),
+        st.Page("pages/7_DCC_Dashboard.py", title="DCC — Korelacje",        icon="🔗"),
+        st.Page("pages/3_Stress_Test.py",   title="Stress Test",            icon="⚡"),
     ],
-    "Planowanie": [
-        st.Page("pages/4_Emerytura.py", title="Emerytura", icon="🏖️"),
-    ]
+
+    # ─── 3. NARZĘDZIA TRADINGOWE ──────────────────────────────────────────────
+    "⚙️  Narzędzia": [
+        st.Page("pages/1_Symulator.py", title="Symulator Barbell",  icon="📉"),
+        st.Page("pages/2_Skaner.py",    title="Skaner Rynku",       icon="🔍"),
+    ],
+
+    # ─── 4. PLANOWANIE DŁUGOTERMINOWE ─────────────────────────────────────────
+    "🏖️  Planowanie": [
+        st.Page("pages/4_Emerytura.py", title="Emerytura / FIRE", icon="💰"),
+    ],
 }
 
-pg = st.navigation(pages)
+pg = st.navigation(pages, position="sidebar", expanded=True)
 pg.run()

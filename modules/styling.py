@@ -72,11 +72,13 @@ def apply_styling() -> str:
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       LAYOUT
+       LAYOUT — Odpowiedni padding aby treść nie była za wysoko
     ═══════════════════════════════════════════════════════════════ */
     div.block-container {
-        padding-top: 0.6rem !important;
-        padding-bottom: 0.5rem !important;
+        padding-top: 2.5rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
         max-width: 100% !important;
     }
     div[data-testid="stVerticalBlock"] > div { gap: 0.2rem; }
@@ -102,11 +104,44 @@ def apply_styling() -> str:
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       SIDEBAR
+       SIDEBAR — Premium branded navigation
     ═══════════════════════════════════════════════════════════════ */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #080a12 0%, #0d0f1a 100%) !important;
-        border-right: 1px solid var(--border) !important;
+        background: linear-gradient(180deg, #08090f 0%, #0b0d18 50%, #0d0f1a 100%) !important;
+        border-right: 1px solid rgba(0,230,118,0.10) !important;
+        padding-top: 0 !important;
+    }
+    /* Sidebar padding top dla treści */
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.5rem !important;
+    }
+    /* Navigation group headers — bold, uppercase, spaced */
+    [data-testid="stSidebarNavLink"] {
+        border-radius: 8px !important;
+        margin: 2px 8px !important;
+        padding: 8px 14px !important;
+        font-size: 13.5px !important;
+        font-weight: 500 !important;
+        color: #9ca3af !important;
+        transition: background 0.2s ease, color 0.2s ease !important;
+    }
+    [data-testid="stSidebarNavLink"]:hover {
+        background: rgba(0,230,118,0.08) !important;
+        color: #e2e4f0 !important;
+    }
+    [data-testid="stSidebarNavLink"][aria-selected="true"] {
+        background: rgba(0,230,118,0.12) !important;
+        color: #00e676 !important;
+        border-left: 3px solid #00e676 !important;
+        font-weight: 600 !important;
+    }
+    /* Section labels in navigation */
+    [data-testid="stSidebarNavSeparator"] {
+        color: rgba(255,255,255,0.3) !important;
+        font-size: 10px !important;
+        letter-spacing: 1.5px !important;
+        text-transform: uppercase !important;
+        padding: 12px 14px 4px 14px !important;
     }
 
     /* ═══════════════════════════════════════════════════════════════
