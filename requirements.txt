@@ -26,7 +26,7 @@ numba              # JIT Compiler dla pętli Monte Carlo
 # Wymagane: pip install torch transformers
 # VADER zostaje jako fallback gdy transformers niedostępny
 transformers>=4.38.0       # FinBERT / distilroberta-financial-sentiment
-torch>=2.2.0               # PyTorch backend dla transformers + TCN
+torch>=2.2.0               # PyTorch backend dla transformers + TCN + AE
 # Opcja lżejsza (CPU-only):
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 
@@ -48,3 +48,22 @@ redis>=5.0.1               # Klient Redis (broker)
 # --- Dodatkowe (NLP) ----------------------------------------------------------
 vaderSentiment             # Fallback sentyment (gdy brak transformers)
 feedparser                 # RSS dla Oracle (nagłówki finansowe)
+
+# =============================================================================
+# === NOWE ZALEŻNOŚCI v9.5 (2026-02) — 8 Modułów Naukowych  ==================
+# =============================================================================
+
+# --- Moduł 3: Async I/O -------------------------------------------------------
+aiohttp>=3.9.0             # Asynchroniczne pobieranie FRED/makro (asyncio)
+
+# --- Moduł 7: Deep Reinforcement Learning (PPO/SAC) --------------------------
+# stable-baselines3>=2.0.0 # PPO, SAC, TD3 (wymaga gymnasium)
+# gymnasium>=0.29.0         # Custom PortfolioEnv base class
+# Instalacja:
+#   pip install stable-baselines3[extra] gymnasium
+# UWAGA: opcjonalne — działa bez SB3 (fallback do heurystyki Kerala)
+
+# --- Moduł 8: Autoencoder Factors (torch już powyżej) -------------------------
+# torch już zadeklarowany wyżej (>=2.2.0)
+# Wymagane tylko dla AutoencoderFactorModel.fit() — inference nie wymaga GPU
+
