@@ -67,6 +67,70 @@ CRISIS_SCENARIOS = {
         "description": "Bankructwo Rosji i upadek funduszu ratunkowego LTCM.",
         "benchmark": "^GSPC",
     },
+    # ─── CLIMATE SCENARIOS (ECB 2024 Framework) ───────────────────────────────
+    # ECB Climate Stress Test 2024; wymagane przez CSRD od 2025 roku
+    "🌡️ Climate Physical Risk (ECB 2024)": {
+        "start": None, "end": None, "recovery_end": None,
+        "description": (
+            "Scenariusz fizycznego ryzyka klimatycznego (ECB 2024 CSRD): "
+            "powodzie, susze, pożary leśne. Sektory: rolnictwo -30%, "
+            "energetyka -20%, ubezpieczenia -25%, nieruchomości nadbrzeżne -40%. "
+            "Horyzont: 10-30 lat. Wzrost kosztów ubezpieczeń +50%."
+        ),
+        "benchmark": "SPY",
+        "is_synthetic": True,
+        "shocks": {
+            "equity_broad": -0.18, "real_estate": -0.35,
+            "commodity_agri": -0.25, "fossil_energy": -0.30,
+            "insurance": -0.22, "green_energy": +0.15, "bonds_safe": -0.05,
+        },
+    },
+    "⬇️ Climate Transition Risk (ECB 2024)": {
+        "start": None, "end": None, "recovery_end": None,
+        "description": (
+            "Nagłe wprowadzenie podatku węglowego (150 $/tCO2). "
+            "Fossil fuels: -40% w 2 lata. Stranded assets → 100% wartości. "
+            "SPX broad -12%, tech +5%, green bonds +8%. Wymóg CSRD 2025 dla funduszy UE."
+        ),
+        "benchmark": "SPY",
+        "is_synthetic": True,
+        "shocks": {
+            "equity_broad": -0.12, "fossil_fuels": -0.40,
+            "real_estate": -0.10, "green_bonds": +0.08,
+            "tech": +0.05, "bonds_safe": -0.03,
+        },
+    },
+    # ─── AI & GEOPOLITICAL SCENARIOS (2025) ───────────────────────────────────
+    "🤖 AI Disruption / Regulatory Shock (2025)": {
+        "start": None, "end": None, "recovery_end": None,
+        "description": (
+            "Pęknięcie bańki AI (overhype + regulatory backlash). "
+            "Sektor tech -40% (analogia dot-com), broad -15%, GPU stocks -60%, "
+            "obligacje safe haven +5%. EU AI Act + US Congress ograniczają LLM."
+        ),
+        "benchmark": "QQQ",
+        "is_synthetic": True,
+        "shocks": {
+            "equity_broad": -0.15, "tech_ai": -0.40,
+            "semiconductors": -0.50, "bonds_safe": +0.05,
+            "gold": +0.08, "crypto": -0.55,
+        },
+    },
+    "🌍 Geopolitical Fragmentation (IMF 2024)": {
+        "start": None, "end": None, "recovery_end": None,
+        "description": (
+            "Fragmentacja globalnego handlu na bloki East/West (IMF 2024). "
+            "EM Azja -20%, EU -10%, USA -8%. Inflacja strukturalna +2-3 pp. "
+            "Globalny PKB -5%. Zerwanie łańcuchów dostaw chipów i surowców."
+        ),
+        "benchmark": "^GSPC",
+        "is_synthetic": True,
+        "shocks": {
+            "equity_us": -0.08, "equity_eu": -0.10,
+            "equity_em_asia": -0.20, "commodities": +0.12,
+            "bonds_safe": -0.06, "gold": +0.10,
+        },
+    },
 }
 
 def run_custom_shock(safe_weight: float, risky_shock: float, safe_shock: float, initial_capital: float = 100000.0) -> dict:
@@ -286,4 +350,104 @@ def run_reverse_stress_test(safe_weight: float, target_loss: float = 0.30):
         "safe_shock": safe_shock,
         "risky_shock": risky_shock,
         "message": f"Aby portfel stracił {target_loss:.1%}, część ryzykowna musi spaść o {abs(risky_shock):.1%} (przy założeniu spadku części bezpiecznej o {abs(safe_shock):.1%})."
+    }
+
+
+# ─── Synthetic Climate/AI/Geopolitical Stress Tests ───────────────────────────
+
+def run_synthetic_stress_test(
+    safe_weight: float,
+    scenario_name: str,
+    initial_capital: float = 100_000.0,
+    risky_sector_composition: dict | None = None,
+    safe_sector_composition: dict | None = None,
+) -> dict:
+    """
+    Syntetyczny stress test dla scenariuszy bez danych historycznych.
+
+    Parametry
+    ---------
+    safe_weight    : udział bezpiecznych aktywów (0-1)
+    scenario_name  : klucz z CRISIS_SCENARIOS (is_synthetic=True)
+    risky_sector_composition : dict {sektor: udział} np. {"tech_ai": 0.6, "equity_broad": 0.4}
+    safe_sector_composition  : dict {sektor: udział} np. {"bonds_safe": 0.8, "gold": 0.2}
+
+    Metodologia ECB Climate Stress Test 2024:
+    - Każdy sektor portfela dostaje szok z macierzy shocks scenariusza
+    - Wieloperiodowa ścieżka (36 miesięcy) z liniową interpolacją szoków
+    - Dodatkowa korekta inflacyjna (+2% rocznie przez 3 lata)
+    """
+    if scenario_name not in CRISIS_SCENARIOS:
+        return {"error": f"Scenariusz '{scenario_name}' nie istnieje."}
+
+    scenario = CRISIS_SCENARIOS[scenario_name]
+    if not scenario.get("is_synthetic", False):
+        return {"error": "Użyj run_stress_test() dla scenariuszy historycznych."}
+
+    shocks = scenario.get("shocks", {})
+    risky_weight = 1.0 - safe_weight
+
+    # Domyślny skład portfela jeśli nie podano
+    if risky_sector_composition is None:
+        risky_sector_composition = {"equity_broad": 1.0}
+    if safe_sector_composition is None:
+        safe_sector_composition  = {"bonds_safe": 1.0}
+
+    def _apply_shocks(composition: dict) -> float:
+        """Oblicza łączny szok dla koszyka na podstawie składu sektorowego."""
+        total_loss = 0.0
+        for sector, alloc in composition.items():
+            shock = shocks.get(sector, shocks.get("equity_broad", 0.0))
+            total_loss += alloc * shock
+        return total_loss
+
+    risky_shock = _apply_shocks(risky_sector_composition)
+    safe_shock  = _apply_shocks(safe_sector_composition)
+
+    # Wieloperiodowa ścieżka (36 miesięcy)
+    n_months = 36
+    import numpy as np, pandas as pd
+    months = np.arange(n_months + 1)
+
+    # Liniowe przejście do szoku (ECB zakres: stopniowy przez 3 lata)
+    risky_path = 1.0 + (risky_shock / n_months) * months
+    safe_path  = 1.0 + (safe_shock / n_months) * months
+
+    risky_val  = initial_capital * risky_weight * risky_path
+    safe_val   = initial_capital * safe_weight  * safe_path
+    portfolio  = risky_val + safe_val
+
+    # Benchmark (rynek bez hedg'u)
+    bench_shock = shocks.get("equity_broad", shocks.get("equity_us", -0.10))
+    benchmark  = initial_capital * (1.0 + (bench_shock / n_months) * months)
+
+    dates = pd.date_range(start=pd.Timestamp.today(), periods=n_months + 1, freq="ME")
+    results_df = pd.DataFrame({
+        "Portfolio (Barbell)": portfolio,
+        "Benchmark":           benchmark,
+        "Safe_Val":            safe_val,
+        "Risky_Val":           risky_val,
+    }, index=dates)
+
+    max_dd_port  = float(min(portfolio / initial_capital) - 1.0)
+    max_dd_bench = float(min(benchmark / initial_capital) - 1.0)
+
+    return {
+        "results_df":    results_df,
+        "scenario":      scenario,
+        "scenario_name": scenario_name,
+        "risky_shock":   risky_shock,
+        "safe_shock":    safe_shock,
+        "portfolio_loss": max_dd_port,
+        "benchmark_loss": max_dd_bench,
+        "dd_protection":  max_dd_bench - max_dd_port,
+        "is_synthetic":   True,
+        "error":          None,
+        "metrics": {
+            "crash_portfolio_max_dd": max_dd_port,
+            "crash_benchmark_max_dd": max_dd_bench,
+            "dd_protection": max_dd_bench - max_dd_port,
+            "recovery_days": "N/A (syntetyczny)",
+            "scenario": scenario,
+        },
     }

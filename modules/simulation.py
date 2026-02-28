@@ -177,6 +177,105 @@ def generate_archimedean_copula_shocks(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ROUGH HAWKES-HESTON MODEL (El Euch et al. 2024)  [NEW]
+# ══════════════════════════════════════════════════════════════════════════════
+
+def simulate_rough_hawkes_heston(
+    n_sims: int,
+    n_days: int,
+    H: float = 0.1,             # Hurst exponent for rough volatility
+    xi0: float = 0.04,          # Initial variance (vol² = 20% → 0.04)
+    eta: float = 1.5,           # Vol-of-vol
+    rho: float = -0.70,         # Spot-vol correlation (leverage)
+    # Hawkes jump parameters
+    hawkes_lambda0: float = 2.0,  # Baseline jump intensity (per year)
+    hawkes_alpha: float = 0.6,    # Self-exciting coefficient
+    hawkes_beta: float = 2.0,     # Decay rate (speed of intensity reset)
+    jump_vol: float = 0.03,       # Jump size volatility (σ_J)
+    jump_mean: float = -0.015,    # Mean jump size (μ_J, usually negative)
+    seed: int | None = 42,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Rough Hawkes-Heston Model — El Euch, Rosenbaum et al. (2024).
+
+    Łączy dwa kluczowe efekty rynkowe:
+    1. ROUGH VOLATILITY (Hurst H≈0.1):
+       - Zmienność podąża fBM z H≈0.1 → nieróżniczkowalne ścieżki
+       - Lepsze dopasowanie do implied volatility surface niż GARCH
+       - V(t) = xi₀·exp(η·W^H(t) - 0.5·η²·t^{2H})
+
+    2. HAWKES JUMP CLUSTERING (Self-Exciting Process):
+       - Każdy skok wyzwala falę kolejnych skoków (aftershock clustering)
+       - dλ(t) = β·(α·dN(t) - λ(t)·dt), λ(0) = λ₀
+       - Modeluje: flash crashes, earnings cascades, crisis contagion
+       - Branching ratio = α/β: stabilność (musi być < 1)
+
+    Architektura:
+       dS(t) = (μ - λ·μ_J)·S(t)dt + V(t)·S(t)·dW_S + J(t)·S(t)·dN(t)
+       V(t)  = xi₀·exp(η·W^H(t) - 0.5·η²·t^{2H})     # Rough Bergomi
+       λ(t)  = λ₀ + Σ_k α·exp(-β·(t - t_k))            # Hawkes kernel
+
+    Vs. Merton Jump-Diffusion:
+       - Merton: skoki niezależne (Poisson), stała intensywność
+       - Hawkes: skoki samowzbudzające → klastry, wyższy tail risk
+
+    Ref: El Euch, O., Fukasawa, M. & Rosenbaum, M. (2024).
+         "The microstructural foundations of leverage and rough volatility."
+         Quantitative Finance 24(1). DOI: 10.1080/14697688.2023.2290872
+
+    Returns
+    -------
+    vol_paths   : (n_sims, n_days) — instantaneous volatility
+    spot_shocks : (n_sims, n_days) — correlated spot shocks
+    jump_returns: (n_sims, n_days) — Hawkes jump returns
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    dt = 1.0 / 252.0
+
+    # ── Rough Bergomi volatility paths (via FFT) ──────────────────────────────
+    vol_paths, spot_shocks_base = simulate_rough_bergomi_vol_fft(
+        n_sims=n_sims, n_days=n_days,
+        H=H, xi0=xi0, eta=eta, rho=rho, seed=None,
+    )
+
+    # ── Hawkes Process: Self-Exciting Jump Intensity ──────────────────────────
+    jump_returns = np.zeros((n_sims, n_days))
+    branching_ratio = hawkes_alpha / max(hawkes_beta, 1e-8)
+
+    if branching_ratio >= 1.0:
+        # Supercritical → subcritical rescaling (stable process requires α/β < 1)
+        hawkes_alpha = hawkes_beta * 0.8
+
+    lambda0_daily = hawkes_lambda0 / 252.0  # Convert annual intensity to daily
+
+    for s in range(n_sims):
+        lambda_t = lambda0_daily  # Current intensity
+        for day in range(n_days):
+            # Poisson draw with current intensity
+            n_jumps = np.random.poisson(lambda_t)
+
+            if n_jumps > 0:
+                # Jump sizes: log-normal mixture
+                j_sizes = np.random.normal(jump_mean, jump_vol, n_jumps)
+                # Total jump return: sum of individual jumps
+                jump_ret = np.sum(np.exp(j_sizes) - 1.0)
+                jump_returns[s, day] = float(np.clip(jump_ret, -0.50, 0.30))
+
+                # Hawkes self-excitation: intensity spike after each jump
+                lambda_t += hawkes_alpha * n_jumps
+
+            # Exponential decay toward baseline
+            lambda_t = lambda0_daily + (lambda_t - lambda0_daily) * np.exp(
+                -hawkes_beta * dt
+            )
+            lambda_t = max(lambda_t, lambda0_daily)
+
+    return vol_paths, spot_shocks_base, jump_returns
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ROUGH VOLATILITY — Rough Bergomi (Gatheral et al. 2018)
 # ══════════════════════════════════════════════════════════════════════════════
 

@@ -286,3 +286,199 @@ if crash_simul and dcc_available:
         st.caption("DCC amplifikuje korelacje podczas krachu → portfel traci bardziej niż zakładałby statyczny model")
     except Exception as e:
         st.error(f"Simualcja crash error: {e}")
+
+st.divider()
+
+# ─── ROW 6: ANIMATED DCC HEATMAP [NEW 2024] ──────────────────────────────────
+st.markdown("#### 🎞️ Animowana Ewolucja Korelacji DCC (Play/Pause)")
+st.caption("Każda klatka = 1 miesiąc. Obserwuj jak korelacje rosną podczas kryzysów.")
+
+try:
+    col_names = returns_df.columns.tolist()
+
+    # Build monthly rolling correlation matrices for animation
+    monthly_step = 21  # ~1 month
+    frames = []
+    frame_dates = []
+
+    start_frame = max(rolling_window, monthly_step)
+    for end_i in range(start_frame, len(returns_df), monthly_step):
+        window_slice = returns_df.iloc[max(0, end_i - rolling_window): end_i]
+        if len(window_slice) < 10:
+            continue
+        if dcc_available and end_i <= len(R_series):
+            corr_mat = R_series[min(end_i - 1, len(R_series) - 1)]
+        else:
+            corr_mat = window_slice.corr().values
+
+        date_label = str(returns_df.index[end_i - 1].date()) if hasattr(returns_df.index[end_i - 1], 'date') else str(end_i)
+        frames.append(go.Frame(
+            data=[go.Heatmap(
+                z=np.round(corr_mat, 2),
+                x=col_names, y=col_names,
+                colorscale="RdYlGn_r",
+                zmin=-1, zmax=1,
+                text=np.round(corr_mat, 2),
+                texttemplate="%{text}",
+                textfont=dict(size=10),
+                showscale=True,
+            )],
+            name=date_label,
+            layout=go.Layout(title_text=f"DCC Korelacje — {date_label}"),
+        ))
+        frame_dates.append(date_label)
+
+    if frames:
+        # Initial frame
+        init_data = frames[0].data[0]
+        fig_anim = go.Figure(
+            data=[init_data],
+            frames=frames,
+            layout=go.Layout(
+                title=f"📊 Animowana Macierz Korelacji DCC — {frame_dates[0] if frame_dates else ''}",
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                height=430,
+                font=dict(color="white", family="Inter", size=10),
+                margin=dict(l=60, r=20, t=55, b=20),
+                updatemenus=[{
+                    "buttons": [
+                        {"args": [None, {"frame": {"duration": 400, "redraw": True},
+                                         "fromcurrent": True}],
+                         "label": "▶ Play",
+                         "method": "animate"},
+                        {"args": [[None], {"frame": {"duration": 0, "redraw": False},
+                                           "mode": "immediate"}],
+                         "label": "⏸ Pause",
+                         "method": "animate"},
+                    ],
+                    "direction": "left",
+                    "pad": {"r": 10, "t": 65},
+                    "showactive": False,
+                    "type": "buttons",
+                    "x": 0.1, "y": 0,
+                    "bgcolor": "#1a1a2e",
+                    "font": {"color": "white"},
+                }],
+                sliders=[{
+                    "active": 0,
+                    "steps": [{"args": [[f.name], {"frame": {"duration": 300, "redraw": True},
+                                                    "mode": "immediate"}],
+                                "label": f.name,
+                                "method": "animate"}
+                               for f in frames],
+                    "transition": {"duration": 200},
+                    "x": 0.1, "len": 0.9, "y": -0.02,
+                    "currentvalue": {
+                        "font": {"size": 11, "color": "#00ccff"},
+                        "prefix": "Data: ",
+                        "visible": True,
+                        "xanchor": "right",
+                    },
+                    "bgcolor": "#1a1a2e",
+                    "bordercolor": "#333",
+                }],
+            )
+        )
+        st.plotly_chart(fig_anim, use_container_width=True, key="dcc_animated")
+    else:
+        st.info("Za mało danych do animacji (potrzeba > 2 miesięcy).")
+except Exception as e:
+    st.warning(f"Animacja DCC niedostępna: {e}")
+
+st.divider()
+
+# ─── ROW 7: CORRELATION NETWORK GRAPH [NEW 2024] ─────────────────────────────
+st.markdown("#### 🕸️ Sieć Korelacji Aktywów — Network Graph")
+st.caption(
+    "Grubość krawędzi = siła korelacji. Kolor: 🔴 wysoka (kontagion) / 🟢 niska / niebieski = ujemna. "
+    "Brak krawędzi = korelacja < próg filtra."
+)
+try:
+    edge_threshold = st.slider("Min. |korelacja| dla krawędzi", 0.1, 0.9, 0.30, 0.05,
+                                key="nw_thresh")
+    if dcc_available and len(R_series) > 0:
+        corr_mat_nw = R_series[-1]
+    else:
+        corr_mat_nw = returns_df.tail(rolling_window).corr().values
+
+    n_a = len(col_names)
+
+    # Circular layout
+    angles = np.linspace(0, 2 * np.pi, n_a, endpoint=False)
+    node_x = np.cos(angles).tolist()
+    node_y = np.sin(angles).tolist()
+
+    # Build edge traces
+    edge_traces = []
+    for i in range(n_a):
+        for j in range(i + 1, n_a):
+            c = float(corr_mat_nw[i, j])
+            if abs(c) < edge_threshold:
+                continue
+            # Color by sign and magnitude
+            if c > 0:
+                # Red for contagion, yellow for moderate, green for low
+                r_val = min(255, int(255 * c))
+                g_val = min(255, int(255 * (1 - c)))
+                b_val = 30
+            else:
+                # Blue for negative (diversification)
+                r_val, g_val = 30, 80
+                b_val = min(255, int(255 * abs(c)))
+
+            edge_color = f"rgba({r_val},{g_val},{b_val},{min(0.9, abs(c) * 1.2)})"
+            edge_width = max(1.0, abs(c) * 6)
+
+            edge_traces.append(go.Scatter(
+                x=[node_x[i], node_x[j], None],
+                y=[node_y[i], node_y[j], None],
+                mode="lines",
+                line=dict(width=edge_width, color=edge_color),
+                hoverinfo="none",
+                showlegend=False,
+            ))
+
+    # Node trace
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode="markers+text",
+        text=col_names,
+        textposition="middle center",
+        textfont=dict(color="white", size=12, family="Inter"),
+        marker=dict(
+            size=40,
+            color=[float(np.mean(np.abs(corr_mat_nw[i])) - 1 / n_a)
+                   for i in range(n_a)],
+            colorscale="RdYlGn_r",
+            cmin=0.0, cmax=0.8,
+            showscale=True,
+            colorbar=dict(title="Śr. |Korelacja|",
+                          thickness=12, len=0.6,
+                          tickfont=dict(color="white")),
+            line=dict(width=2, color="white"),
+        ),
+        hovertext=[
+            f"<b>{col_names[i]}</b><br>Śr. |korelacja|: "
+            f"{np.mean(np.abs(corr_mat_nw[i])):.3f}"
+            for i in range(n_a)
+        ],
+        hoverinfo="text",
+        name="Aktywa",
+    )
+
+    fig_net = go.Figure(data=edge_traces + [node_trace], layout=go.Layout(
+        title="Sieć Korelacji — Bieżące DCC",
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,11,20,0.7)",
+        height=480,
+        font=dict(color="white", family="Inter"),
+        showlegend=False,
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        margin=dict(l=20, r=20, t=60, b=20),
+    ))
+    st.plotly_chart(fig_net, use_container_width=True, key="dcc_network")
+except Exception as e:
+    st.warning(f"Network graph error: {e}")

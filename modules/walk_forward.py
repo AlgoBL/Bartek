@@ -418,3 +418,135 @@ def plot_bootstrap_ci(ci_result: dict) -> "go.Figure":
         font=dict(color="white"),
     )
     return fig
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DEFLATED SHARPE RATIO  (Bailey & Lopez de Prado 2014)  [NEW]
+# ══════════════════════════════════════════════════════════════════════════════
+
+def probabilistic_sharpe_ratio(
+    returns: np.ndarray,
+    benchmark_sharpe: float = 0.0,
+    rf: float = 0.04,
+    periods: int = 252,
+) -> dict:
+    """
+    Probabilistic Sharpe Ratio (PSR) — Bailey & Lopez de Prado (2014).
+
+    PSR = Φ[ (SR - SR*) * sqrt(T-1) / sqrt(1 - γ₃·SR + (γ₄-1/4)·SR²) ]
+
+    Gdzie:
+      SR  = estimated annualized Sharpe Ratio
+      SR* = benchmark Sharpe (zazwyczaj 0 lub poprzedni najlepszy)
+      γ₃  = skewness zwrotów (korekta nienormalności)
+      γ₄  = kurtosis zwrotów (korekta grubych ogonów)
+      T   = liczba obserwacji
+      Φ   = CDF normalnej standardowej
+
+    Interpretacja: PSR > 0.95 → strategia jest statystycznie lepsza
+                               od SR* z 95% pewnością.
+
+    Ref: Bailey, D.H. & Lopez de Prado, M. (2012). The Sharpe Ratio Efficient
+         Frontier. Journal of Risk, 15(2), 3-44.
+    """
+    from scipy.stats import norm as _norm
+    from scipy.stats import skew as _skew, kurtosis as _kurt
+
+    r   = np.asarray(returns, dtype=float)
+    r   = r[np.isfinite(r)]
+    T   = len(r)
+
+    if T < 30:
+        return {"error": "Za mało obs. dla PSR (min 30)."}
+
+    # Annualized Sharpe from sample
+    rf_daily  = (1 + rf * 0.81) ** (1 / periods) - 1
+    excess    = r - rf_daily
+    sr_hat    = float(np.mean(excess) / (np.std(excess, ddof=1) + 1e-12)) * np.sqrt(periods)
+
+    # Higher moments
+    sk = float(_skew(r))
+    ku = float(_kurt(r, fisher=False))  # non-excess kurtosis (so Normal → 3)
+
+    # PSR formula
+    sr_adj = benchmark_sharpe / np.sqrt(periods)  # daily SR benchmark
+    sr_hat_daily = float(np.mean(excess) / (np.std(excess, ddof=1) + 1e-12))
+
+    variance = (1 - sk * sr_hat_daily + (ku - 1) / 4 * sr_hat_daily ** 2) / (T - 1)
+    if variance <= 0:
+        variance = 1e-10
+
+    z = (sr_hat_daily - sr_adj) / np.sqrt(variance)
+    psr = float(_norm.cdf(z))
+
+    return {
+        "psr":             psr,
+        "sr_hat":          sr_hat,
+        "benchmark_sr":    benchmark_sharpe,
+        "skewness":        sk,
+        "kurtosis":        ku,
+        "n_obs":           T,
+        "interpretation": (
+            f"P(SR > {benchmark_sharpe:.2f}) = {psr:.1%} "
+            f"({'✅ Istotne' if psr > 0.95 else '⚠️ Nieistotne'} at 95%)"
+        ),
+    }
+
+
+def deflated_sharpe_ratio(
+    returns: np.ndarray,
+    n_trials: int,
+    rf: float = 0.04,
+    periods: int = 252,
+) -> dict:
+    """
+    Deflated Sharpe Ratio (DSR) — korekta Sharpe'a za wielokrotne testowanie.
+
+    Problem: jeśli przetestowałeś N strategii, OCZEKIWANA wartość maksymalnego
+    Sharpe'a z samego przypadku (data snooping) rośnie z N.
+
+    DSR = PSR ze SR* = E[max_SR(N, T, σ)] = optymalny benchmark po N próbach.
+
+    E[max] ≈ σ * [(1 - γ)·Φ⁻¹(1-1/N) + γ·Φ⁻¹(1-1/(N·e))]
+    gdzie σ = std zwrotów, γ = stała Eulera–Mascheroniego ≈ 0.5772.
+
+    Ref: Bailey, D.H. & Lopez de Prado, M. (2014). The Deflated Sharpe Ratio.
+         Financial Analysts Journal, 70(5), 94-107.
+    """
+    from scipy.stats import norm as _norm
+
+    r   = np.asarray(returns, dtype=float)
+    r   = r[np.isfinite(r)]
+    T   = len(r)
+
+    if T < 60:
+        return {"error": "Za mało obs. dla DSR (min 60)."}
+    if n_trials < 1:
+        return {"error": "n_trials musi być >= 1."}
+
+    gamma_em = 0.5772156649  # Euler–Mascheroni constant
+
+    # Expected max Sharpe under repeated testing (Bailey & de Prado 2014)
+    if n_trials == 1:
+        e_max_sr = 0.0
+    else:
+        e_max_sr = float(
+            (1 - gamma_em) * _norm.ppf(1 - 1 / n_trials)
+            + gamma_em * _norm.ppf(1 - 1 / (n_trials * np.e))
+        )
+
+    # Annualise the benchmark
+    benchmark_sr = max(0.0, e_max_sr)
+    psr_result = probabilistic_sharpe_ratio(returns, benchmark_sr, rf, periods)
+
+    if "error" in psr_result:
+        return psr_result
+
+    psr_result["dsr_benchmark"] = benchmark_sr
+    psr_result["n_trials"]      = n_trials
+    psr_result["dsr_interpretation"] = (
+        f"Po testowaniu {n_trials} strategii, oczekiwany Sharpe z przypadku = {benchmark_sr:.2f}. "
+        f"P(SR > benchmark) = {psr_result['psr']:.1%} "
+        f"({'✅ Prawdziwa przewaga' if psr_result['psr'] > 0.95 else '❌ Może być data snooping'})"
+    )
+    return psr_result

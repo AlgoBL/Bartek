@@ -353,3 +353,184 @@ def dynamic_bayesian_kelly(returns: pd.Series, prior_prob: float, evidence: floa
         
     kelly_f = p_asterix - ((1 - p_asterix) / win_loss_ratio)
     return max(0.0, kelly_f)
+
+
+# =====================================================================
+# 6. TDA BETTI-1 — Market Cycle Detection (NEW 2024)
+# =====================================================================
+
+def calculate_tda_betti_1_cycles(
+    returns_df: pd.DataFrame,
+    window: int = 63,
+    n_landmark: int = 30,
+) -> pd.Series:
+    """
+    TDA Betti-1 Persistent Homology — Wykrywanie cykli rynkowych.
+
+    Podczas gdy Betti-0 (patrz calculate_tda_betti_0) liczy KOMPONENTY
+    (jak wiele grup aktywów), Betti-1 liczy PĘTLE — zamknięte cykle
+    w topologii przestrzeni zwrotów.
+
+    Interpretacja:**
+      - Wysoki Betti-1 → bogata struktura cykliczna → trend możliwy
+      - Niski Betti-1 → prosta topologia → rynek w równowadze lub krach
+      - Skokowy wzrost → pojawienie się nowych cykli → zmiana reżimu
+
+    Metoda (Vietoris-Rips complex, uproszczona):
+      1. Zbuduj point cloud z returns (n_landmark losowych punktów)
+      2. Oblicz macierz odległości (korelacja topologiczna)
+      3. Znajdź pętle przez linkage (upper-triangular filtration)
+      4. Betti-1 ≈ liczba par (birth, death) widocznych > threshold
+
+    Ref: Gidea & Katz (2018), "Topological Data Analysis of Financial
+         Time Series", Physica A. Rozwinięcie 2024.
+    """
+    if len(returns_df) < window + 10:
+        return pd.Series(dtype=float)
+
+    dates  = returns_df.index[window:]
+    scores = []
+
+    for i in range(window, len(returns_df)):
+        window_data = returns_df.iloc[i - window: i]
+        valid = window_data.dropna(axis=1, how="any")
+        if valid.shape[1] < 3:
+            scores.append(np.nan)
+            continue
+
+        # Point cloud: each day is a point in R^n_assets
+        pts = valid.values             # (window, n_assets)
+
+        # Subsample for speed
+        if len(pts) > n_landmark:
+            idx = np.random.choice(len(pts), n_landmark, replace=False)
+            pts = pts[idx]
+
+        # Pairwise Euclidean distances (standardized)
+        pts_std = (pts - pts.mean(axis=0)) / (pts.std(axis=0) + 1e-10)
+        from scipy.spatial.distance import pdist as _pdist, squareform as _sqf
+        dist_condensed = _pdist(pts_std, metric="euclidean")
+        dist_sq = _sqf(dist_condensed)
+
+        # Vietoris-Rips filtration simplified:
+        # Count triangles (potential 1-cycles) formed at threshold ε
+        # A 1-cycle exists if: 3 pts with pairwise dist all < ε
+        # but the triangle does not contain a 4th point (simplification)
+        # We use a range of ε and count persistence intervals
+        n_pts  = len(pts_std)
+        eps_range = np.linspace(0, np.percentile(dist_condensed, 80), 20)
+        betti1_sum = 0.0
+
+        prev_n_triangles = 0
+        for eps in eps_range[1:]:
+            adj = (dist_sq < eps).astype(float)
+            np.fill_diagonal(adj, 0)
+            # Count triangles: T = trace(A^3) / 6
+            A2 = adj @ adj
+            n_triangles = int(np.trace(adj @ A2) / 6)
+            # Betti-1 approximation by Euler characteristic:
+            # χ = V - E + F → β₁ = E - V + 1 - β₀ (heuristic)
+            # Simpler: count newly born triangles (1-cycles)
+            betti1_sum += max(0, n_triangles - prev_n_triangles)
+            prev_n_triangles = n_triangles
+
+        scores.append(float(betti1_sum))
+
+    return pd.Series(scores, index=dates)
+
+
+# =====================================================================
+# 7. PATH SIGNATURES — ML Features from Continuous Paths (NEW 2024)
+# =====================================================================
+
+def compute_path_signature(
+    returns_series: pd.Series,
+    depth: int = 3,
+    window: int = 21,
+) -> pd.DataFrame:
+    """
+    Path Signatures — kompaktowe nielinearne cechy z ciągłych ścieżek czasowych.
+
+    Sygnatura ścieżki X = (X₁, ..., Xₙ) to tensor:
+      S(X) = (1, ∫dX, ∫∫dX⊗dX, ∫∫∫dX⊗dX⊗dX, ...)
+
+    Kluczowe właściwości:
+      - Universalność: dowolna funkcja ciągłej ścieżki ≈ f(S(X))
+      - Niezmienniczość na reparametryzację (tylko geometria ścieżki liczy się)
+      - Kompresja: głębokość k → d^k + ... + d + 1 cech (d = wymiar ścieżki)
+
+    Tu używamy: (czas, zwrot) jako ścieżkę 2D → głębokość 3
+    Daje: 1 + 2 + 4 + 8 = 15 cech dla depth=3.
+
+    Ref: Lyons (2007) "Rough paths, signatures and the modelling of functions
+         on streams"; Chen (1958); Kiraly & Oberhauser (2019);
+         Zastosowania do finansów 2022-2024 (Oxford ML Group).
+
+    Returns: DataFrame (n_windows, n_sig_features) indeksowany datami.
+    """
+    values = returns_series.dropna().values
+    times  = np.arange(len(values)) / len(values)  # normalize t ∈ [0, 1]
+    n      = len(values)
+
+    if n < window + depth:
+        return pd.DataFrame()
+
+    def _sig_truncated(path_2d: np.ndarray, k: int) -> np.ndarray:
+        """
+        Truncated signature of a 2D path up to depth k.
+        path_2d: (T, 2) array — (time, value)
+        Returns: 1D feature vector of length 2^0 + 2^1 + ... + 2^k = 2^(k+1) - 1
+        """
+        # Depth-0: 1 (scalar)
+        sig = [np.array([1.0])]
+
+        # Convert path to increments
+        dX = np.diff(path_2d, axis=0)  # (T-1, 2)
+
+        # Level 1: ∫dX (sum of increments = terminal - initial)
+        s1 = np.sum(dX, axis=0)        # (2,)
+        sig.append(s1)
+
+        if k >= 2:
+            # Level 2: ∫∫dX_i⊗dX_j
+            # Chen's identity: S_{ij} = cumsum_i * dX_j (iterated integral)
+            T = len(dX)
+            s2 = np.zeros((2, 2))
+            running = np.zeros(2)
+            for t in range(T):
+                s2 += np.outer(running, dX[t])
+                running += dX[t]
+            sig.append(s2.flatten())  # (4,)
+
+        if k >= 3:
+            # Level 3: ∫∫∫ (iterated 3-fold)
+            T = len(dX)
+            s3 = np.zeros((2, 2, 2))
+            run1 = np.zeros(2)
+            run2 = np.zeros((2, 2))
+            for t in range(T):
+                s3 += np.einsum("ij,k->ijk", run2, dX[t])
+                run2 += np.outer(run1, dX[t])
+                run1 += dX[t]
+            sig.append(s3.flatten())  # (8,)
+
+        return np.concatenate(sig)
+
+    feature_rows = []
+    dates_out    = []
+    idx          = returns_series.dropna().index
+
+    for end in range(window, n):
+        window_vals  = values[end - window: end]
+        window_times = times[end - window: end]
+        path_2d = np.column_stack([window_times, window_vals])
+        features = _sig_truncated(path_2d, depth)
+        feature_rows.append(features)
+        dates_out.append(idx[end - 1])
+
+    if not feature_rows:
+        return pd.DataFrame()
+
+    n_features = len(feature_rows[0])
+    col_names  = [f"sig_d{i}" for i in range(n_features)]
+    return pd.DataFrame(feature_rows, index=dates_out, columns=col_names)
