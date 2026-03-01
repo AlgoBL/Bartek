@@ -28,7 +28,7 @@ st.divider()
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Parametry BL")
+    st.markdown("### ⚙️ Ustawienia")
     tau = st.slider(
         "τ (Tau) — siła przeniesienia AI views",
         min_value=0.01, max_value=0.50, value=0.05, step=0.01,

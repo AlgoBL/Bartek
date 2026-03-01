@@ -176,6 +176,7 @@ def render_emerytura_module():
 
     # ─── Sidebar ─────────────────────────────────────────────────────────────
     st.sidebar.title("🛠️ Parametry Emerytury")
+    st.sidebar.markdown("### ⚙️ Ustawienia")
 
     st.sidebar.markdown("### 📥 Import z Symulatora")
     if st.sidebar.button("🔄 Wczytaj z Symulatora"):

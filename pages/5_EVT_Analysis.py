@@ -27,7 +27,7 @@ st.divider()
 
 # ─── SIDEBAR CONTROLS ────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Parametry EVT")
+    st.markdown("### ⚙️ Ustawienia")
     ticker = st.text_input("Ticker (zwroty z Symulatora lub wpisz ręcznie)", value="SPY")
     threshold_pct = st.slider("Próg POT (percentyl strat)", 0.85, 0.99, 0.95, 0.01,
                               help="Im wyższy próg, tym mniej danych — EVT działa na skrajnym ogonie")

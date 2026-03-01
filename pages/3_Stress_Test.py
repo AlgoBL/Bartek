@@ -65,6 +65,7 @@ Wczytuje prawdziwe dane historyczne z Yahoo Finance i porównuje z benchmarkiem 
 """)
 
 st.sidebar.title("⚡ Konfiguracja Stress Testu")
+st.sidebar.markdown("### ⚙️ Ustawienia")
 st.sidebar.markdown("### Aktywa do Testu")
 
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS, run_reverse_stress_test

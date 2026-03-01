@@ -59,6 +59,7 @@ if "custom_stress_scenarios" not in st.session_state:
 # 3. Main Navigation
 
 st.sidebar.title("🛠️ Konfiguracja Strategii")
+st.sidebar.markdown("### ⚙️ Ustawienia")
 
 mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"], index=["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"].index(_saved("sim_mode", "Monte Carlo (Teoretyczny)")), key="sim_mode", on_change=_save, args=("sim_mode",))
 

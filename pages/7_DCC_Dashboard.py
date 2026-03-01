@@ -27,7 +27,7 @@ st.divider()
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Parametry DCC")
+    st.markdown("### ⚙️ Ustawienia")
     tickers_input = st.text_area(
         "Tickery (po średniku)", value="SPY;TLT;GLD;BTC-USD", height=80
     )

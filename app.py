@@ -902,5 +902,5 @@ pages = {
     ],
 }
 
-pg = st.navigation(pages, position="sidebar", expanded=True)
+pg = st.navigation(pages, position="sidebar", expanded=False)
 pg.run()

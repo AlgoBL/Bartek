@@ -99,6 +99,7 @@ except Exception as e:
 
 _use_celery = False
 if _celery_ok:
+    st.sidebar.markdown("### ⚙️ Ustawienia")
     _use_celery = st.sidebar.checkbox(
         "⚡ Tryb Async (Celery + Redis)",
         value=False,
