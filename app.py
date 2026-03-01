@@ -876,6 +876,30 @@ pages = {
     "🏖️  Planowanie": [
         st.Page("pages/4_Emerytura.py", title="Emerytura / FIRE", icon="💰"),
     ],
+
+    # ─── 5. OCHRONA KAPITAŁU (NOWE) ──────────────────────────────────────────
+    "🛡️  Ochrona Kapitału": [
+        st.Page("pages/8_Health_Monitor.py",      title="Portfolio Health Monitor", icon="🏥"),
+        st.Page("pages/9_Concentration_Risk.py",  title="Concentration Risk",       icon="🎯"),
+        st.Page("pages/10_Drawdown_Recovery.py",  title="Drawdown Recovery",        icon="📉"),
+        st.Page("pages/11_Regime_Clock.py",        title="Investment Clock",         icon="🕐"),
+    ],
+
+    # ─── 6. ZARZĄDZANIE RYZYKIEM (NOWE) ──────────────────────────────────────
+    "⚠️  Zarządzanie Ryzykiem": [
+        st.Page("pages/12_Regime_Allocation.py",  title="Regime Allocation",        icon="🔀"),
+        st.Page("pages/13_Liquidity_Risk.py",     title="Liquidity Risk",           icon="💧"),
+        st.Page("pages/14_Tail_Hedging.py",       title="Tail Risk Hedging",        icon="🛡️"),
+        st.Page("pages/15_Tax_Optimizer.py",      title="Tax Optimizer PL",         icon="💰"),
+    ],
+
+    # ─── 7. WZROST MAJĄTKU (NOWE) ─────────────────────────────────────────────
+    "💹  Wzrost Majątku": [
+        st.Page("pages/16_Rebalancing.py",        title="Smart Rebalancing",        icon="⚖️"),
+        st.Page("pages/17_Sentiment_Flow.py",     title="Sentiment & Flow",         icon="🌊"),
+        st.Page("pages/18_Alt_Risk_Premia.py",    title="Alt. Risk Premia",         icon="⚡"),
+        st.Page("pages/19_Wealth_Optimizer.py",   title="Wealth Optimizer",         icon="🏰"),
+    ],
 }
 
 pg = st.navigation(pages, position="sidebar", expanded=True)
