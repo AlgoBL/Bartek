@@ -3,11 +3,10 @@ import pandas as pd
 import streamlit as st
 from modules.data_provider import fetch_data
 from modules.logger import setup_logger
-from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-@st.cache_data
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_data(tickers, start_date="2000-01-01", end_date=None):
     """
     Fetches historical adjusted close prices for given tickers.

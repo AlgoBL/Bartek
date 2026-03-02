@@ -226,8 +226,9 @@ if 'stress_results' in st.session_state:
 
         # Mark crash end — use add_shape+add_annotation to avoid Plotly bug
         # where add_vline(annotation_text=...) crashes on date strings
-        crash_end_dt = pd.to_datetime(scenario['end'])
-        if crash_end_dt in df_chart.index or (df_chart.index.min() < crash_end_dt < df_chart.index.max()):
+        crash_end_dt = pd.to_datetime(scenario['end']) if scenario.get('end') else None
+        if crash_end_dt is not None and not pd.isnull(crash_end_dt) and \
+                (crash_end_dt in df_chart.index or (df_chart.index.min() < crash_end_dt < df_chart.index.max())):
             x_str = crash_end_dt.strftime("%Y-%m-%d")
             fig_st.add_shape(
                 type="line",
@@ -281,7 +282,8 @@ if 'stress_results' in st.session_state:
                 fig_corr_time.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3)
                 
                 # Also mark crash end
-                if crash_end_dt in df_chart.index or (df_chart.index.min() < crash_end_dt < df_chart.index.max()):
+                if crash_end_dt is not None and not pd.isnull(crash_end_dt) and \
+                        (crash_end_dt in df_chart.index or (df_chart.index.min() < crash_end_dt < df_chart.index.max())):
                     fig_corr_time.add_shape(
                         type="line", x0=x_str, x1=x_str, y0=-1, y1=1,
                         xref="x", yref="y", line=dict(color="red", dash="dash", width=1.5),

@@ -22,9 +22,6 @@ from modules.ai.asset_universe import (
     get_wig20_tickers, get_stoxx50_tickers, get_crypto_tickers
 )
 from modules.ui.status_manager import StatusManager
-from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
-from modules.frontier import compute_efficient_frontier
-from modules.emerytura import render_emerytura_module
 from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR, REGIME_CRISIS
 
 # ... existsing code ...

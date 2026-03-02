@@ -270,7 +270,13 @@ def run_stress_test(
     }, index=data.index)
 
     # --- Metrics ---
-    crash_mask = results_df.index <= pd.to_datetime(crash_end)
+    # crash_end is None for synthetic scenarios — fall back to full period
+    crash_end_ts = pd.to_datetime(crash_end) if crash_end is not None else None
+    crash_mask = (
+        results_df.index <= crash_end_ts
+        if crash_end_ts is not None
+        else pd.Series(True, index=results_df.index)
+    )
     crash_df = results_df[crash_mask]
 
     port_vals = portfolio.values

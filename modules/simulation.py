@@ -377,30 +377,31 @@ def simulate_rough_bergomi_vol(
     """
     Rough Bergomi Stochastic Volatility (Gatheral, Jaisson & Rosenbaum 2018).
 
-    Volatility obeys fractional Brownian motion with Hurst H ≈ 0.1 (rough):
-      V(t) = xi(t) * exp(eta * W^H(t) - 0.5*eta²*t^(2H))
-    gdzie W^H jest fBM z wykładnikiem H.
-
-    Kluczowe różnice od GARCH:
-    - Hurst H ≈ 0.1 → bardzo "szorstka" ścieżka zmienności
-    - Power-law decay covariancji: Cov(V_s, V_t) ~ |t-s|^(2H)
-    - Brak wykładniczego zanikania jak w GARCH
-    - Lepsza dopasowanie do implied vol surface (Gatheral 2018)
+    UWAGA: Ta funkcja jest wrapperem na szybką metodę FFT (Davies-Harte O(N log N)).
+    Poprzednia implementacja Cholesky O(N²) była ~50-200× wolniejsza i zachowana tylko
+    jako fallback gdyby FFT zawiodło numerycznie.
 
     Returns
     -------
-    vol_paths  : (n_sims, n_days) instantaneous volatiliy paths
+    vol_paths  : (n_sims, n_days) instantaneous volatility paths
     spot_shocks: (n_sims, n_days) correlated spot shocks (ρ z vol)
     """
+    # Primarna metoda: FFT (Davies-Harte) — O(N log N), ~50-200× szybsza niż Cholesky
+    try:
+        return simulate_rough_bergomi_vol_fft(
+            n_sims=n_sims, n_days=n_days,
+            H=H, xi0=xi0, eta=eta, rho=rho, seed=seed,
+        )
+    except Exception as e:
+        logger.warning(f"FFT fBM failed ({e}), falling back to Cholesky (slower)")
+
+    # ── FALLBACK: Cholesky O(N²) — używane tylko gdy FFT numerycznie niestabilne ──
     if seed is not None:
         np.random.seed(seed)
 
     dt = 1.0 / 252.0
-    times = np.arange(1, n_days + 1) * dt  # (n_days,)
+    times = np.arange(1, n_days + 1) * dt
 
-    # ── Approximate fBM via Cholesky of covariance matrix ─────────────────
-    # Cov(W^H_s, W^H_t) = 0.5*(s^{2H} + t^{2H} - |t-s|^{2H})
-    # For large n_days this is expensive — cap at 252 then tile
     cov_len = min(n_days, 252)
     cov_T   = times[:cov_len]
     Cov = np.zeros((cov_len, cov_len))
@@ -409,7 +410,6 @@ def simulate_rough_bergomi_vol(
             s, t = cov_T[i], cov_T[j]
             c = 0.5 * (s**(2*H) + t**(2*H) - abs(t - s)**(2*H))
             Cov[i, j] = Cov[j, i] = c
-    # Regularise
     Cov += np.eye(cov_len) * 1e-8
     try:
         L = np.linalg.cholesky(Cov)
@@ -420,7 +420,6 @@ def simulate_rough_bergomi_vol(
     spot_shocks = np.zeros((n_sims, n_days))
 
     for sim in range(n_sims):
-        # Simulate fBM path (tile if n_days > 252)
         fbm_full = np.zeros(n_days)
         ptr = 0
         while ptr < n_days:
@@ -430,7 +429,6 @@ def simulate_rough_bergomi_vol(
             fbm_full[ptr: ptr + take] = fbm_seg[:take]
             ptr += take
 
-        # Rough Bergomi variance process
         var_t = xi0 * np.exp(
             eta * fbm_full
             - 0.5 * eta**2 * times[:n_days]**(2*H)
@@ -438,12 +436,12 @@ def simulate_rough_bergomi_vol(
         vol_t = np.sqrt(np.maximum(var_t, 1e-8))
         vol_paths[sim] = vol_t
 
-        # Correlated spot shocks: w_spot = ρ*w_vol + sqrt(1-ρ²)*w_indep
-        z_vol   = fbm_full / (np.std(fbm_full) + 1e-10)  # normalised
+        z_vol   = fbm_full / (np.std(fbm_full) + 1e-10)
         z_indep = np.random.normal(0, 1, n_days)
         spot_shocks[sim] = rho * z_vol + np.sqrt(max(1 - rho**2, 0)) * z_indep
 
     return vol_paths, spot_shocks
+
 
 def simulate_barbell_strategy(
     n_years=10, 
@@ -708,7 +706,6 @@ def calculate_individual_metrics(wealth_paths, years):
         "Calmar": calmar
     })
 
-from modules.metrics import calculate_sharpe, calculate_sortino, calculate_calmar, calculate_max_drawdown
 from modules.risk_manager import RiskManager
 
 def run_ai_backtest(

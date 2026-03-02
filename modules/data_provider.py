@@ -49,7 +49,7 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
             kw["period"] = "1y"
         return tkr.history(**kw)
         
-    kwargs = {"progress": False, "auto_adjust": auto_adjust, "threads": False}
+    kwargs = {"progress": False, "auto_adjust": auto_adjust, "threads": True}
     if start and end:
         kwargs["start"] = start
         kwargs["end"] = end
