@@ -15,6 +15,7 @@ from modules.analysis_content import display_analysis_report, display_scanner_me
 from modules.scanner import calculate_convecity_metrics, score_asset, compute_hierarchical_dendrogram
 from modules.ai.scanner_engine import ScannerEngine
 from config import TAX_BELKA, RISK_FREE_RATE_PL
+from modules.global_settings import get_gs, apply_gs_to_session, force_apply_gs_to_session, gs_sidebar_badge
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
@@ -28,6 +29,12 @@ from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR,
 
 # 2. Apply Custom Styling
 st.markdown(apply_styling(), unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Globalne ustawienia portfela — wczytaj i wstrzyknij jako domyślne
+# ---------------------------------------------------------------------------
+_gs = get_gs()
+apply_gs_to_session(_gs)  # ustawia _s.* klucze tylko jeśli jeszcze nie istnieją
 
 # ---------------------------------------------------------------------------
 # Persystencja ustawień między modułami
@@ -44,7 +51,7 @@ def _saved(wk, default):
 
 # Klucze pomocnicze (nie-widżetowe) dla modułu Emerytura
 if "rem_initial_capital" not in st.session_state:
-    st.session_state["rem_initial_capital"] = 1000000.0
+    st.session_state["rem_initial_capital"] = _gs.initial_capital
 if "rem_expected_return" not in st.session_state:
     st.session_state["rem_expected_return"] = 0.07
 if "rem_volatility" not in st.session_state:
@@ -61,6 +68,11 @@ if "custom_stress_scenarios" not in st.session_state:
 st.sidebar.title("🛠️ Konfiguracja Strategii")
 st.sidebar.markdown("### ⚙️ Ustawienia")
 
+# Przycisk przywracania ustawień globalnych
+if st.sidebar.button("↩ Przywróć z Globalnych", key="sim_restore_gs", help="Przywróć domyślne wartości z Globalnych Ustawień Portfela", use_container_width=True):
+    force_apply_gs_to_session(get_gs())
+    st.rerun()
+
 mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"], index=["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"].index(_saved("sim_mode", "Monte Carlo (Teoretyczny)")), key="sim_mode", on_change=_save, args=("sim_mode",))
 
 if mode == "Monte Carlo (Teoretyczny)":
@@ -70,8 +82,9 @@ if mode == "Monte Carlo (Teoretyczny)":
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 2. Część Bezpieczna (Safe Sleeve)")
-    st.sidebar.info(f"🔒 Obligacje Skarbowe RP 3-letnie (Stałe {RISK_FREE_RATE_PL*100:.2f}%)")
-    safe_rate = RISK_FREE_RATE_PL 
+    _gs_now = get_gs()
+    st.sidebar.info(f"🔒 Obligacje Skarbowe RP 3-letnie (Stałe {_gs_now.safe_rate*100:.2f}%) — z Globalnych Ustawień")
+    safe_rate = _gs_now.safe_rate
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 3. Część Ryzykowna (Risky Sleeve)")
@@ -102,7 +115,8 @@ if mode == "Monte Carlo (Teoretyczny)":
         alloc_safe = 1.0 - kelly_optimal
     else:
         st.sidebar.markdown("### 5. Alokacja Manualna")
-        alloc_safe = st.sidebar.slider("Alokacja w Część Bezpieczną (%)", 0, 100, value=_saved("mc_alloc_safe", 85), key="mc_alloc_safe", on_change=_save, args=("mc_alloc_safe",)) / 100.0
+        _gs_alloc_default = int(round(get_gs().alloc_safe_pct * 100))
+        alloc_safe = st.sidebar.slider("Alokacja w Część Bezpieczną (%)", 0, 100, value=_saved("mc_alloc_safe", _gs_alloc_default), key="mc_alloc_safe", on_change=_save, args=("mc_alloc_safe",)) / 100.0
 
     _mc_rebal_opts = ["None (Buy & Hold)", "Yearly", "Monthly", "Threshold (Shannon's Demon)"]
     rebalance_strategy = st.sidebar.selectbox(
@@ -551,11 +565,12 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
 
     _ai_risky_opts = ["Lista (Auto Wagi)", "Manualne Wagi"]
     risky_asset_mode = st.sidebar.radio("Tryb Wyboru Aktywów Ryzykownych", _ai_risky_opts, index=_ai_risky_opts.index(_saved("ai_risky_mode", "Lista (Auto Wagi)")), key="ai_risky_mode", on_change=_save, args=("ai_risky_mode",))
-    risky_tickers_str = "SPY, QQQ, NVDA, BTC-USD" # Default for logic
+    _gs_risky_default = get_gs().risky_tickers_str or "SPY, QQQ, NVDA, BTC-USD"
+    risky_tickers_str = _gs_risky_default  # Default for logic
     risky_weights_manual = None
-    
+
     if risky_asset_mode == "Lista (Auto Wagi)":
-         risky_tickers_str = st.sidebar.text_area("Koszyk Ryzykowny (Risky)", value=_saved("ai_risky_tickers", "SPY, QQQ, NVDA, BTC-USD"), help="Akcje, Krypto", key="ai_risky_tickers", on_change=_save, args=("ai_risky_tickers",))
+         risky_tickers_str = st.sidebar.text_area("Koszyk Ryzykowny (Risky)", value=_saved("ai_risky_tickers", _gs_risky_default), help="Akcje, Krypto", key="ai_risky_tickers", on_change=_save, args=("ai_risky_tickers",))
          # Logic uses this string later
     else:
         st.sidebar.markdown("**Manualne Wagi Aktywów**")
@@ -563,7 +578,7 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         default_data = pd.DataFrame([
             {"Ticker": "SPY", "Waga (%)": 100.0}
         ])
-        
+
         # Check for data transferred from Scanner
         if 'transfer_data' in st.session_state and not st.session_state['transfer_data'].empty:
             default_data = st.session_state['transfer_data']

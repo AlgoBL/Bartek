@@ -131,6 +131,86 @@ CRISIS_SCENARIOS = {
             "bonds_safe": -0.06, "gold": +0.10,
         },
     },
+    # ─── NEW HISTORICAL CRISES (2025 Modernization) ─────────────────────────
+    "🌏 Kryzys Azjatycki (1997-98)": {
+        "start": "1997-07-01",
+        "end": "1998-01-12",
+        "recovery_end": "1999-06-30",
+        "description": (
+            "Krach walut azjatyckich (baht tajski, ringgit, rupiah). "
+            "EM Asia -60%, contagion do Rosji i Brazylii. MSCI Asia -50%."
+        ),
+        "benchmark": "^GSPC",
+    },
+    "🏦 Kryzys Długu Strefy Euro (2011-12)": {
+        "start": "2011-07-01",
+        "end": "2012-06-01",
+        "recovery_end": "2013-05-01",
+        "description": (
+            "Grecki dług publiczny, restrukturyzacja obligacji. "
+            "EuroStoxx -35%, spread Italia/Niemcy >500bp. ECB: 'Whatever it takes'."
+        ),
+        "benchmark": "FEZ",
+    },
+    "🏦 Krach SVB + Contagion Bankowy (2023)": {
+        "start": "2023-03-08",
+        "end": "2023-03-20",
+        "recovery_end": "2023-06-01",
+        "description": (
+            "Upadek Silicon Valley Bank i Signature Bank. "
+            "KBW Bank Index -26% w 2 tygodnie. Credit Suisse -75%, przejęty przez UBS. "
+            "Pierwszy bank run w epoce social media — odpływ depozytów za 1 dzień."
+        ),
+        "benchmark": "KBE",
+    },
+    # ─── NGFS CLIMATE SCENARIOS 2025 ─────────────────────────────────────────
+    # Network for Greening the Financial System — 4th Vintage 2025
+    "🌿 NGFS: Orderly Transition (2025)": {
+        "start": None, "end": None, "recovery_end": None,
+        "description": (
+            "NGFS Orderly Transition — stopniowe, przewidywalne przejście do net-zero 2050. "
+            "Podatek CO₂ rosnący do 250$/tCO2 do 2050. Minimalne zakłócenia rynkowe. "
+            "Fossil fuels -25% w 10 lat, OZE +40%. Stranded assets odpisane stopniowo."
+        ),
+        "benchmark": "SPY",
+        "is_synthetic": True,
+        "shocks": {
+            "fossil_fuels": -0.20, "equity_broad": -0.05,
+            "green_energy": +0.25, "bonds_safe": -0.02,
+            "real_estate": -0.05, "gold": +0.03,
+        },
+    },
+    "⚠️ NGFS: Disorderly Transition (2025)": {
+        "start": None, "end": None, "recovery_end": None,
+        "description": (
+            "NGFS Disorderly Transition — nagłe, nieoczekiwane zaostrzenie polityki klimatycznej. "
+            "Podatek CO₂ wprowadzony w 2 lata (150$/tCO2). Stranded assets natychmiastowe. "
+            "Fossil fuels -50%, equity broad -20%, financial instability."
+        ),
+        "benchmark": "SPY",
+        "is_synthetic": True,
+        "shocks": {
+            "fossil_fuels": -0.50, "equity_broad": -0.20,
+            "real_estate": -0.15, "green_energy": +0.20,
+            "bonds_safe": +0.05, "gold": +0.12, "insurance": -0.18,
+        },
+    },
+    "🔥 NGFS: Hothouse World (2025)": {
+        "start": None, "end": None, "recovery_end": None,
+        "description": (
+            "NGFS Hothouse World — brak działań klimatycznych, globalne ocieplenie +3.5°C do 2100. "
+            "Ekstremalne zdarzenia klimatyczne, wielkie migracje. "
+            "Fizyczne ryzyko klimatyczne doprowadza do trwałego spadku PKB -10-23%."
+        ),
+        "benchmark": "SPY",
+        "is_synthetic": True,
+        "shocks": {
+            "equity_broad": -0.25, "real_estate": -0.45,
+            "commodity_agri": -0.35, "fossil_energy": -0.20,
+            "insurance": -0.40, "bonds_safe": -0.10,
+            "green_energy": +0.05, "gold": +0.15,
+        },
+    },
 }
 
 def run_custom_shock(safe_weight: float, risky_shock: float, safe_shock: float, initial_capital: float = 100000.0) -> dict:
@@ -456,4 +536,104 @@ def run_synthetic_stress_test(
             "recovery_days": "N/A (syntetyczny)",
             "scenario": scenario,
         },
+    }
+
+
+# ─── F3: Network Contagion Stress Test (NEW 2025) ─────────────────────────────
+
+def run_network_contagion_stress(
+    returns_df: "pd.DataFrame",
+    shock_asset: str,
+    shock_pct: float = -0.30,
+    n_rounds: int = 3,
+    threshold_corr: float = 0.30,
+) -> dict:
+    """
+    Symulacja efektu zarażenia sieciowego (Network Contagion).
+
+    Modeluje jak szok w jednym aktywie propaguje się przez graf korelacji
+    do pozostałych aktywów w portfelu.
+
+    Algorytm (Billio et al. 2012, ESRB 2024):
+    1. Zbuduj Graf: krawędź (i, j) jeśli |corr(i,j)| > threshold
+    2. Inicjuj szok: shock_asset dostaje shock_pct
+    3. Iteracyjnie propaguj: sąsiedzi absorbują proporcjonalny szok
+       r_j_new = r_j + corr(i,j) * shock_i  (wykładnicze tłumienie per runda)
+    4. Oblicz łączny impakt na portfel (equal weight)
+
+    Referencja: Billio et al. (2012) "Econometric measures of connectedness
+                and systemic risk", Journal of Financial Economics.
+                ESRB (2024) Network Analysis of Financial Contagion.
+
+    Parameters
+    ----------
+    returns_df   : pd.DataFrame (T, n_assets) — dzienne zwroty
+    shock_asset  : ticker aktywa które dostaje szok (musi być w df)
+    shock_pct    : wielkość szoku (np. -0.30 = -30%)
+    n_rounds     : liczba rund propagacji (1 = bezpośrednie sąsiedztwo)
+    threshold_corr: minimalna |korelacja| dla transmisji zarażenia
+    """
+    if shock_asset not in returns_df.columns:
+        return {"error": f"Ticker '{shock_asset}' nie znaleziony w danych."}
+
+    tickers = list(returns_df.columns)
+    n = len(tickers)
+    corr_matrix = returns_df.corr().values
+
+    # ── Inicjalizacja szoków ─────────────────────────────────────────────
+    shocks = np.zeros(n)
+    asset_idx = tickers.index(shock_asset)
+    shocks[asset_idx] = shock_pct
+
+    contagion_log = {shock_asset: [shock_pct]}
+    for t in tickers:
+        if t != shock_asset:
+            contagion_log[t] = [0.0]
+
+    # ── Propagacja per runda ─────────────────────────────────────────────
+    damping = 0.5  # wykładnicze tłumienie z każdą rundą
+    for rnd in range(1, n_rounds + 1):
+        new_shocks = shocks.copy()
+        for j in range(n):
+            if j == asset_idx:
+                continue
+            # Suma zarażenia ze wszystkich szoków istniejących w poprzedniej rundzie
+            propagated = 0.0
+            for i in range(n):
+                if i == j:
+                    continue
+                corr_ij = corr_matrix[i, j]
+                if abs(corr_ij) >= threshold_corr and abs(shocks[i]) > 0.001:
+                    propagated += corr_ij * shocks[i] * (damping ** rnd)
+            new_shocks[j] += propagated
+        shocks = new_shocks
+        for k, t in enumerate(tickers):
+            contagion_log[t].append(float(shocks[k]))
+
+    # ── Impakt na portfel równoważony ────────────────────────────────────
+    equal_weights = np.ones(n) / n
+    total_portfolio_loss = float(shocks @ equal_weights)
+
+    # ── Najbardziej zarażone aktywa ───────────────────────────────────────
+    asset_impacts = {t: float(shocks[i]) for i, t in enumerate(tickers)}
+    sorted_impact = dict(sorted(asset_impacts.items(), key=lambda x: x[1]))
+
+    # ── Macierz transmisji ────────────────────────────────────────────────
+    # Ile zarażenia każde aktywo WYSYŁA do każdego innego
+    transmission_matrix = np.abs(corr_matrix) * (np.abs(corr_matrix) >= threshold_corr)
+    np.fill_diagonal(transmission_matrix, 0.0)
+    connectedness = {t: float(transmission_matrix[i].sum()) for i, t in enumerate(tickers)}
+
+    return {
+        "shock_asset":        shock_asset,
+        "initial_shock":      shock_pct,
+        "n_rounds":           n_rounds,
+        "asset_impacts":      sorted_impact,
+        "portfolio_loss_ew":  total_portfolio_loss,
+        "contagion_log":      contagion_log,
+        "connectedness":      connectedness,
+        "most_contagious":    max(connectedness, key=connectedness.get),
+        "most_affected":      min(asset_impacts, key=lambda k: asset_impacts[k]),
+        "threshold_corr":     threshold_corr,
+        "error":              None,
     }

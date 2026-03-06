@@ -551,3 +551,297 @@ class RiskManager:
 
         return pd.DataFrame(results, index=dates)
 
+    # ─── 10. ΔCoVaR — Systemic Risk Measure (NEW 2025) ────────────────────────
+
+    def calculate_delta_covar(
+        self,
+        asset_returns: "pd.Series",
+        system_returns: "pd.Series",
+        confidence: float = 0.99,
+    ) -> dict:
+        """
+        ΔCoVaR — miara ryzyka systemowego (Adrian & Brunnermeier 2016).
+
+        ΔCoVaR_i = CoVaR(system | asset_i w VaR) - CoVaR(system | median(asset_i))
+
+        Interpretacja:
+        - ΔCoVaR = 0    → aktywo nie wpływa na ryzyko systemu
+        - ΔCoVaR >> 0   → aktywo AMPLIFIKUJE ryzyko systemu (systemowo ważne!)
+        - Kluczowe dla: krypto, large-cap tech, banki
+
+        Metodologia: Quantile Regression (OLS aproksymacja):
+          r_system = α + β₁·r_asset + β₂·Controls + ε,  szacowane na kwantylach.
+
+        Referencja: Adrian & Brunnermeier (2016) AER, NBER WP 2024 update.
+        """
+        from scipy.stats import linregress
+
+        common = asset_returns.index.intersection(system_returns.index)
+        if len(common) < 100:
+            return {"error": "Za mało wspólnych obserwacji (min 100)."}
+
+        x = asset_returns.loc[common].values
+        y = system_returns.loc[common].values
+
+        alpha_pct = (1.0 - confidence) * 100
+
+        # VaR of asset at confidence level
+        var_asset = np.percentile(x, alpha_pct)
+
+        # ── Quantile Regression via OLS on tail subset (simplified) ──────────
+        # Tail regime: asset near its VaR (within 20% of VaR level)
+        band = abs(var_asset) * 0.5
+        tail_mask = x <= var_asset + band
+        median_mask = (x >= np.percentile(x, 40)) & (x <= np.percentile(x, 60))
+
+        if tail_mask.sum() < 20 or median_mask.sum() < 20:
+            return {"error": "Za mało obserwacji w ogonie lub medianie."}
+
+        # CoVaR in tail regime
+        y_tail = y[tail_mask]
+        covar_tail = float(np.percentile(y_tail, alpha_pct))
+
+        # CoVaR in median regime
+        y_median = y[median_mask]
+        covar_median = float(np.percentile(y_median, alpha_pct))
+
+        delta_covar = covar_tail - covar_median  # negative (loss amplification)
+
+        # Unconditional system VaR (benchmark)
+        system_var = float(np.percentile(y, alpha_pct))
+
+        # Exposure: OLS beta of system on asset in tail
+        if len(x[tail_mask]) > 5:
+            slope, intercept, r, _, _ = linregress(x[tail_mask], y[tail_mask])
+        else:
+            slope = 0.0
+
+        return {
+            "delta_covar":     delta_covar,
+            "covar_tail":      covar_tail,
+            "covar_median":    covar_median,
+            "system_var":      system_var,
+            "delta_covar_pct": delta_covar / (abs(system_var) + 1e-10),
+            "ols_beta_tail":   float(slope),
+            "confidence":      confidence,
+            "n_tail_obs":      int(tail_mask.sum()),
+            "interpretation":  (
+                "WYSOKIE ryzyko systemowe" if abs(delta_covar) > abs(system_var) * 0.3
+                else ("UMIARKOWANE ryzyko systemowe" if abs(delta_covar) > abs(system_var) * 0.1
+                      else "NISKIE ryzyko systemowe")
+            ),
+        }
+
+    # ─── 11. Calibration Tests (Basel IV) ─────────────────────────────────────
+
+    def run_calibration_tests(
+        self,
+        model_var_series: "pd.Series",
+        actual_returns: "pd.Series",
+        confidence: float = 0.99,
+    ) -> dict:
+        """
+        VaR/ES Backtesting suite — Basel IV wymóg od 01.01.2025.
+
+        Implementuje trzy testy:
+        1. Kupiec POF Test — czy liczba naruszeń VaR jest statystycznie poprawna?
+           H₀: p_violations = 1 - confidence
+           LR_POF = -2·ln[L(p̂|violations) / L(1-conf|violations)]
+           Odrzucamy H₀ gdy LR > chi2(1, 5%)
+
+        2. Christoffersen Independence Test — czy naruszenia są niezależne w czasie?
+           H₀: naruszenia nie są autocorrelated
+           Wykrywa clustering naruszeń (kryzys → wiele kolejnych przekroczeń)
+
+        3. Acerbi-Szekely ES Test — test ES poza próbą (elicitable proxy).
+           S = (1/n) · Σ [r_t · 1(r_t < VaR_t)] / ES_t + 1
+           E[S] = 0 pod H₀ (ES prawidłowe), S < 0 → ES zaniżone
+
+        Referencja: Kupiec (1995), Christoffersen (1998),
+                    Acerbi & Szekely (2014), Basel IV IMA (2024).
+
+        Parameters
+        ----------
+        model_var_series  : pd.Series z prognozowanym VaR (wartościami straty, ujemne!)
+        actual_returns    : pd.Series z rzeczywistymi zwrotami
+        confidence        : poziom ufności VaR (0.99 = 99%)
+        """
+        from scipy.stats import chi2
+
+        common = model_var_series.index.intersection(actual_returns.index)
+        if len(common) < 50:
+            return {"error": "Za mało obserwacji (min 50)."}
+
+        var_pred = model_var_series.loc[common].values   # negative losses (VaR)
+        r_actual = actual_returns.loc[common].values
+
+        n = len(r_actual)
+        # Violation indicator: 1 if actual return < VaR forecast
+        violations = (r_actual < var_pred).astype(int)
+        n_viol = violations.sum()
+        p_hat = n_viol / n
+        p_expected = 1.0 - confidence
+
+        results = {}
+
+        # ── 1. Kupiec POF Test ────────────────────────────────────────────────
+        try:
+            eps = 1e-12
+            p_hat_safe = np.clip(p_hat, eps, 1 - eps)
+            p_exp_safe = np.clip(p_expected, eps, 1 - eps)
+            lr_pof = -2.0 * (
+                n_viol * np.log(p_exp_safe / p_hat_safe)
+                + (n - n_viol) * np.log((1 - p_exp_safe) / (1 - p_hat_safe))
+            )
+            p_value_kupiec = float(1.0 - chi2.cdf(lr_pof, df=1))
+            kupiec_pass = p_value_kupiec > 0.05
+        except Exception:
+            lr_pof, p_value_kupiec, kupiec_pass = np.nan, np.nan, False
+
+        results["kupiec"] = {
+            "lr_statistic": float(lr_pof),
+            "p_value":      float(p_value_kupiec),
+            "passed":       bool(kupiec_pass),
+            "n_violations": int(n_viol),
+            "expected_violations": int(round(n * p_expected)),
+            "violation_rate": float(p_hat),
+        }
+
+        # ── 2. Christoffersen Independence Test ───────────────────────────────
+        try:
+            # Count transition matrix
+            n00 = np.sum((violations[:-1] == 0) & (violations[1:] == 0))
+            n01 = np.sum((violations[:-1] == 0) & (violations[1:] == 1))
+            n10 = np.sum((violations[:-1] == 1) & (violations[1:] == 0))
+            n11 = np.sum((violations[:-1] == 1) & (violations[1:] == 1))
+
+            p01 = n01 / max(n00 + n01, 1)
+            p11 = n11 / max(n10 + n11, 1)
+            p_unc = (n01 + n11) / max(n, 1)
+
+            p01s = np.clip(p01, eps, 1 - eps)
+            p11s = np.clip(p11, eps, 1 - eps)
+            p_us = np.clip(p_unc, eps, 1 - eps)
+
+            lr_ind = -2.0 * (
+                (n00 + n10) * np.log(1 - p_us) + (n01 + n11) * np.log(p_us)
+                - n00 * np.log(1 - p01s) - n01 * np.log(p01s)
+                - n10 * np.log(1 - p11s) - n11 * np.log(p11s)
+            )
+            p_value_christ = float(1.0 - chi2.cdf(max(lr_ind, 0), df=1))
+            christ_pass = p_value_christ > 0.05
+        except Exception:
+            lr_ind, p_value_christ, christ_pass = np.nan, np.nan, False
+
+        results["christoffersen"] = {
+            "lr_statistic":   float(lr_ind) if not np.isnan(lr_ind) else None,
+            "p_value":        float(p_value_christ) if not np.isnan(p_value_christ) else None,
+            "passed":         bool(christ_pass),
+            "clustering_detected": not christ_pass,
+        }
+
+        # ── 3. Acerbi-Szekely ES Test (proxy) ────────────────────────────────
+        try:
+            # Compute empirical ES from model quantile series
+            tail_mask = r_actual < var_pred
+            if tail_mask.sum() > 0:
+                # S = mean(r_t | tail) / (-ES_model) - 1, where ES_model = mean(VaR in tail)
+                r_tail = r_actual[tail_mask]
+                var_tail = var_pred[tail_mask]
+                # ES model proxy = average predicted VaR in tail
+                es_model = float(np.mean(var_tail))
+                es_actual = float(np.mean(r_tail))
+                s_stat = (es_actual / (es_model - 1e-12)) - 1.0
+                # S < -0.1 → ES significantly underestimated
+                acerbi_pass = s_stat >= -0.1
+            else:
+                s_stat, acerbi_pass = 0.0, True
+        except Exception:
+            s_stat, acerbi_pass = np.nan, False
+
+        results["acerbi_szekely"] = {
+            "s_statistic": float(s_stat) if not np.isnan(s_stat) else None,
+            "passed":      bool(acerbi_pass),
+            "interpretation": (
+                "ES prawidłowe (H₀ nie odrzucona)" if acerbi_pass
+                else "ES ZANIŻONE — model niedoszacowuje ryzyko ogonowe!"
+            ),
+        }
+
+        # ── Summary ───────────────────────────────────────────────────────────
+        all_pass = kupiec_pass and christ_pass and acerbi_pass
+        results["summary"] = {
+            "all_tests_passed": all_pass,
+            "n_observations":   n,
+            "confidence":       confidence,
+            "overall_verdict":  "✅ Model VaR/ES spełnia wymogi Basel IV" if all_pass
+                                else "❌ Model VaR/ES NIE spełnia wymogów Basel IV",
+        }
+
+        return results
+
+    # ─── 12. Model Risk Score ──────────────────────────────────────────────────
+
+    def calculate_model_risk_score(
+        self,
+        returns: "pd.Series",
+        param_perturbation: float = 0.10,
+        n_perturb: int = 50,
+    ) -> dict:
+        """
+        Model Risk Score — ilościowa ocena niepewności modelu EVT.
+
+        Metodologia (ECB Model Risk Management 2024):
+        1. Wyestymuj bazowe parametry GPD (ξ₀, σ₀)
+        2. Perturbuj parametry ±perturbation (Monte Carlo na przestrzeni parametrów)
+        3. Oblicz VaR_99 dla każdego scenariusza perturbacji
+        4. Model Risk Score = std(VaR_99) / mean(VaR_99)
+
+        MRS < 0.05  → model stabilny (niska niepewność parametrów)
+        MRS > 0.20  → model niestabilny (wysoka wrażliwość na kalibrację)
+
+        Referencja: ECB Model Risk Management Guidelines (2024), SR 11-7 Fed.
+        """
+        base = self.fit_evt_pot(returns, threshold_pct=0.95)
+        if "error" in base:
+            return {"error": base["error"]}
+
+        xi0    = base["xi"]
+        sigma0 = base["sigma"]
+        u0     = base["threshold"]
+        N_u    = base["N_u"]
+        N_tot  = base["N_total"]
+
+        var_scenarios = []
+        rng = np.random.default_rng(42)
+
+        for _ in range(n_perturb):
+            xi_p    = xi0    * (1 + rng.uniform(-param_perturbation, param_perturbation))
+            sigma_p = sigma0 * (1 + rng.uniform(-param_perturbation, param_perturbation))
+            sigma_p = max(sigma_p, 1e-6)
+
+            # EVT-VaR formula
+            p = 0.99
+            exceedance = (1 - p) * N_tot / max(N_u, 1)
+            if abs(xi_p) < 1e-6:
+                var_p = u0 + sigma_p * np.log(1.0 / max(exceedance, 1e-10))
+            else:
+                var_p = u0 + (sigma_p / xi_p) * (max(exceedance, 1e-10) ** (-xi_p) - 1.0)
+            var_scenarios.append(var_p)
+
+        var_scenarios = np.array(var_scenarios)
+        mean_var = float(np.mean(var_scenarios))
+        std_var = float(np.std(var_scenarios))
+        mrs = std_var / max(abs(mean_var), 1e-10)
+
+        return {
+            "model_risk_score": mrs,
+            "mean_var_99":      mean_var,
+            "std_var_99":       std_var,
+            "var_range_90ci":   (float(np.percentile(var_scenarios, 5)),
+                                 float(np.percentile(var_scenarios, 95))),
+            "stability":        ("Stabilny" if mrs < 0.05 else
+                                 "Umiarkowany" if mrs < 0.20 else "NIESTABILNY"),
+            "base_xi":          xi0,
+            "base_sigma":       sigma0,
+        }

@@ -762,3 +762,278 @@ def compute_wasserstein_dro(
             f"(Wasserstein). Gwarantowany minimalny zwrot: {wc_return*100:.1f}%/rok."
         ),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. HERC — Hierarchical Equal Risk Contribution (NEW 2025)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def compute_herc(
+    returns_df: pd.DataFrame,
+    linkage_method: str = "ward",
+    risk_measure: str = "cvar",
+    alpha: float = 0.05,
+    risk_free_rate: float = 0.04,
+    max_weight: float = 0.40,
+) -> dict:
+    """
+    HERC — Hierarchical Equal Risk Contribution.
+
+    HRP 2.0: Zamiast rekursywnego podziału (bisection), HERC stosuje
+    ERC (Equal Risk Contribution) wewnątrz każdego klastra z dendrogramu Ward.
+
+    Architektura:
+      1. Hierarchical Clustering (Ward) → dendrogram
+      2. Wytnij dendrogram na n_clusters klastrów (poziom p)
+      3. Alokacja MIĘDZY klastrami: ERC na "cluster portfolios"
+      4. Alokacja WEWNĄTRZ klastra: ERC per aktywo
+
+    Zalety vs HRP:
+      - Niższa koncentracja niż klasyczny HRP (ERC → bardziej równomierne wkłady ryzyka)
+      - Stabilniejsze wagi out-of-sample
+      - Naturalny control ryzyka ogonowego (CVaR variant)
+
+    Referencja: de Prado (2020) "Machine Learning for Asset Managers",
+                Raffinot (2018) "Hierarchical Clustering-Based Asset Allocation".
+
+    Parameters
+    ----------
+    returns_df    : DataFrame (T, n_assets) — dzienne zwroty
+    linkage_method: metoda linkage — 'ward' (default), 'average', 'complete'
+    risk_measure  : 'variance' lub 'cvar' — miara ryzyka w ERC
+    alpha         : poziom CVaR (0.05 = 95% CVaR)
+    max_weight    : max waga per aktywo
+    """
+    returns = returns_df.copy()
+    returns.mask(returns > 0, returns * 0.81, inplace=True)
+
+    tickers = returns_df.columns.tolist()
+    n = len(tickers)
+    R = returns.values
+    cov = np.cov(R.T) * 252
+    mu = R.mean(axis=0) * 252
+    rf = risk_free_rate * 0.81
+
+    if n < 3:
+        return compute_hrp(returns_df, risk_free_rate)
+
+    # ── 1. Clustering ──────────────────────────────────────────────────────
+    corr = returns.corr().values
+    dist = _corr_to_dist(corr)
+    link = sch.linkage(dist[np.triu_indices(n, k=1)], method=linkage_method)
+
+    # Optimal n_clusters: look for largest gap in dendrogram distances
+    merging_distances = link[:, 2]
+    gaps = np.diff(merging_distances)
+    if len(gaps) > 1:
+        n_clusters = max(2, n - int(np.argmax(gaps[::-1][:n//2])) - 1)
+    else:
+        n_clusters = max(2, int(np.sqrt(n)))
+    n_clusters = min(n_clusters, n)
+
+    from scipy.cluster.hierarchy import fcluster
+    cluster_ids = fcluster(link, n_clusters, criterion="maxclust")
+    clusters = {}
+    for i, cid in enumerate(cluster_ids):
+        clusters.setdefault(int(cid), []).append(i)
+
+    # ── 2. ERC allocation function ─────────────────────────────────────────
+    def _erc_weights(idx_list: list) -> np.ndarray:
+        """Equal Risk Contribution weights for a set of assets."""
+        k = len(idx_list)
+        if k == 1:
+            return np.array([1.0])
+
+        sub_cov = cov[np.ix_(idx_list, idx_list)]
+        sub_R   = R[:, idx_list]
+
+        def _risk_contributions(w):
+            """Portfolio risk contributions per asset."""
+            if risk_measure == "cvar":
+                port_r = sub_R @ w
+                var = np.percentile(port_r, alpha * 100)
+                tail = port_r <= var
+                if tail.sum() == 0:
+                    return np.zeros(k)
+                marginal = sub_R[tail].mean(axis=0)
+                rc = w * marginal
+            else:  # variance
+                port_var = w @ sub_cov @ w
+                if port_var <= 0:
+                    return np.zeros(k)
+                rc = (sub_cov @ w) * w / port_var
+            return rc
+
+        def _erc_objective(w):
+            rc = _risk_contributions(w)
+            rc_sum = rc.sum()
+            if abs(rc_sum) < 1e-12:
+                return 1.0
+            rc_norm = rc / rc_sum
+            target = 1.0 / k
+            return float(np.sum((rc_norm - target) ** 2))
+
+        w0 = np.ones(k) / k
+        res = minimize(
+            _erc_objective, w0,
+            method="SLSQP",
+            bounds=[(0.01, max_weight)] * k,
+            constraints={"type": "eq", "fun": lambda w: w.sum() - 1.0},
+            options={"maxiter": 500, "ftol": 1e-10},
+        )
+        w = np.abs(res.x); w /= w.sum()
+        return w
+
+    # ── 3. Intra-cluster weights (ERC within each cluster) ─────────────────
+    cluster_weights = {}
+    cluster_portfolios = {}
+    for cid, idx_list in clusters.items():
+        w_intra = _erc_weights(idx_list)
+        cluster_weights[cid] = (idx_list, w_intra)
+        cluster_portfolios[cid] = R[:, idx_list] @ w_intra  # (T,)
+
+    # ── 4. Inter-cluster weights (ERC across cluster portfolios) ───────────
+    cids = sorted(clusters.keys())
+    cluster_ret_matrix = np.column_stack([cluster_portfolios[c] for c in cids])
+    cluster_ret_df = pd.DataFrame(cluster_ret_matrix, index=returns.index,
+                                  columns=[str(c) for c in cids])
+    # Recursive ERC on cluster portfolios
+    inter_weights_arr = _erc_weights(list(range(len(cids))))
+    inter_weights = {c: float(inter_weights_arr[i]) for i, c in enumerate(cids)}
+
+    # ── 5. Combine weights ─────────────────────────────────────────────────
+    final_w = np.zeros(n)
+    for cid, (idx_list, w_intra) in cluster_weights.items():
+        for rank, asset_idx in enumerate(idx_list):
+            final_w[asset_idx] = inter_weights.get(cid, 0.0) * w_intra[rank]
+
+    if final_w.sum() > 0:
+        final_w /= final_w.sum()
+
+    port_ret = float(final_w @ mu)
+    port_vol = float(np.sqrt(final_w @ cov @ final_w))
+    sharpe   = (port_ret - rf) / port_vol if port_vol > 0 else 0.0
+    daily_r  = R @ final_w
+    omega    = float(min(calculate_omega(daily_r), 10.0))
+    cluster_map = {tickers[i]: int(cluster_ids[i]) for i in range(n)}
+
+    return {
+        "method":      "HERC",
+        "weights":     {t: float(final_w[i]) for i, t in enumerate(tickers)},
+        "return":      port_ret,
+        "volatility":  port_vol,
+        "sharpe":      sharpe,
+        "omega":       omega,
+        "n_clusters":  n_clusters,
+        "cluster_map": cluster_map,
+        "risk_measure": risk_measure,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. Robust Black-Litterman (Tu & Zhou 2011) (NEW 2025)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def compute_robust_black_litterman(
+    returns_df: pd.DataFrame,
+    cio_views: dict | None = None,
+    risk_aversion: float = 2.5,
+    tau: float = 0.05,
+    kappa: float = 0.5,
+    risk_free_rate: float = 0.04,
+) -> dict:
+    """
+    Robust Black-Litterman z priorem Tu-Zhou (mixing parameter κ).
+
+    Standardowy BL ma problem "overconfident views" — gdy widoki CIO są
+    błędne, prowadzi do ekstremalnych allocacji.
+
+    Tu-Zhou (2011) mixuje BL z minimum-variance portfolio:
+      μ_RBL = κ × μ_BL + (1-κ) × μ_minvol
+
+    κ = 1.0 → czysty BL (ufamy widokom w 100%)
+    κ = 0.0 → ignorujemy widoki, czyste min-vol
+    κ = 0.5 → kompromis (default, optymalny statystycznie)
+
+    Referencja: Tu & Zhou (2011) "Markowitz meets Talmud",
+                Lee & Stefanidis (2024) "Robust BL optimization".
+    """
+    returns = returns_df.copy()
+    returns.mask(returns > 0, returns * 0.81, inplace=True)
+
+    tickers = returns_df.columns.tolist()
+    n = len(tickers)
+    mu_hist = returns.mean().values * 252
+    Sigma = returns.cov().values * 252
+    rf = risk_free_rate * 0.81
+    w_mkt = np.ones(n) / n
+    pi_prior = risk_aversion * Sigma @ w_mkt
+
+    # ── Standard BL views ─────────────────────────────────────────────────
+    if cio_views and len(cio_views) > 0:
+        view_tickers = [t for t in cio_views if t in tickers]
+        k = len(view_tickers)
+        P = np.zeros((k, n))
+        Q = np.zeros(k)
+        for i, t in enumerate(view_tickers):
+            j = tickers.index(t)
+            P[i, j] = 1.0
+            Q[i] = cio_views[t] * 0.81
+
+        omega = np.diag([tau * float(Sigma[tickers.index(t), tickers.index(t)])
+                         for t in view_tickers])
+        try:
+            tauSigma_inv = np.linalg.inv(tau * Sigma + 1e-8 * np.eye(n))
+            Omega_inv = np.linalg.inv(omega + 1e-8 * np.eye(k))
+            M = np.linalg.inv(tauSigma_inv + P.T @ Omega_inv @ P)
+            mu_bl = M @ (tauSigma_inv @ pi_prior + P.T @ Omega_inv @ Q)
+        except np.linalg.LinAlgError:
+            mu_bl = pi_prior.copy()
+    else:
+        mu_bl = pi_prior.copy()
+
+    # ── Min-Variance portfolio ─────────────────────────────────────────────
+    def _min_vol_obj(w):
+        return float(w @ Sigma @ w)
+
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
+    bnds = [(0, 0.4)] * n
+    res_mv = minimize(_min_vol_obj, np.ones(n) / n, method="SLSQP",
+                      bounds=bnds, constraints=cons, options={"maxiter": 500})
+    w_mv = np.abs(res_mv.x); w_mv /= w_mv.sum()
+    mu_minvol = float(w_mv @ mu_hist)
+
+    # ── Tu-Zhou mixing ─────────────────────────────────────────────────────
+    # Mix expected returns: κ×BL + (1-κ)×hist
+    mu_robust = kappa * mu_bl + (1.0 - kappa) * mu_hist
+
+    def _neg_sharpe_robust(w):
+        ret = float(w @ mu_robust)
+        vol = float(np.sqrt(w @ Sigma @ w))
+        return -(ret - rf) / vol if vol > 0 else 0.0
+
+    res = minimize(_neg_sharpe_robust, w_mkt, method="SLSQP",
+                   bounds=bnds, constraints=cons, options={"maxiter": 1000})
+    w_rbl = np.abs(res.x); w_rbl /= w_rbl.sum()
+
+    port_ret = float(w_rbl @ mu_robust)
+    port_vol = float(np.sqrt(w_rbl @ Sigma @ w_rbl))
+    sharpe = (port_ret - rf) / port_vol if port_vol > 0 else 0.0
+    omega = float(min(calculate_omega(returns.values @ w_rbl), 10.0))
+
+    return {
+        "method":            "Robust BL (Tu-Zhou)",
+        "weights":           {t: float(w_rbl[i]) for i, t in enumerate(tickers)},
+        "return":            port_ret,
+        "volatility":        port_vol,
+        "sharpe":            sharpe,
+        "omega":             omega,
+        "kappa":             kappa,
+        "bl_returns":        {t: float(mu_bl[i]) for i, t in enumerate(tickers)},
+        "robust_returns":    {t: float(mu_robust[i]) for i, t in enumerate(tickers)},
+        "views_used":        list(cio_views.keys()) if cio_views else [],
+        "note": (
+            f"κ={kappa:.1f}: {kappa*100:.0f}% BL widoki + {(1-kappa)*100:.0f}% historyczna stopa. "
+            "Robust BL jest mniej wrażliwy na błędne widoki CIO."
+        ),
+    }

@@ -263,10 +263,23 @@ def real_wealth_preservation_score(
       inflation_adjusted_return : float
       breakeven_nominal_return : float
     """
+    if years <= 0:
+        return {
+            "prob_preserve_real_wealth": 0.0,
+            "expected_real_cagr": 0.0,
+            "inflation_adjusted_return": portfolio_expected_return * (1 - tax_rate) - inflation_rate,
+            "breakeven_nominal_return": inflation_rate / (1 - tax_rate),
+            "portfolio_nominal_return": portfolio_expected_return,
+            "inflation_rate": inflation_rate,
+            "tax_rate": tax_rate,
+            "years": years,
+            "grade": "N/D — Horyzont zerowy",
+        }
+
     rng = np.random.default_rng(rng_seed)
     daily_mu = portfolio_expected_return / 252
     daily_sigma = portfolio_vol / np.sqrt(252)
-    n_days = years * 252
+    n_days = max(1, years * 252)
 
     # Simulate nominal returns
     sim = rng.normal(daily_mu, daily_sigma, (n_sims, n_days))

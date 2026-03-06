@@ -483,3 +483,209 @@ def calculate_tci(
                 c = 0.0
             tci[i, j] = tci[j, i] = c
     return tci
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOWE METRYKI NAUKOWE v4.0 (2025 upgrade — Modernizacja Plan)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def calculate_range_var_cvar(
+    returns,
+    alpha_lo: float = 0.95,
+    alpha_hi: float = 0.99,
+) -> dict:
+    """
+    Range VaR i Range CVaR — uśrednianie między dwoma poziomami ufności.
+
+    Mniej wrażliwe na wybór pojedynczego α niż klasyczne VaR/CVaR.
+    Rekomendacja EBA Stress Testing Guidelines 2024, Cont et al. (2010).
+
+    Formuła:
+      Range_VaR(α_lo, α_hi) = (1/(α_hi - α_lo)) ∫_{α_lo}^{α_hi} VaR_α dα
+      Range_CVaR              = mean(CVaR_α) dla α ∈ [α_lo, α_hi]
+
+    Returns dict z keys: range_var, range_cvar, var_lo, var_hi, cvar_lo, cvar_hi
+    """
+    returns = np.asarray(returns, dtype=float)
+    if len(returns) == 0:
+        return {k: 0.0 for k in ["range_var", "range_cvar", "var_lo", "var_hi", "cvar_lo", "cvar_hi"]}
+
+    n_steps = 20
+    alphas = np.linspace(alpha_lo, alpha_hi, n_steps)
+    vars_, cvars_ = [], []
+    for a in alphas:
+        cutoff_pct = (1.0 - a) * 100
+        v = np.percentile(returns, cutoff_pct)
+        c = returns[returns <= v].mean() if np.any(returns <= v) else v
+        vars_.append(v)
+        cvars_.append(c)
+
+    return {
+        "range_var":  float(np.mean(vars_)),
+        "range_cvar": float(np.mean(cvars_)),
+        "var_lo":     float(vars_[0]),
+        "var_hi":     float(vars_[-1]),
+        "cvar_lo":    float(cvars_[0]),
+        "cvar_hi":    float(cvars_[-1]),
+    }
+
+
+def calculate_component_es(
+    weights: np.ndarray,
+    returns_df,
+    alpha: float = 0.05,
+) -> dict:
+    """
+    Component Expected Shortfall — dekompozycja CVaR per aktywo.
+
+    ES_component_i = w_i × E[r_i | r_portfolio <= VaR_α]
+    Sum(ES_component_i) = ES_portfolio  (additive decomposition)
+
+    Kluczowe zastosowania:
+    - Identyfikacja aktywów dominujących w ryzyku ogonowym portfela
+    - Risk budgeting oparty na CVaR (nie tylko wariancji)
+    - Alokacja kapitału regulacyjnego
+
+    Referencja: Tasche (2008) "Capital Allocation to Business Units and
+    Sub-Portfolios: The Euler Principle". Pakiet risktools 2024.
+
+    Parameters
+    ----------
+    weights     : array (n_assets,) — wagi portfela (suma = 1)
+    returns_df  : DataFrame lub ndarray (T, n_assets) — dzienne zwroty
+    alpha       : poziom ogona (0.05 = 95% CVaR)
+
+    Returns
+    -------
+    dict z: component_es (array), pct_contribution (array), port_es (float),
+            asset_names (list)
+    """
+    if hasattr(returns_df, "values"):
+        R = returns_df.values
+        names = list(returns_df.columns)
+    else:
+        R = np.asarray(returns_df, dtype=float)
+        names = [f"A{i}" for i in range(R.shape[1])]
+
+    w = np.asarray(weights, dtype=float)
+    port_ret = R @ w
+    var_level = np.percentile(port_ret, alpha * 100)
+    tail_mask = port_ret <= var_level
+
+    if tail_mask.sum() == 0:
+        return {
+            "component_es": np.zeros(len(w)),
+            "pct_contribution": np.zeros(len(w)),
+            "port_es": 0.0,
+            "asset_names": names,
+        }
+
+    tail_returns = R[tail_mask]                    # (n_tail, n_assets)
+    # Euler decomposition: ES_i = w_i * E[r_i | tail]
+    mean_tail_per_asset = tail_returns.mean(axis=0)
+    component_es = w * mean_tail_per_asset         # (n_assets,)
+    port_es = float(np.mean(port_ret[tail_mask]))
+    pct = component_es / (port_es + 1e-12)         # fraction of total ES
+
+    return {
+        "component_es":    component_es,
+        "pct_contribution": pct,
+        "port_es":         port_es,
+        "asset_names":     names,
+    }
+
+
+def calculate_expectile_risk(
+    returns,
+    tau: float = 0.05,
+) -> float:
+    """
+    Expectile Risk Measure — alternatywa dla CVaR.
+
+    Expectile e_τ minimalizuje:
+      E[|τ - 1(r < e)| · (r - e)²]
+
+    Właściwości matematyczne (Jones 2023):
+    - Elicitable: możliwa statystyczna weryfikacja prognoz (CVaR jej nie ma!)
+    - Subadditive: spełnia aksjomaty miar ryzyka spójnego
+    - Powiązanie z CVaR: ER(τ) ≈ CVaR(1-2τ) dla małych τ
+
+    Referencja: Newey & Powell (1987), Jones (2023) "Revisiting Expectile Risk".
+
+    Parameters
+    ----------
+    returns : array zwrotów
+    tau     : poziom asymetrii (0.05 ≈ 95% quantile analog)
+
+    Returns
+    -------
+    float — expectile value (ujemny = strata)
+    """
+    returns = np.asarray(returns, dtype=float)
+    if len(returns) < 2:
+        return 0.0
+
+    # Iterative Weighted Least Squares (IWLS)
+    e = np.quantile(returns, tau)  # init with quantile
+    for _ in range(200):
+        below = returns < e
+        weights = np.where(below, tau, 1.0 - tau)
+        e_new = np.sum(weights * returns) / np.sum(weights)
+        if abs(e_new - e) < 1e-10:
+            break
+        e = e_new
+    return float(e)
+
+
+def calculate_srr_score(wealth_paths: np.ndarray) -> float:
+    """
+    Sequence-of-Returns Risk (SRR) Score.
+
+    Mierzy wrażliwość końcowego majątku na KOLEJNOŚĆ zwrotów.
+    Wysoki SRR → portfel bardzo podatny na złą sekwencję (szczególnie groźne
+    w fazie wypłat z emerytalnego).
+
+    Metodologia:
+    1. Oblicz CAGR per ścieżka
+    2. Oblicz wariancję CAGR po podziale na decyle trajektorii
+    3. SRR = std(CAGR_by_decile) / mean(CAGR_total)
+
+    SRR < 0.1  → niskie ryzyko sekwencji
+    SRR > 0.3  → wysokie ryzyko sekwencji (ostrzeżenie!)
+
+    Referencja: Kitces & Pfau (2014), Blanchett (2024) "Sequence Risk Revisited".
+
+    Parameters
+    ----------
+    wealth_paths : (n_sims, n_periods) — macierz ścieżek bogactwa z MC
+
+    Returns
+    -------
+    float — SRR score (wyższy = gorszy)
+    """
+    if wealth_paths.ndim != 2 or wealth_paths.shape[1] < 2:
+        return 0.0
+
+    n_sims, n_periods = wealth_paths.shape
+    # CAGR per simulation
+    final_wealth = wealth_paths[:, -1]
+    init_wealth = wealth_paths[:, 0]
+    years = n_periods / 252.0 if n_periods > 252 else n_periods / 12.0
+    # Avoid division by zero
+    valid = (init_wealth > 0) & (final_wealth >= 0)
+    if valid.sum() < 10:
+        return 0.0
+
+    cagr = (final_wealth[valid] / init_wealth[valid]) ** (1.0 / max(years, 1.0)) - 1.0
+
+    # Divide simulations into deciles of early-period performance
+    mid = n_periods // 4
+    early_perf = wealth_paths[valid, mid] / init_wealth[valid]
+    decile_labels = pd.qcut(early_perf, 10, labels=False, duplicates="drop")
+    decile_cagr_means = pd.Series(cagr).groupby(decile_labels).mean()
+
+    if len(decile_cagr_means) < 2:
+        return 0.0
+
+    srr = float(decile_cagr_means.std() / (abs(decile_cagr_means.mean()) + 1e-10))
+    return srr

@@ -21,6 +21,7 @@ from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
 from modules.frontier import compute_efficient_frontier
 from modules.emerytura import render_emerytura_module
 from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR, REGIME_CRISIS
+from modules.global_settings import get_gs, apply_gs_to_session, force_apply_gs_to_session, gs_sidebar_badge
 
 # ... existsing code ...
 
@@ -28,6 +29,10 @@ from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR,
 
 # 2. Apply Custom Styling
 st.markdown(apply_styling(), unsafe_allow_html=True)
+
+# Globalne ustawienia portfela — wczytaj i wstrzyknij jako domyślne
+_gs = get_gs()
+apply_gs_to_session(_gs)
 
 # ---------------------------------------------------------------------------
 # Persystencja ustawień między modułami
@@ -70,7 +75,13 @@ st.sidebar.markdown("### Aktywa do Testu")
 
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS, run_reverse_stress_test
 
-st_safe_str  = st.sidebar.text_input("Koszyk Bezpieczny", "TLT, GLD", key="st_safe")
+# Przywracanie z globalnych
+if st.sidebar.button("↩ Przywróć z Globalnych", key="st_restore_gs", use_container_width=True):
+    force_apply_gs_to_session(get_gs())
+    st.rerun()
+
+_gs_now = get_gs()
+st_safe_str  = st.sidebar.text_input("Koszyk Bezpieczny", value=st.session_state.get("_s.st_safe", _gs_now.safe_tickers_str or "TLT, GLD"), key="st_safe")
 
 default_risky = st.session_state.pop('st_risky_transfer', "SPY, QQQ, BTC-USD")
 if 'st_risky' not in st.session_state:
@@ -81,8 +92,9 @@ else:
         st.session_state['st_risky'] = default_risky
 
 st_risky_str = st.sidebar.text_input("Koszyk Ryzykowny", key="st_risky")
-st_safe_w    = st.sidebar.slider("Waga Bezpieczna (%)", 10, 95, 85, key="st_sw") / 100.0
-st_capital   = st.sidebar.number_input("Kapitał Początkowy", value=100000, step=10000, key="st_cap")
+_gs_sw_default = int(round(get_gs().alloc_safe_pct * 100))
+st_safe_w    = st.sidebar.slider("Waga Bezpieczna (%)", 10, 95, st.session_state.get("_s.st_sw", _gs_sw_default), key="st_sw") / 100.0
+st_capital   = st.sidebar.number_input("Kapitał Początkowy", value=int(st.session_state.get("_s.st_cap", int(get_gs().initial_capital))), step=10000, key="st_cap")
 
 # ─────────────────────────────────────────────────────────────────
 # 🆕 WŁASNY SZOK (CUSTOM SHOCK)

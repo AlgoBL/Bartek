@@ -853,6 +853,11 @@ def home():
 
 
 pages = {
+    # ─── 0. GLOBALNE USTAWIENIA ───────────────────────────────────────────────
+    "🌐  Ustawienia": [
+        st.Page("pages/0_Globalne_Ustawienia.py", title="Globalne Ustawienia Portfela", icon="🌐"),
+    ],
+
     # ─── 1. STRONA GŁÓWNA ─────────────────────────────────────────────────────
     "🏠  Dashboard": [
         st.Page(home, title="Control Center", icon="📡", default=True),

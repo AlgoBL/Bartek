@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from modules.styling import apply_styling
+from modules.global_settings import get_gs, apply_gs_to_session, gs_sidebar_badge
 from modules.wealth_protection_optimizer import (
     bucket_allocation, human_capital_estimate,
     real_wealth_preservation_score, ldi_funding_ratio,
@@ -13,13 +14,18 @@ from modules.wealth_protection_optimizer import (
 st.set_page_config(page_title="Wealth Protection Optimizer", page_icon="🏰", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
+# Globalne ustawienia portfela
+_gs = get_gs()
+apply_gs_to_session(_gs)
+_gs_capital = _gs.initial_capital
+
 st.markdown("# 🏰 Wealth Protection Optimizer")
 st.markdown("*Goal-Based Investing, Human Capital, LDI, Real Wealth Preservation — kompleksowa ochrona majątku*")
 st.divider()
 
 with st.sidebar:
     st.markdown("### 👤 Twoje Dane")
-    total_wealth = st.number_input("Łączny majątek finansowy (PLN)", value=500_000, step=50_000)
+    total_wealth = st.number_input("Łączny majątek finansowy (PLN)", value=int(st.session_state.get("_gs_wealth_total", _gs_capital)), step=50_000)
     current_age = st.slider("Wiek", 25, 70, 40)
     retirement_age = st.slider("Wiek emerytalny", 50, 70, 65)
     annual_income = st.number_input("Roczny dochód brutto (PLN)", value=150_000, step=10_000)

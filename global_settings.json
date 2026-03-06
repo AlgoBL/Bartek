@@ -1,0 +1,34 @@
+{
+  "safe_type": "fixed",
+  "safe_rate": 0.05510000000000001,
+  "safe_tickers": [
+    "TLT",
+    "GLD"
+  ],
+  "risky_assets": [
+    {
+      "ticker": "SPY",
+      "weight": 40.0,
+      "asset_class": "ETF US"
+    },
+    {
+      "ticker": "QQQ",
+      "weight": 30.0,
+      "asset_class": "ETF Tech"
+    },
+    {
+      "ticker": "NVDA",
+      "weight": 20.0,
+      "asset_class": "Akcja"
+    },
+    {
+      "ticker": "BTC-USD",
+      "weight": 10.0,
+      "asset_class": "Krypto"
+    }
+  ],
+  "alloc_safe_pct": 0.95,
+  "initial_capital": 1000000.0,
+  "profile_name": "Domyślny",
+  "last_updated": "2026-03-06T12:54:52"
+}
