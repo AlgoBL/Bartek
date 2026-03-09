@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html
+from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html, inject_accordion_js
 import datetime
 
 st.set_page_config(
@@ -12,6 +12,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Wstrzykuje JavaScript kontrolera accordion
+inject_accordion_js()
 
 # Smart cache keyed on date+hour — odswiezenie raz na godzine
 _CACHE_KEY = datetime.datetime.now().strftime("%Y%m%d%H")
@@ -904,6 +907,11 @@ pages = {
         st.Page("pages/17_Sentiment_Flow.py",     title="Sentiment & Flow",         icon="🌊"),
         st.Page("pages/18_Alt_Risk_Premia.py",    title="Alt. Risk Premia",         icon="⚡"),
         st.Page("pages/19_Wealth_Optimizer.py",   title="Wealth Optimizer",         icon="🏰"),
+    ],
+
+    # ─── 8. LIFE OS (NOWE) ─────────────────────────────────────────────
+    "🧠  Life OS": [
+        st.Page("pages/20_Life_OS.py",            title="Life OS — Łowca",          icon="🎯"),
     ],
 }
 

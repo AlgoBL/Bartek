@@ -13,6 +13,113 @@ Zawiera:
 """
 
 
+def inject_accordion_js():
+    """
+    Wstrzykuje JavaScript sterujacy accordion sidebar (st.navigation).
+    Uzywa MutationObserver + click capture do wymuszenia:
+    - zamknięcia wszystkich sekcji menu przy starcie
+    - otwarcia tylko sekcji z aktywnym linkiem (aria-current)
+    - prawdziwego akordeonu przy kliknięciach (jedno rozwinięte naraz)
+    """
+    import streamlit.components.v1 as components
+
+    js_code = """
+    <script>
+    (function() {
+        var doc = window.parent.document;
+        var _observer = null;
+        var _clickHandler = null;
+
+        function collapseAll(nav) {
+            nav.querySelectorAll('details').forEach(function(d) {
+                d.removeAttribute('open');
+            });
+        }
+
+        function openActive(nav) {
+            var activeLink = nav.querySelector('a[aria-current="page"]');
+            if (activeLink) {
+                var det = activeLink.closest('details');
+                if (det) { det.setAttribute('open', ''); return; }
+            }
+            // Fallback: strona glowna — otwieramy sekcje Dashboard (index 1)
+            var allDet = nav.querySelectorAll('details');
+            if (allDet.length > 1) allDet[1].setAttribute('open', '');
+            else if (allDet.length === 1) allDet[0].setAttribute('open', '');
+        }
+
+        function applyAccordion() {
+            var nav = doc.querySelector('[data-testid="stSidebarNav"]');
+            if (!nav) return false;
+            if (nav.querySelectorAll('details').length === 0) return false;
+            collapseAll(nav);
+            openActive(nav);
+            return true;
+        }
+
+        function attachAccordionClick(nav) {
+            if (_clickHandler) nav.removeEventListener('click', _clickHandler, true);
+            _clickHandler = function(e) {
+                var summary = e.target.closest('summary');
+                if (!summary) return;
+                var clickedDet = summary.closest('details');
+                if (!clickedDet) return;
+                // Zapobiegamy domyslnemu dzialaniu przegladarki
+                e.preventDefault();
+                e.stopPropagation();
+                var wasOpen = clickedDet.hasAttribute('open');
+                // Zamknij wszystkie sekcje
+                nav.querySelectorAll('details').forEach(function(d) {
+                    d.removeAttribute('open');
+                });
+                // Jesli nie bylo otwarte — otworz klikniete (toggle)
+                if (!wasOpen) {
+                    clickedDet.setAttribute('open', '');
+                }
+            };
+            nav.addEventListener('click', _clickHandler, true);
+        }
+
+        function attachObserver(nav) {
+            if (_observer) { _observer.disconnect(); }
+            _observer = new MutationObserver(function(mutations) {
+                var needsUpdate = false;
+                for (var i = 0; i < mutations.length; i++) {
+                    var m = mutations[i];
+                    if (m.type === 'attributes' && m.attributeName === 'aria-current') {
+                        needsUpdate = true; break;
+                    }
+                    if (m.type === 'childList' && m.addedNodes.length > 0) {
+                        needsUpdate = true; break;
+                    }
+                }
+                if (needsUpdate) { setTimeout(applyAccordion, 100); }
+            });
+            _observer.observe(nav, {
+                subtree: true, childList: true,
+                attributes: true, attributeFilter: ['aria-current']
+            });
+        }
+
+        // Glowna inicjalizacja z retry co 150ms (max 6 sekund)
+        var attempts = 0;
+        var initTimer = setInterval(function() {
+            attempts++;
+            var nav = doc.querySelector('[data-testid="stSidebarNav"]');
+            if (nav && nav.querySelectorAll('details').length > 0) {
+                clearInterval(initTimer);
+                applyAccordion();
+                attachAccordionClick(nav);
+                attachObserver(nav);
+            }
+            if (attempts > 40) clearInterval(initTimer);
+        }, 150);
+
+    })();
+    </script>
+    """
+    components.html(js_code, height=0, width=0)
+
 def apply_styling() -> str:
     return """
     <style>
@@ -457,168 +564,18 @@ def apply_styling() -> str:
     tbody tr:hover { background: rgba(0,230,118,0.04); }
 
     /* ═══════════════════════════════════════════════════════════════
-       COLLAPSIBLE NAV TOGGLE — JS wraps nav in custom accordion
+       SIDEBAR ACCORDION — smooth CSS transition for details/summary
     ═══════════════════════════════════════════════════════════════ */
-    #nav-toggle-btn {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        background: rgba(0,230,118,0.07);
-        border: 1px solid rgba(0,230,118,0.18);
-        border-radius: 8px;
-        color: #00e676;
-        font-family: 'Inter', sans-serif;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-        padding: 8px 14px;
+    [data-testid="stSidebarNav"] details {
+        transition: all 0.2s ease;
+    }
+    [data-testid="stSidebarNav"] details summary {
         cursor: pointer;
-        transition: background 0.2s, border-color 0.2s;
-        margin-bottom: 0;
-    }
-    #nav-toggle-btn:hover {
-        background: rgba(0,230,118,0.14);
-        border-color: rgba(0,230,118,0.4);
-    }
-    #nav-toggle-btn .nav-arrow {
-        margin-left: auto;
-        transition: transform 0.25s;
-        font-size: 14px;
-    }
-    #nav-toggle-btn.open .nav-arrow { transform: rotate(180deg); }
-    #nav-collapsible {
-        overflow: hidden;
-        max-height: 0;
-        transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1);
-    }
-    #nav-collapsible.open { max-height: 1200px; }
-    #nav-wrapper {
-        order: -1 !important;
-        margin-bottom: 12px;
+        user-select: none;
     }
 
     </style>
-    <script>
-    (function() {
-        var _navInitDone = false;
 
-        function isHomePage() {
-            // Home page is root path "/" or has no meaningful path
-            var path = window.parent.location.pathname;
-            return path === '/' || path === '' || path.endsWith('/Control_Center');
-        }
-
-        function setNavOpen(btn, coll, open) {
-            if (open) {
-                btn.classList.add('open');
-                coll.classList.add('open');
-                btn.setAttribute('aria-expanded', 'true');
-            } else {
-                btn.classList.remove('open');
-                coll.classList.remove('open');
-                btn.setAttribute('aria-expanded', 'false');
-            }
-        }
-
-        function initNavToggle() {
-            var doc = window.parent.document;
-            var sidebar = doc.querySelector('[data-testid="stSidebarContent"]');
-            if (!sidebar) return false;
-            var nav = doc.querySelector('[data-testid="stSidebarNav"]');
-            if (!nav) return false;
-
-            // Already initialized — just sync open/close state based on page
-            if (doc.getElementById('nav-wrapper')) {
-                var btn2 = doc.getElementById('nav-toggle-btn');
-                var coll2 = doc.getElementById('nav-collapsible');
-                if (btn2 && coll2) {
-                    // If user manually toggled, respect that; otherwise auto
-                    var manualState = window.parent.sessionStorage.getItem('nav_manual');
-                    if (!manualState) {
-                        setNavOpen(btn2, coll2, isHomePage());
-                    }
-                }
-                return true;
-            }
-
-            // — First init —
-
-            // Wrapper div that goes to the top
-            var wrapper = doc.createElement('div');
-            wrapper.id = 'nav-wrapper';
-
-            // Toggle button
-            var btn = doc.createElement('button');
-            btn.id = 'nav-toggle-btn';
-            btn.innerHTML = '☰ &nbsp;MENU NAWIGACYJNE<span class="nav-arrow">▼</span>';
-            btn.setAttribute('aria-expanded', 'false');
-
-            // Collapsible body
-            var coll = doc.createElement('div');
-            coll.id = 'nav-collapsible';
-
-            // Move Streamlit nav inside
-            coll.appendChild(nav);
-            wrapper.appendChild(btn);
-            wrapper.appendChild(coll);
-
-            // Insert at very top of sidebar
-            sidebar.insertBefore(wrapper, sidebar.firstChild);
-
-            // Auto-state: home = open, subpage = closed
-            var startOpen = isHomePage();
-            setNavOpen(btn, coll, startOpen);
-
-            // Click handler — marks as manually toggled
-            btn.addEventListener('click', function() {
-                var open = coll.classList.toggle('open');
-                btn.classList.toggle('open', open);
-                btn.setAttribute('aria-expanded', open.toString());
-                // Store manual override for this "session page load"
-                window.parent.sessionStorage.setItem('nav_manual', '1');
-                window.parent.sessionStorage.setItem('nav_open', open ? '1' : '0');
-            });
-
-            _navInitDone = true;
-            return true;
-        }
-
-        // Watch for page navigation (Streamlit uses pushState)
-        var _lastPath = window.parent.location.pathname;
-        function onPageChange() {
-            var doc = window.parent.document;
-            var wrapper = doc.getElementById('nav-wrapper');
-            if (!wrapper) return;
-            var btn = doc.getElementById('nav-toggle-btn');
-            var coll = doc.getElementById('nav-collapsible');
-            if (!btn || !coll) return;
-
-            // Clear manual override on navigation
-            window.parent.sessionStorage.removeItem('nav_manual');
-            // Auto-set based on new page
-            setNavOpen(btn, coll, isHomePage());
-        }
-
-        // Poll for path change
-        setInterval(function() {
-            var newPath = window.parent.location.pathname;
-            if (newPath !== _lastPath) {
-                _lastPath = newPath;
-                setTimeout(onPageChange, 200);
-            }
-        }, 400);
-
-        // Retry init until sidebar renders
-        var attempts = 0;
-        var interval = setInterval(function() {
-            var done = initNavToggle();
-            attempts++;
-            if (done || attempts > 40) clearInterval(interval);
-        }, 250);
-    })();
-    </script>
     """
 
 
