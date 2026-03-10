@@ -677,9 +677,303 @@ with tabs[3]:
             <span style='color:#6b7280;font-size:12px'>Akcja: "{action}"</span>
         </div>""", unsafe_allow_html=True)
 
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 8 — CHRONOBIOLOGIA I RYTMY ULTRADIANE
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🧬 Sekcja 8 — Chronobiologia i Rytmy Ultradiane (Zarządzanie Energią)")
+
+col_c1, col_c2 = st.columns([3, 2])
+
+with col_c1:
+    peak_time = st.slider("Szczyt Melatoniny (Środek snu) - zazwyczaj 3:00 - 4:00 rano", 0.0, 24.0, 3.5, 0.5, format="%.1f h", key="melatonin_peak_time")
+    # Generowanie danych do wykresu polarnego
+    hours = np.linspace(0, 24, 240)
+    theta = hours * 15 # 360/24
+    
+    # Symulacja kortyzolu i melatoniny
+    # Kortyzol pikuje około 30-45 min po przebudzeniu (CAR - Cortisol Awakening Response)
+    # Przebudzenie zakładamy ok. 4h po szczycie melatoniny
+    wake_time = (peak_time + 4) % 24
+    
+    # Funkcja do generowania krzywych dobowych
+    def circadian_curve(x, peak, width, amplitude, base):
+        dist = np.minimum(np.abs(x - peak), 24 - np.abs(x - peak))
+        return base + amplitude * np.exp(-0.5 * (dist / width)**2)
+        
+    melatonin = circadian_curve(hours, peak_time, 2.0, 80, 5)
+    
+    # Kortyzol ma dwa piki (rano silny, po południu słabszy)
+    cortisol_morning_peak = (wake_time + 1) % 24
+    cortisol = circadian_curve(hours, cortisol_morning_peak, 1.5, 70, 10) + circadian_curve(hours, (cortisol_morning_peak + 8)%24, 3.0, 30, 0)
+    
+    fig_circ = go.Figure()
+    fig_circ.add_trace(go.Scatterpolar(r=melatonin, theta=theta, name="Melatonina (Odpoczynek/Naprawa)", line_color="#a855f7", fill="toself", opacity=0.6))
+    fig_circ.add_trace(go.Scatterpolar(r=cortisol, theta=theta, name="Kortyzol (Akcja/Skupienie)", line_color="#f39c12", fill="toself", opacity=0.6))
+    
+    # Złote okno (Deep work window) - 2-4h po przebudzeniu
+    deep_work_start = (wake_time + 2) % 24
+    deep_work_end = (deep_work_start + 3) % 24
+    
+    fig_circ.update_layout(
+        title="Zegar Dobowy (Panda & Huberman)",
+        polar=dict(
+            radialaxis=dict(visible=False, range=[0, 100]),
+            angularaxis=dict(tickfont_size=11, tickmode="array", tickvals=np.arange(0, 360, 45), ticktext=["0:00", "3:00", "6:00", "9:00", "12:00", "15:00", "18:00", "21:00"], direction="clockwise")
+        ),
+        paper_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), height=400, margin=dict(t=40, b=40, l=40, r=40),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+    )
+    st.plotly_chart(fig_circ, use_container_width=True)
+
+with col_c2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>⏱️ Twój Rytm Dobowy</div>
+    <p style='{NOTE}'>
+    Biologia dyktuje, kiedy powinieneś robić najtrudniejsze rzeczy.<br><br>
+    🌙 <b>Pobudka (Szacowana):</b> ~{int(wake_time):02d}:{int((wake_time%1)*60):02d}<br>
+    🔥 <b>Złote Okno (Deep Work):</b> {int(deep_work_start):02d}:{int((deep_work_start%1)*60):02d} - {int(deep_work_end):02d}:{int((deep_work_end%1)*60):02d}<br>
+    W tym czasie Twój poziom kortyzolu i dopaminy naturalnie tworzy optymalne warunki dla neuroplastyczności.<br><br>
+    <b style='color:#00e676'>Zasada 90/20 (BRAC):</b> Mózg utrzymuje wysoką frekwencję (Beta/Gamma) max przez 90 min, po czym potrzebuje 20 min w stanie Alfa (NSDR / relaks) na wypłukanie adenozyny.
+    </p></div>""", unsafe_allow_html=True)
+    
+    ultradian_min = st.slider("Czas trwania obecnego bloku pracy (min)", 0, 180, 45, key="ultradian_min")
+    adenosine = (ultradian_min / 90) * 100 if ultradian_min <= 90 else 100 + ((ultradian_min - 90) * 1.5)
+    perf = 100 - (max(0, ultradian_min - 90) * 1.5)
+    
+    col_u1, col_u2 = st.columns(2)
+    with col_u1:
+        st.metric("Skupienie / Wydajność", f"{max(0, min(100, perf)):.0f}%", delta="-⚠️ Wypalenie" if ultradian_min > 90 else None, delta_color="inverse")
+    with col_u2:
+        st.metric("Dług Adenozynowy", f"{min(200, adenosine):.0f}%", delta="⚡ Za wysoki!" if adenosine > 100 else None, delta_color="inverse")
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 9 — ARCHITEKTURA PRZEPŁYWU
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🌊 Sekcja 9 — Architektura Przepływu (Flow State)")
+
+col_f1, col_f2 = st.columns([2, 3])
+
+with col_f1:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Trójkąt Przepływu (Csíkszentmihályi)</div>
+    <p style='{NOTE}'>
+    Kanał Flow znajduje się dokładnie tam, gdzie wyzwanie minimalnie przekracza Twoje obecne umiejętności (~4%).<br><br>
+    1️⃣ Ustaw swoje <b>Umiejętności</b> w danym zadaniu.<br>
+    2️⃣ Ustaw jego obiektywną <b>Trudność</b>.<br>
+    3️⃣ Zobacz swój stan kognitywny na mapie.
+    </p></div>""", unsafe_allow_html=True)
+    
+    skills_level = st.slider("Poziom Umiejętności (Wiedza/Praktyka)", 0, 100, 60, key="flow_skills")
+    challenge_level = st.slider("Poziom Wyzwania (Trudność/Stawka)", 0, 100, 75, key="flow_challenge")
+    
+    if challenge_level > skills_level + 20:
+        state_name, state_col = "Niepokój / Lęk (Anxiety) 🔴", "#ff1744"
+        hack = "Hack: Zmniejsz trudność (podziel na małe kroki) lub dobierz wsparcie/wiedzę."
+    elif skills_level > challenge_level + 20:
+        state_name, state_col = "Nuda (Boredom) 🥱 / Relaks", "#3498db"
+        hack = "Hack: Skróć czas na wykonanie o połowę. Stwórz sztuczną presję lub zwiększ standardy."
+    elif challenge_level < 30 and skills_level < 30:
+        state_name, state_col = "Apatia ⚪", "#888888"
+        hack = "Zmień całkowicie cel zadania. Brakuje w nim i Twojej ambicji, i kompetencji."
+    else:
+        state_name, state_col = "⚡ STAN FLOW (Transient Hypofrontality)", "#00e676"
+        hack = "Idealna ścieżka! Kora przedczołowa wyciszona. Działasz płynnie i instynktownie."
+
+    st.markdown(f"""<div style='background:rgba(0,0,0,0.4);border:1px solid {state_col};border-radius:8px;padding:12px;margin-top:10px'>
+    <b style='color:{state_col}'>{state_name}</b><br><span style='font-size:12px;color:#aaa'>{hack}</span>
+    </div>""", unsafe_allow_html=True)
+
+with col_f2:
+    # Generowanie heatmapy stanów Flow
+    sc, ch = np.meshgrid(np.linspace(0, 100, 100), np.linspace(0, 100, 100))
+    Z = np.zeros_like(sc)
+    for i in range(100):
+        for j in range(100):
+            s_val, c_val = sc[i, j], ch[i, j]
+            if c_val > s_val + 20: Z[i, j] = 1 # Anxiety
+            elif s_val > c_val + 20: Z[i, j] = 2 # Boredom
+            elif s_val < 30 and c_val < 30: Z[i, j] = 3 # Apathy
+            else: Z[i, j] = 4 # Flow
+            
+    colorscale_flow = [[0, "#ff1744"], [0.33, "#3498db"], [0.66, "#2a2a3a"], [1, "#00e676"]]
+    
+    fig_flow = go.Figure(go.Heatmap(z=Z, x=sc[0,:], y=ch[:,0], colorscale=colorscale_flow, showscale=False, opacity=0.4))
+    fig_flow.add_trace(go.Scatter(x=[skills_level], y=[challenge_level], mode="markers", marker=dict(size=18, color="#ffffff", line=dict(color=state_col, width=3)), name="Twój Stan"))
+    
+    fig_flow.update_layout(
+        title="Mapa Kognitywna", height=350,
+        xaxis=dict(title="Umiejętności", range=[0, 100]), yaxis=dict(title="Wyzwanie", range=[0, 100]),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=40, r=20, t=40, b=40)
+    )
+    fig_flow.add_annotation(x=80, y=80, text="FLOW ZONE", showarrow=False, font=dict(color="#00e676", size=16, weight="bold"))
+    fig_flow.add_annotation(x=20, y=80, text="ANXIETY", showarrow=False, font=dict(color="#ff1744", size=14))
+    fig_flow.add_annotation(x=80, y=20, text="BOREDOM", showarrow=False, font=dict(color="#3498db", size=14))
+    st.plotly_chart(fig_flow, use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 10 — HORMEZA I ALOSTATEZA
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🛡️ Sekcja 10 — Hormeza i Antykruchość Biologiczna (M. Mattson)")
+
+col_h1, col_h2 = st.columns(2)
+
+with col_h1:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>🔥 Kalkulator Stresorów (Allostatic Load)</div>
+    <p style='{NOTE}'>
+    Krótki, ostry stres (Eustres) buduje twój organizm poprzez procesy nadkompensacji (np. autofagia).<br>
+    Lekki, ciągły stres w tle (Distres) wyczerpuje twój układ nerwowy i opornościowy.
+    </p></div>""", unsafe_allow_html=True)
+    
+    acute_stress_val = st.slider("Ostre Stresory (Zimno, Spriny, Sauna, Post/Głodówka)", 0, 100, 70, key="acute_stress")
+    chronic_stress_val = st.slider("Przewlekłe Stresory (Maile, Przerywany Sen, Social Media, Inflamacja)", 0, 100, 30, key="chronic_stress")
+    
+    # Model Hormezy Inverted-U
+    x_dose = np.linspace(0, 100, 100)
+    health_response = 2.5 * x_dose - 0.025 * x_dose**2
+    
+    current_dose = acute_stress_val - (chronic_stress_val * 1.5)
+    user_hx = max(0, min(100, 50 + current_dose/2))
+    user_hy = 2.5 * user_hx - 0.025 * user_hx**2
+    m_color_h = "#00e676" if user_hy > 0 else "#ff1744"
+    
+    fig_hormesis = go.Figure()
+    fig_hormesis.add_trace(go.Scatter(x=x_dose, y=health_response, mode='lines', line=dict(color='#a855f7', width=3), name='Reakcja Adaptacyjna'))
+    fig_hormesis.add_hline(y=0, line_dash="dash", line_color="#555")
+    fig_hormesis.add_trace(go.Scatter(x=[user_hx], y=[user_hy], mode='markers', marker=dict(size=14, color=m_color_h), name='Twój Stan'))
+    
+    fig_hormesis.update_layout(
+        title="Krzywa Hormetyczna (Wika Marka Mattsona)", height=300,
+        xaxis=dict(title="Całkowity Poziom Stresu (Dose)", showticklabels=False), yaxis=dict(title="Wzrost Formy vs Degeneracja", showticklabels=False),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=40, r=20, t=40, b=40),
+        showlegend=False
+    )
+    st.plotly_chart(fig_hormesis, use_container_width=True)
+
+with col_h2:
+    st.markdown("### 💉 Protokół Antykruchości Fizjologicznej")
+    st.markdown(f"""<div style='background:#111;border-left:4px solid #00e676;padding:12px;margin-bottom:12px'>
+    <b>1. Ekspozycja na Skrajności (Barbell):</b><br>
+    Spędzaj czas albo w totalnym głębokim relaksie (System Przywspółczulny, 0% stresu), albo w ekstremalnym, ultra-krótkim wysiłku (System Współczulny, 100% stresu). 
+    <span style='color:#ff1744'>Środek sztangi niszczy serce i mózg.</span>
+    </div>
+    <div style='background:#111;border-left:4px solid #3498db;padding:12px;margin-bottom:12px'>
+    <b>2. Okna Autofagii:</b><br>
+    Post (>14-16h) uruchamia głęboki komórkowy recykling niszczący stare białka i naprawiający DNA.
+    </div>
+    <div style='background:#111;border-left:4px solid #a855f7;padding:12px'>
+    <b>3. Szok Termiczny:</b><br>
+    Zimno generuje CSP (Cold Shock Proteins), a gorąco (Sauna) HSP (Heat Shock Proteins), uodparniając białka i układ nerwowy na starzenie.
+    </div>
+    """, unsafe_allow_html=True)
+    if user_hy < 0:
+        st.error("⚠️ ALERT ALOSTATYCZNY: System jest przeciążony w tle! Drastycznie obetnij _chronic_ stressors (sen, bodźce). Dodawanie teraz treningów czy zimna tylko pogorszy sytuację.")
+    elif user_hy < 40:
+        st.warning("⚠️ Twój organizm znajduje się w strefie lenistwa. Wymaga mocniejszych bodźców i ekstremów by stymulować wzrost.")
+    else:
+        st.success("✅ OPTIMUM HORMETYCZNE. Twój układ nerwowy znajduje się na szczycie krzywej adaptacyjnej nadkompensacji.")
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 11 — FOGG BEHAVIOR MODEL
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## ⚙️ Sekcja 11 — Fizyka Nawyków (B.J. Fogg Behavior Model)")
+
+col_b1, col_b2 = st.columns([1, 1])
+
+with col_b1:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>B = MAP (Behavior = Motivation × Ability × Prompt)</div>
+    <p style='{NOTE}'>
+    Siła woli jest zasobem, który wyczerpuje się w ciągu dnia (Ego Depletion).<br>
+    Nigdy nie operuj bazując tylko na sile woli czy "motywacji". Maksymalizuj Łatwość (Ability) na wyłapanym Sygnale (Prompt).
+    </p></div>""", unsafe_allow_html=True)
+    
+    b_mot = st.slider("Motywacja do Nawyku / Opór Wewnętrzny (1=Znikoma, 10=Żrąca Skuteczność)", 1, 10, 4, key="fbm_mot")
+    b_abi = st.slider("Łatwość Akcji (1=Wymaga logistyki i wysiłku, 10=Dwu-minutowa sprawa w zasięgu ręki)", 1, 10, 3, key="fbm_abi")
+    
+    action_threshold = 30
+    cur_score = b_mot * b_abi
+    
+    if cur_score >= action_threshold:
+        st.success("✅ Akcja (Behavior) ma miejsce. Przebito krzywą akceptacji.")
+    else:
+        st.error("❌ Nawyk nie zaskoczy. NIE podkręcaj bezsensownie Motywacji. Zwiększ jego Łatwość (Ability), aż stanie się absurdalnie wręcz trywialny do wykonania.")
+
+with col_b2:
+    x_ab = np.linspace(1.0, 10.0, 100)
+    y_mo = action_threshold / x_ab
+    
+    fig_fbm = go.Figure()
+    fig_fbm.add_trace(go.Scatter(x=x_ab, y=y_mo, mode='lines', line=dict(color='#ff1744', width=2), name='Action Line'))
+    fig_fbm.add_trace(go.Scatter(x=[b_abi], y=[b_mot], mode='markers', marker=dict(size=16, color="#00e676" if cur_score>=action_threshold else "#f39c12"), name="Twój Nawyk"))
+    
+    fig_fbm.update_layout(
+        title="Fazy Adaptacji Zmiany (Fogg's Action Line)", height=300,
+        xaxis=dict(title="Łatwość Wykonania (Ability) ➜", range=[0, 10]), 
+        yaxis=dict(title="Motywacja ➜", range=[0, 10]),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=40, r=20, t=40, b=40)
+    )
+    fig_fbm.add_annotation(x=8, y=8, text="✅ DZIAŁAJĄCA RUTYNA", showarrow=False, font=dict(color="#00e676"))
+    fig_fbm.add_annotation(x=2, y=2, text="❌ MARTWA STREFA", showarrow=False, font=dict(color="#ff1744"))
+    st.plotly_chart(fig_fbm, use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 12 — DYSKONTO HIPERBOLICZNE
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 📉 Sekcja 12 — Dyskonto Hiperboliczne i Default Nudges")
+
+col_n1, col_n2 = st.columns([3, 2])
+
+with col_n1:
+    days_array = np.arange(0, 365, 5)
+    reward_value = 1000.0
+    
+    # Modele dyskontowania
+    k_exp = 0.005 # Racjonalne (wykładnicze)
+    k_hyp = 0.04  # Behawioralne (hiperboliczne - bardzo strome cięcie z bliska)
+    
+    val_exp = reward_value * np.exp(-k_exp * days_array)
+    val_hyp = reward_value / (1 + k_hyp * days_array)
+    
+    fig_disc = go.Figure()
+    fig_disc.add_trace(go.Scatter(x=days_array, y=val_exp, mode="lines", name="Racjonalny Homo Economicus", line=dict(color="#3498db")))
+    fig_disc.add_trace(go.Scatter(x=days_array, y=val_hyp, mode="lines", name="Twój gadzi mózg (Hiperbola)", line=dict(color="#ff1744", width=3)))
+    
+    fig_disc.update_layout(
+        title="Twój Mózg: Deprecjacja Wartości w Czasie", height=280,
+        xaxis=dict(title="Dni oczekiwania na nagrodę (np. zdrowie, gotówka)"), yaxis=dict(title="Odczuwana 'Wartość' Nagrody"),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white", size=11), margin=dict(l=40, r=20, t=40, b=40),
+        legend=dict(x=0.4, y=0.9, font=dict(size=10))
+    )
+    st.plotly_chart(fig_disc, use_container_width=True)
+
+with col_n2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Odysseus Pact (Kontrakt Odyseusza)</div>
+    <p style='{NOTE}'>
+    Dyskonto Hiperboliczne oznacza, że 10 PLN dzisiaj zyskuje u Ciebie w mózgu przewagę nad 100 PLN za tydzień. Dlatego wybierasz fast food zamiast kaloryferu na brzuchu z przyszłości.<br><br>
+    <b style='color:#ffea00'>Architektura Wyboru (R. Thaler):</b>
+    Aby pokonać dyskonto, projektuj środowisko tak, by "dobra rzecz" była wartością domyślną (default nudge), a jej pominięcie wymagało absurdalnego wysiłku.
+    </p></div>""", unsafe_allow_html=True)
+    
+    st.markdown("<p style='font-size:14px;color:#00e676;font-weight:bold'>Twój Kontrakt Odyseusza (Test tarcia zmysłów):</p>", unsafe_allow_html=True)
+    st.checkbox("Czy Twój telefon jest w innym fizycznym pokoju, kiedy pracujesz (deep work)?", key="chk_od1")
+    st.checkbox("Czy przelewasz nadwyżki finansowe w pełni automatycznie w dniu wypłaty?", key="chk_od2")
+    st.checkbox("Czy usunąłeś wszystkie powiadomienia, ikony z pulpitu i bodźce wzrokowe?", key="chk_od3")
+
 st.markdown("---")
 st.markdown(f"""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:12px'>
-Life OS v1.0 · Barbell Strategy Quant · Oparty na: Ergodicity Economics (Peters), 
-Reward Prediction Error (Schultz), Structural Holes (Burt), Barbell Strategy (Taleb), 
-Kelly Criterion (Kelly 1956)
+Life OS v2.0 · Quant Platform Ecosystem · Oparty na twardej nauce:<br>
+Ergodicity (Peters), RPE (Schultz), Centrality (Burt), Barbell (Taleb), Kelly Criterion, <br>
+Chronobiology (Panda), Flow State (Csíkszentmihályi), Hormesis (Mattson), Behavior Design (Fogg), Nudges (Kahneman & Thaler)
 </div>""", unsafe_allow_html=True)
+

@@ -912,6 +912,7 @@ pages = {
     # ─── 8. LIFE OS (NOWE) ─────────────────────────────────────────────
     "🧠  Life OS": [
         st.Page("pages/20_Life_OS.py",            title="Life OS — Łowca",          icon="🎯"),
+        st.Page("pages/21_Day_Trading.py",        title="Day Trading",              icon="📈"),
     ],
 }
 
