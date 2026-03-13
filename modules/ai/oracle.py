@@ -164,20 +164,24 @@ class TheOracle:
             
             # Populate snapshot
             for name, val in results_tickers:
-                snapshot[name] = val
+                if val is not None:
+                    snapshot[name] = val
                 
             inv_fred = {v: k for k, v in FRED_SERIES.items()}
             for sid, val in results_fred:
-                name = inv_fred.get(sid, sid)
-                snapshot[f"FRED_{name}"] = val
+                if val is not None:
+                    name = inv_fred.get(sid, sid)
+                    snapshot[f"FRED_{name}"] = val
                 
-            snapshot[res_crypto[0]] = res_crypto[1]
+            if res_crypto[1] is not None:
+                snapshot[res_crypto[0]] = res_crypto[1]
+
             if res_options:
-                snapshot.update(res_options)
+                snapshot.update({k: v for k, v in res_options.items() if v is not None})
             if res_breadth:
-                snapshot.update(res_breadth)
+                snapshot.update({k: v for k, v in res_breadth.items() if v is not None})
             if res_bond_vol:
-                snapshot.update(res_bond_vol)
+                snapshot.update({k: v for k, v in res_bond_vol.items() if v is not None})
             
         # 2. Derived signals — Yield Curve
         y10 = snapshot.get("10Y_Treasury")

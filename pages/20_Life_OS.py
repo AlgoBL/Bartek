@@ -970,10 +970,389 @@ with col_n2:
     st.checkbox("Czy przelewasz nadwyżki finansowe w pełni automatycznie w dniu wypłaty?", key="chk_od2")
     st.checkbox("Czy usunąłeś wszystkie powiadomienia, ikony z pulpitu i bodźce wzrokowe?", key="chk_od3")
 
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 13 — EWOLUCJA WSPÓŁPRACY (ZASZUMIONY DYLEMAT WIĘŹNIA)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🤝 Sekcja 13 — Ewolucja Współpracy w Zaszumionym Środowisku (IPD)")
+
+col_ipd1, col_ipd2 = st.columns([3, 2])
+
+with col_ipd1:
+    noise_level = st.slider("Poziom szumu środowiskowego (Błędy interpretacji %)", 0, 30, 5, 1, key="ipd_noise") / 100.0
+    
+    # Symulacja wpływu szumu na wypłaty dominujących strategii
+    tft_score = max(0, 100 - noise_level * 300)
+    wsls_score = max(0, 100 - noise_level * 100)
+    gtft_score = max(0, 100 - noise_level * 150)
+    alld_score = min(100, 20 + noise_level * 200)
+    
+    strategies_ipd = ["Tit-for-Tat (TFT)", "Generous TFT", "Win-Stay Lose-Shift (WSLS)", "Always Defect (ALLD)"]
+    scores_ipd = [tft_score, gtft_score, wsls_score, alld_score]
+    colors_ipd = ["#3498db", "#a855f7", "#00e676", "#ff1744"]
+    
+    fig_ipd = go.Figure()
+    fig_ipd.add_trace(go.Bar(
+        x=strategies_ipd, y=scores_ipd, marker_color=colors_ipd,
+        text=[f"{v:.1f}" for v in scores_ipd], textposition="outside",
+        textfont=dict(color="white", size=12)
+    ))
+    fig_ipd.update_layout(
+        title=f"Odporność Strategii przy {noise_level*100:.0f}% Szumu",
+        height=320, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"),
+        yaxis=dict(range=[0, 115], gridcolor="#1c1c2e", title="Wypłata Asymptotyczna"),
+        xaxis=dict(gridcolor="#1c1c2e"),
+        margin=dict(l=20,r=20,t=50,b=40)
+    )
+    st.plotly_chart(fig_ipd, use_container_width=True)
+
+with col_ipd2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>🔄 Spirale Zdrady i Stabilność (Axelrod, Nowak)</div>
+    <p style='{NOTE}'>
+    W klasycznej Teorii Gier (bez szumu) <b style='color:#3498db'>Tit-for-Tat</b> dominuje.
+    Ale rzeczywistość jest zaszumiona. Błędnie interpretujemy intencje i losowe zdarzenia jako ataki.<br><br>
+    W szumie TFT wpada w nieskończoną spiralę wzajemnych retorsji (zdrada za rzekomą zdradę).<br><br>
+    <b style='color:#00e676'>Win-Stay, Lose-Shift (Pawłow)</b> jest asymptotycznie stabilne: powtarza ruch, jeśli wypłata była wysoka, zmienia jeśli niska. Potrafi automatycznie wybaczyć po obustronnym błędzie i powrócić do kooperacji, jednocześnie bezlitośnie eksploatując naiwnych.
+    </p></div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 14 — MECHANISM DESIGN
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## ⚙️ Sekcja 14 — Projektowanie Mechanizmów (Incentive-Compatible Nudges)")
+
+col_md1, col_md2 = st.columns([1, 1])
+
+with col_md1:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Revelation Principle & Asymetria Informacji</div>
+    <p style='{NOTE}'>
+    Problem: Twoje planujące "Ja" (Pryncypał) narzuca jeden cel. Twoje wykonawcze "Ja" (Agent) w danym dniu ma ukryte, zmienne parametry energii (niska/wysoka) i często sabotuje sztywny system (dezercja).<br><br>
+    Rozwiązanie z <b>Mechanism Design</b>: Stwórz menu opcji (Screening Contracts), które sprawi, że dominującą strategią agenta będzie ujawnienie prawdy o swoim stanie i asymilacja do dopasowanego celu, chroniąc system przed "Wszystko albo Nic".
+    </p></div>""", unsafe_allow_html=True)
+    
+    vitality = st.selectbox("Zgłoś swój dzisiejszy obiektywny stan witalności (Typ Agenta):", 
+        ["Niski (Wyczerpanie, Stres)", "Średni (Standard)", "Wysoki (Flow, Energia)"], index=1, key="md_vitality")
+
+with col_md2:
+    if "Niski" in vitality:
+        contract = "Zobowiązanie Minimum (Tylko Nawyk Zębowy / Utrzymanie Linii)"
+        payout = "Ochrona przed pęknięciem systemu, spójność tożsamości (0 do 1)"
+        color_md = "#ff1744"
+    elif "Średni" in vitality:
+        contract = "Zobowiązanie Standardowe (2-3h Deep Work)"
+        payout = "Liniowy, stabilny progres (10% postępu dziennie)"
+        color_md = "#3498db"
+    else:
+        contract = "Zobowiązanie Ekstremalne (Moonshot, Ryzyko, Outbound Do Dużych Graczy)"
+        payout = "Opcja Call, Szansa na Nieliniowy Zwrot (Czarne Łabędzie)"
+        color_md = "#00e676"
+        
+    st.markdown(f"""<div style='background:rgba(0,0,0,0.4);border:2px solid {color_md};border-radius:12px;padding:20px'>
+    <h4 style='color:{color_md};margin-bottom:10px'>Przyjęty Kontrakt (Typ Zgodny z Bodźcami)</h4>
+    <b>Zadanie:</b> {contract}<br>
+    <b>Oczekiwany Zwrot:</b> {payout}<br><br>
+    <span style='color:#aaa;font-size:12px'>Brak kary lub poczucia winy za wybór opcji Niskiej. Opcja Wysoka premiowana szansą na przewrót statusu quo. System zabezpiecza Condition of Individual Rationality.</span>
+    </div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 15 — EXPLORATION VS EXPLOITATION
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🎲 Sekcja 15 — Eksploracja vs Eksploatacja & Reguła 37% (Multi-Armed Bandit)")
+
+col_ee1, col_ee2 = st.columns([3, 2])
+
+with col_ee1:
+    total_time = st.slider("Horyzont Czasowy (np. całkowita pula dni na znalezienie celu)", 10, 100, 30, key="ee_time")
+    
+    explore_phase = int(total_time * 0.37)
+    x_time = np.arange(1, total_time + 1)
+    
+    fig_ee = go.Figure()
+    
+    # Zaznaczanie obszarów eksploracji i eksploatacji
+    fig_ee.add_vrect(x0=1, x1=explore_phase, fillcolor="rgba(52,152,219,0.2)", line_width=0, 
+                     annotation_text="Faza Obserwacji (Gather Data)", annotation_position="top left", annotation_font_color="#3498db")
+    fig_ee.add_vrect(x0=explore_phase, x1=total_time, fillcolor="rgba(0,230,118,0.2)", line_width=0, 
+                     annotation_text="Faza Decyzyjna (Eksploatacja)", annotation_position="top right", annotation_font_color="#00e676")
+    
+    fig_ee.add_vline(x=explore_phase, line_dash="solid", line_color="#ffea00")
+    
+    fig_ee.update_layout(
+        title=f"Optimal Stopping (Reguła 37%) — Przełączenie trybu w {explore_phase}. kroku",
+        height=280, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"),
+        xaxis=dict(title="Dostępny Czas (T)", gridcolor="#1c1c2e"),
+        yaxis=dict(showticklabels=False, gridcolor="#1c1c2e", range=[0, 1]),
+        margin=dict(l=20,r=20,t=50,b=40),
+        showlegend=False
+    )
+    st.plotly_chart(fig_ee, use_container_width=True)
+
+with col_ee2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Złoty Podział Zatrzymania Czasu</div>
+    <p style='{NOTE}'>
+    Matematyka problemu optymalnego zatrzymania wskazuje jasno: zbierz dane przez pierwsze <b>37% czasu</b> (Zasada Sekreterki). Odrzuć wszystkie pierwsze zapytania, precyzyjnie kalibrując własne oczekiwania i rozpoznając rozkład rynku.<br><br>
+    Następnie zmień tryb na eksploatację: zaatakuj i przyjmij <b>pierwszą opcję</b>, która jest lepsza od najwyższej, jaką widziałeś podczas fazy kalibracyjnej.
+    </p></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style='background:#111;border-left:4px solid #f39c12;padding:12px'>
+    <b>Upper Confidence Bound (UCB) w Life OS:</b><br>
+    Na początku nowej ścieżki (duży zapas czasu) maksymalizuj wejście z optymizmem w nieznane. Gdy czas paruje – zamykaj się z opcjami sprawdzonymi historycznie.
+    </div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 16 — TEORIA SYGNAŁÓW W ERZE AI 
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 📡 Sekcja 16 — Teoria Sygnałów & Zarządzanie Wiarygodnością (Post-AGI)")
+
+col_sig1, col_sig2 = st.columns([3, 2])
+
+with col_sig1:
+    ai_penetration = st.slider("Poziom Adopcji Generatywnego AI w Pracy i Komunikacji", 0.0, 1.0, 0.8, 0.05, key="sig_ai")
+    
+    signals = ["Cyfrowy Raport / Opracowanie", "Cold Email / Pitch", "Odręczne Pismo / List", "Spotkanie Twarzą w Twarz", "Skin in the Game (Zakład własnymi pieniędzmi)"]
+    cost = [10, 5, 50, 80, 100]
+    
+    # AI degraduje wiarygodność tekstu. Fizyka zostaje nienaruszona
+    cred_text = max(5, 80 - ai_penetration * 75)
+    cred_email = max(5, 60 - ai_penetration * 55)
+    
+    credibility = [cred_text, cred_email, 65 + ai_penetration*10, 90, 100]
+    colors_sig = ["#ff1744", "#ff1744", "#f39c12", "#00e676", "#a855f7"]
+    
+    fig_sig = go.Figure()
+    fig_sig.add_trace(go.Scatter(
+        x=cost, y=credibility, mode="markers+text",
+        text=signals, textposition="top center",
+        marker=dict(size=[15, 12, 20, 30, 40], color=colors_sig, opacity=0.8),
+        textfont=dict(color="white", size=10)
+    ))
+    
+    fig_sig.update_layout(
+        title="Portfel Sygnałów (Costly Signaling Theory)",
+        height=320, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"),
+        xaxis=dict(title="Wysiłek, Koszt i Fizyczność (Skin in the Game)", gridcolor="#1c1c2e", range=[0, 115]),
+        yaxis=dict(title="Postrzegana Wiarygodność u Odbiorcy", gridcolor="#1c1c2e", range=[0, 115]),
+        margin=dict(l=40,r=40,t=40,b=40), showlegend=False
+    )
+    st.plotly_chart(fig_sig, use_container_width=True)
+
+with col_sig2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Zapadnięcie Się Tanich Sygnałów</div>
+    <p style='{NOTE}'>
+    W ekonomii ewolucyjnej sygnalizacja jest wiarygodna tylko, gdy oszustowi zbytnio nie opłaca się jej podrobić (pawi ogon).<br><br>
+    Sztuczna Inteligencja sprowadza koszt wygenerowania pięknego raportu, skryptu lub kurtuazyjnego emaila do zera. Cykl domyka się – stają się one dla odbiorcy "Cheap Talk", potęgując jedynie tzw. "karę za AI".<br><br>
+    <b style='color:#00e676'>Nowa Waluta (Proof of Work):</b> W erze wyzerowanych kosztów kognitywnych, wiarygodność przenosi się w domenę atomów i weryfikowalnego ryzyka. Trzonem Twojego portfela w `Life OS` musi być fizyczna obecność, autentyczność wystawiająca na zranienie i uwiązany kapitał.
+    </p></div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 17 — DUALIZM JAŹNI I SAMOKONTROLA
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🧠 Sekcja 17 — Wewnątrzpersonalna Teoria Gier (Planista vs Wykonawca)")
+
+col_ds1, col_ds2 = st.columns(2)
+
+with col_ds1:
+    penalty = st.slider("Wielkość Nałożonej Kary za Odstępstwo (Commitment Device w PLN)", 0, 5000, 1000, 100, key="ds_pen")
+    
+    opt_a_impulse = 80 # Szybka jednorazowa dopamina z nagrody dziś
+    opt_b_impulse = 20
+    opt_b_future = 90  # Długofalowa dywidenda z pracy
+    
+    # Narzucona sztuczna dewalucja opcji poprzez karę finansową/reputacyjną
+    penalty_util = penalty / 50.0  
+    opt_a_mod = max(0, opt_a_impulse - penalty_util)
+    
+    fig_ds = go.Figure()
+    fig_ds.add_trace(go.Bar(name="Naturalny Odruch (Gadzi)", x=["Rozrywka/Sofa (Zysk Natychmiast)", "Dyscyplina (Inwestycja)"], y=[opt_a_impulse, opt_b_impulse], marker_color="#ff1744"))
+    fig_ds.add_trace(go.Bar(name="Z Kontraktem Zobowiązującym", x=["Rozrywka/Sofa (Zysk Natychmiast)", "Dyscyplina (Inwestycja)"], y=[opt_a_mod, opt_b_impulse + opt_b_future], marker_color="#00e676"))
+    
+    fig_ds.update_layout(
+        title="Manipulacja Oczekiwaną Użytecznością Systemu 1",
+        barmode='group', height=300, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"), margin=dict(l=20,r=20,t=40,b=40),
+        xaxis=dict(gridcolor="#1c1c2e"), yaxis=dict(title="Psychologiczna Użyteczność dla Wykonawcy", gridcolor="#1c1c2e"),
+        legend=dict(x=0.0, y=1.2, orientation="h", font=dict(size=10))    
+    )
+    st.plotly_chart(fig_ds, use_container_width=True)
+
+with col_ds2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Dual-Self Model (Planista i Wykonawca)</div>
+    <p style='{NOTE}'>
+    Nie stanowisz jednolitego ja. Jesteś zespołem rotujących w czasie agentów.<br><br>
+    <b>Planista (System 2: Kora przedczołowa)</b> dąży do potęgowania skumulowanych zysków w życiu przez dekady.<br>
+    <b>Wykonawca (System 1: Ciało migdałowate)</b> preferuje maksymalizację dopaminy o godzinie 19:00.<br><br>
+    <b style='color:#00e676'>Zarządzanie poprzez Zobowiązanie:</b>
+    Planista musi "związać sobie ręce". Ustawiając bolesną opłatę za rezygnację (np. oddanie na partię polityczną której nie lubisz {penalty} PLN), zmieniasz Równowagę Nasha wewnątrz umysłu – Wykonawca w strachu ulega racjonalizując drogę Dyscypliny za korzystniejszą w danym momencie.
+    </p></div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 18 — BACKWARD INDUCTION
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## ♟️ Sekcja 18 — Backward Induction w Trajektorii Życiowej")
+
+col_bi1, col_bi2 = st.columns([3, 2])
+
+with col_bi1:
+    st.markdown("<span style='color:#aaa;font-size:12px'>Metoda symulowania optymalnej przestrzeni kroków posiłkując się Subgame-perfect Nash equilibrium.</span>", unsafe_allow_html=True)
+    
+    node_x = [0, 1, 1, 2, 2, 2, 2]
+    node_y = [0, 1, -1, 1.5, 0.5, -0.5, -1.5]
+    node_text = ["Dziś (t=0)", "Projekt A (Skalowalny)", "Model B (Etat)", "Cel: Niezależność (Z=100)", "Rozwój Boczny (Z=40)", "Awans (Z=30)", "Zwolnienie (Z=-10)"]
+    colors_bi = ["#a855f7", "#00e676", "#ff1744", "#00e676", "#555", "#555", "#ff1744"]
+    
+    edge_x = [0, 1, None, 0, 1, None, 1, 2, None, 1, 2, None, 1, 2, None, 1, 2, None]
+    edge_y = [0, 1, None, 0, -1, None, 1, 1.5, None, 1, 0.5, None, -1, -0.5, None, -1, -1.5, None]
+
+    fig_bi = go.Figure()
+    fig_bi.add_trace(go.Scatter(x=edge_x, y=edge_y, mode="lines", line=dict(color="#333", width=2), hoverinfo="skip"))
+    fig_bi.add_trace(go.Scatter(
+        x=node_x, y=node_y, mode="markers+text", 
+        text=node_text, textposition="bottom center",
+        marker=dict(size=22, color=colors_bi, line=dict(color="white", width=2)),
+        textfont=dict(color="white", size=11)
+    ))
+    
+    fig_bi.update_layout(
+        title="Drzewo Trajektorii (Krytyczna Ścieżka Indukcji Wstecznej)",
+        height=320, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"), showlegend=False,
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-2, 2]),
+        margin=dict(l=20,r=20,t=40,b=20)
+    )
+    fig_bi.add_trace(go.Scatter(x=[2, 1, 0], y=[1.5, 1, 0], mode="lines", line=dict(color="#00e676", width=4, dash="dot"), name="Optymalna Trasa Z"))
+    st.plotly_chart(fig_bi, use_container_width=True)
+
+with col_bi2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Złudzenie Pierwszego Kroku</div>
+    <p style='{NOTE}'>
+    Myślenie uwięzione w czasie t=1 szuka najwyższej natychmiastowej wypłaty (np. bezpieczny fotel z dobrą wypłatą natychmiastową na Modelu B). Ale Model B na poziomie węzłów t=2 prowadzi do całkowitego spłycenia opcji przyszłości (ślepy zaułek - pułapka lokalnego maksimum).<br><br>
+    <b style='color:#00e676'>Mechanizm Myślenia Wstecznego (Backward Induction):</b> Rozwiązuje grę od jej zakończenia (t=T). Definiujesz stan T (Z=100), sprawdzasz warunek wymagany na T-1 doprowadzający do T z najwyższym prawdopodobieństwem i iterujesz cofasz aż do dzisiaj.<br><br>
+    Tylko myślenie wsteczne ukazuje <b>prawdziwy koszt alternatywny</b> obecnej wygody.
+    </p></div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 19 — ANTYKRUCHOŚĆ I NIERÓWNOŚĆ JENSENA 
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🗻 Sekcja 19 — Wypukłość Wypłat (Antykruchość Czasu/Projektów)")
+
+col_ak1, col_ak2 = st.columns([2, 3])
+
+with col_ak1:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Zysk Z Niepewności (Wypukłość Jensena)</div>
+    <p style='{NOTE}'>
+    Antykruchość to system, który kwitnie w warunkach stresu.<br>
+    Twój Life OS musi asymilować losowość, odcinając z góry ryzyko finansowego czy projektowego zera absolutnego (Via Negativa), i otwierając system na nieograniczone wypłaty dodatnie z małych, odważnych zakładów z Prawego Ogona (Opcje Realne).
+    </p></div>""", unsafe_allow_html=True)
+    
+    sys_type = st.radio("Zdefiniuj ekspozycję swojej formacji zawodowej na zmienność rynku:", 
+        ["Kruchy (Brak planu B, uzależnienie od 1 klienta)", "Wytrzymały (Standardowa redundancja i etaty)", "Antykruchy (Barbell, Dźwignie IP/Media, Opcje)"], index=2, key="ak_type")
+
+with col_ak2:
+    v = np.linspace(-5, 5, 100)
+    if "Kruchy" in sys_type:
+        y_val = -0.5 * v**2 + 5
+        color_ak = "#ff1744"
+        fill_col = "rgba(255, 23, 68, 0.2)"
+        ak_title = "Kruchość (Wklęsłość) – Pętla na szyi, pęka przy wstrząsie."
+    elif "Wytrzymały" in sys_type:
+        y_val = np.ones_like(v) * 2
+        color_ak = "#3498db"
+        fill_col = "rgba(52, 152, 219, 0.2)"
+        ak_title = "Wytrzymałość (Linear) – Zmieność ignorowana, ale asymetria ujemna."
+    else:
+        y_val = 0.5 * np.maximum(0, v)**2 - 0.5
+        color_ak = "#00e676"
+        fill_col = "rgba(0, 230, 118, 0.2)"
+        ak_title = "Antykruchość (Wypukłość) – Bezpośrednia monetyzacja rynkowego Chaosu."
+        
+    fig_ak = go.Figure()
+    fig_ak.add_trace(go.Scatter(x=v, y=y_val, mode="lines", line=dict(color=color_ak, width=4), fill="tozeroy", fillcolor=fill_col)) 
+    
+    fig_ak.update_layout(
+        title=ak_title,
+        height=280, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"), showlegend=False,
+        xaxis=dict(title="Zmienność Rynku (Stres, Zwolnienia, Pandemia)", gridcolor="#1c1c2e"),
+        yaxis=dict(title="Zwrot/Rozwój Osobisty (Wypłata)", gridcolor="#1c1c2e", range=[-8, 15]),
+        margin=dict(l=40,r=20,t=40,b=40)
+    )
+    fig_ak.add_vline(x=0, line_dash="dash", line_color="#555")
+    st.plotly_chart(fig_ak, use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 20 — ECONOMIA UWAGI I PRZECIĄŻENIE ZARZĄDCZE
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 👁️ Sekcja 20 — Ekonomia Uwagi jako Krytyczna Infrastruktura")
+
+col_attn1, col_attn2 = st.columns([1, 1])
+
+with col_attn1:
+    governance_load = st.slider("Szacunkowa objętość decyzji i wątków mikrozarządzania dziennie (Load)", 10, 200, 110, key="at_load")
+    
+    capacity = 100
+    x_at = np.arange(10, 200, 5)
+    y_at = [max(0, 100 - (max(0, val - capacity) ** 1.5) / 2) for val in x_at]
+    
+    eff_current = max(0, 100 - (max(0, governance_load - capacity) ** 1.5) / 2)
+    col_ef = "#00e676" if eff_current > 80 else ("#f39c12" if eff_current > 40 else "#ff1744")
+    
+    fig_at = go.Figure()
+    fig_at.add_trace(go.Scatter(x=x_at, y=y_at, mode="lines", fill="tozeroy", line=dict(color="#3498db", width=3), fillcolor="rgba(52, 152, 219, 0.1)"))
+    fig_at.add_trace(go.Scatter(x=[governance_load], y=[eff_current], mode="markers", marker=dict(size=18, color=col_ef, line=dict(color="white", width=2))))
+    
+    fig_at.update_layout(
+        title="Przeciążenie Zarządcze (Governance Overload)",
+        height=300, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"), showlegend=False,
+        xaxis=dict(title="Ilość Równoległych Pętli Zadaniowych", gridcolor="#1c1c2e"),
+        yaxis=dict(title="Dostępny Budżet Decyzyjny Siły Woli (%)", gridcolor="#1c1c2e"),
+        margin=dict(l=40,r=20,t=40,b=40)
+    )
+    fig_at.add_vline(x=capacity, line_dash="solid", line_color="#ffea00", annotation_text="Kres Pojemności Systemu 2")
+    st.plotly_chart(fig_at, use_container_width=True)
+
+with col_attn2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>Złudzenie Multitaskingu</div>
+    <p style='{NOTE}'>
+    Nieuwaga jest równie potężnym narzędziem w zarządzaniu co skupienie. Gdy Twój Load pożera Capacity (<span style='color:#ffea00'>wartość > {capacity}</span>), doznajesz obciążenia poznawczego, czyli "zmęczenia decyzyjnego". Mózg, nie mogąc poprawnie kalkulować strategii Life OS, bezpowrotnie opada do poziomu najsłabszego Systemu 1 (impulsów, apatii).<br><br>
+    ✅ <b>Racjonalna Nieuwaga:</b> Ucz się ignorować e-maile i szumy o asymetrycznie zerowej wartości. Projektuj powierzchnię kontrolną tak, by nie przekraczała naturalnej elastyczności mózgu wspieranego zewnętrznymi modułami automatyzacji rutyn.
+    </p></div>""", unsafe_allow_html=True)
+    
+    if eff_current == 0:
+        st.error("🔴 CAŁKOWITY PARALIŻ. Jesteś w stanie dekompensacji poznawczej. Automatyczny powrót mózgu na tanie znieczulacze zagwarantowany. Eliminuj obowiązki natychmiast.")
+    elif eff_current < 70:
+        st.warning("🟡 Pojawiają się koszty spadku zdolności samokontroli.")
+
+
 st.markdown("---")
 st.markdown(f"""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:12px'>
-Life OS v2.0 · Quant Platform Ecosystem · Oparty na twardej nauce:<br>
-Ergodicity (Peters), RPE (Schultz), Centrality (Burt), Barbell (Taleb), Kelly Criterion, <br>
-Chronobiology (Panda), Flow State (Csíkszentmihályi), Hormesis (Mattson), Behavior Design (Fogg), Nudges (Kahneman & Thaler)
+Life OS v3.0 · Advanced Quant Platform Ecosystem · Integrujący twardą powtarzalność praw nauk systemowych:<br>
+Ergodicity (Peters), RPE (Schultz), Network Centrality (Burt), Barbell & Extremistan (Taleb), Kelly Criterion, <br>
+Chronobiology (Panda), Flow State (Csíkszentmihályi), Action Line (Fogg), Nudges (Kahneman & Thaler), <br>
+Mechanism Design, Evolutionary Game Theory (Axelrod/Nowak), Multi-Armed Bandit, Costly Signaling.
 </div>""", unsafe_allow_html=True)
 

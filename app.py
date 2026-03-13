@@ -50,21 +50,28 @@ def calculate_regime_score(macro, geo_report):
     sent = geo_report.get("compound_sentiment", 0.0)
     score -= sent * 15.0
     breadth = macro.get("Breadth_Momentum")
-    if breadth and breadth < -0.02: score += 10.0
+    if breadth is not None and breadth < -0.02: score += 10.0
     return max(1.0, min(100.0, score))
 
 def determine_business_cycle(macro):
     yc = macro.get("Yield_Curve_Spread", 0)
     claims = macro.get("FRED_Initial_Jobless_Claims", 250000)
     pmi = macro.get("FRED_ISM_Manufacturing_PMI", 50.0)
-    if yc < 0:
+
+    # Inwersja krzywej jest dominującym sygnałem restrykcji / spowolnienia
+    if yc is not None and yc < 0:
         return "Spowolnienie (Slowdown)", "Zacieśnianie polityki przez bank centralny. Inwersja krzywej.", "📉", "#f39c12"
-    elif claims > 300000 and yc >= 0:
+    
+    # Recesja: wysokie bezrobocie (claims) i yc >= 0 (często po "un-inversion")
+    if claims is not None and claims > 300000 and (yc is None or yc >= 0):
         return "Recesja (Recession)", "Kryzys gospodarczy. Rosnące bezrobocie, dno rynkowe.", "💀", "#e74c3c"
-    elif pmi < 50 and yc > 0.5:
+    
+    # Odrodzenie: PMI poniżej 50 (ciągle słabo), ale krzywa już stroma (>0.5)
+    if pmi is not None and pmi < 50 and yc is not None and yc > 0.5:
         return "Odrodzenie (Recovery)", "Dno za nami. Stymulacja systemowa dyskontuje poprawę.", "🌱", "#3498db"
-    else:
-        return "Ekspansja (Expansion)", "Silny wzrost gospodarczy. Zyski rosną, optymizm na rynkach.", "🚀", "#2ecc71"
+    
+    # Domyślnie Ekspansja
+    return "Ekspansja (Expansion)", "Silny wzrost gospodarczy. Zyski rosną, optymizm na rynkach.", "🚀", "#2ecc71"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  KONTEKSTOWE OPISY WSKAŹNIKÓW (DYMKI)
@@ -486,8 +493,8 @@ def get_active_alerts(score, macro, geo_report):
     if fci and fci > 0: alerts.append(f"🟡 STLFSI={fci:.2f} — Powyżej normy")
     breadth = macro.get("Breadth_Momentum")
     if breadth and breadth < -0.02: alerts.append(f"🟡 Breadth={breadth*10000:.0f}bp — Wąska hossa")
-    sent = geo_report.get("compound_sentiment", 0)
-    if sent < -0.15: alerts.append(f"🟡 Sentyment NLP={sent:.2f} — Negatywny")
+    sent = geo_report.get("compound_sentiment")
+    if sent is not None and sent < -0.15: alerts.append(f"🟡 Sentyment NLP={sent:.2f} — Negatywny")
     m2 = macro.get("FRED_M2_YoY_Growth")
     if m2 is not None and m2 < 0: alerts.append(f"🟡 M2={m2:.1f}% — Kurczenie płynności")
     if not alerts: alerts.append("✅ Brak aktywnych alertów — środowisko Risk-On")
