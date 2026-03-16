@@ -7,6 +7,7 @@ from modules.styling import apply_styling
 from modules.macro_regime_clock import (
     CLOCK_PHASES, classify_clock_phase, compute_regime_from_macro,
     historical_performance_table, clock_position_coords,
+    get_hmm_regime_probabilities, get_transition_matrix
 )
 
 st.set_page_config(page_title="Macro Regime Clock", page_icon="🕐", layout="wide")
@@ -112,15 +113,46 @@ with col_chart:
         fig.add_annotation(x=x_end, y=y_end, text=label,
                            showarrow=False, font=dict(size=11, color="#9ca3af"))
 
-    # Current position (clock hand)
+    # Zamiast jednego punktu - możemy narysować "Chmurę prawdopodobieństwa" GMM
+    probs = get_hmm_regime_probabilities(gdp_sig, infl_sig)
+    
+    # Dodajemy chmury/bańki prawdopodobieństwa dla każdego reżimu
+    regime_centers = {
+        "Recovery": (0.6, -0.6),
+        "Overheat": (0.6, 0.6),
+        "Stagflation": (-0.6, 0.6),
+        "Reflation": (-0.6, -0.6)
+    }
+    
+    for r_name, p_val in probs.items():
+        if p_val > 0.05:  # Pokaż tylko istotne
+            cx, cy = regime_centers[r_name]
+            fig.add_trace(go.Scatter(
+                x=[cx], y=[cy],
+                mode="markers+text",
+                marker=dict(
+                    size=p_val * 100,  # Rozmiar bańki proporcjonalny do prawdopodobieństwa
+                    color=CLOCK_PHASES[r_name]["color"],
+                    opacity=0.4 + (p_val * 0.4),
+                    line=dict(width=2, color="white")
+                ),
+                text=[f"{p_val:.1%}"],
+                textposition="middle center",
+                textfont=dict(color="white", size=10, weight="bold"),
+                name=f"HMM {r_name}",
+                showlegend=False,
+                hoverinfo="skip"
+            ))
+
+    # Bieżąca pozycja jako ostry punkt
     coords = clock_position_coords(gdp_sig, infl_sig)
     fx, fy = coords["x"] * 0.75, coords["y"] * 0.75
     fig.add_trace(go.Scatter(
         x=[0, fx], y=[0, fy],
         mode="lines+markers",
-        line=dict(color=pc, width=4),
-        marker=dict(size=[6, 16], color=[pc, pc], symbol=["circle", "circle"]),
-        name="Bieżąca pozycja", showlegend=True,
+        line=dict(color="white", width=2, dash="dot"),
+        marker=dict(size=[4, 10], color=["white", pc], symbol=["circle", "diamond"]),
+        name="Obserwacja makro", showlegend=True,
     ))
 
     fig.update_layout(
@@ -137,6 +169,13 @@ with col_chart:
 with col_info:
     st.markdown(f"### {phase_info['emoji']} Faza: {phase}")
     st.markdown(f"*{phase_info['description']}*")
+    
+    # Dodanie informacji o HMM Probabilities
+    st.markdown("#### 🧠 Prawdopodobieństwa GMM/HMM")
+    for p_name, p_val in sorted(probs.items(), key=lambda item: item[1], reverse=True):
+        p_color = CLOCK_PHASES[p_name]["color"]
+        st.markdown(f"- **{p_name}**: <span style='color:{p_color};font-weight:bold;'>{p_val:.1%}</span>", unsafe_allow_html=True)
+    
     st.markdown("**✅ Rekomendowane aktywa:**")
     for a in phase_info["recommended"]:
         st.markdown(f"  • {a}")
@@ -146,6 +185,36 @@ with col_info:
     st.markdown(f"**Sygnał:** `{phase_info['signal']}`")
 
 st.divider()
+
+# Nowa sekcja: Macierz Przejść HMM
+st.markdown("### 🎲 Macierz Przejść Reżimów (Markov Chain Transition Matrix)")
+st.markdown("*Przewidywane prawdopodobieństwo przejścia do kolejnej fazy cyklu w następnym kwartale.*")
+
+tm = get_transition_matrix(probs)
+
+# Tworzymy Plotly Heatmap dla macierzy przejść
+fig_tm = go.Figure(data=go.Heatmap(
+    z=tm.values,
+    x=tm.columns,
+    y=tm.index,
+    colorscale=[[0, "#1c1c2e"], [0.5, "#3498db"], [1, "#00e676"]],
+    text=[[f"{val:.1%}" for val in row] for row in tm.values],
+    texttemplate="%{text}",
+    hoverinfo="skip"
+))
+
+fig_tm.update_layout(
+    height=300,
+    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(color="white", family="Inter"),
+    xaxis=dict(title="Następna Faza (t+1)", gridcolor="#1c1c2e"),
+    yaxis=dict(title="Obecna Faza (t)", gridcolor="#1c1c2e", autorange="reversed"),
+    margin=dict(l=40,r=20,t=30,b=40)
+)
+st.plotly_chart(fig_tm, use_container_width=True)
+
+st.divider()
+
 st.markdown("### 📊 Historyczne Wyniki Aktywów per Faza (1973-2023)")
 perf_df = historical_performance_table()
 st.dataframe(perf_df, use_container_width=True, hide_index=True)

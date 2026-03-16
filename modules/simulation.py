@@ -3,7 +3,19 @@ import numpy as np
 import pandas as pd
 from scipy.stats import t
 from scipy.stats.qmc import Sobol
-from numba import jit
+try:
+    from numba import jit
+except Exception:
+    # Numba nie obsługuje jeszcze Python 3.14+.
+    # Fallback: no-op dekorator — funkcje działają w trybie czystego NumPy,
+    # bez akceleracji JIT. Wydajność nieco niższa, ale app działa poprawnie.
+    def jit(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        # Obsługa wywołania zarówno @jit jak i @jit(nopython=True, ...)
+        if len(args) == 1 and callable(args[0]):
+            return args[0]
+        return decorator
 from modules.ai.observer import get_market_regimes
 from modules.ai.architect import PortfolioArchitect
 from modules.ai.optimizer import GeneticOptimizer

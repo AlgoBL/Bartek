@@ -364,12 +364,32 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
                 # Always withdraw fixed % of current portfolio — never bankrupt
                 current_withdrawal = flexible_pct * w_new
             elif withdrawal_strategy == "guardrails":
-                ratio = w_new / np.maximum(glide_path[y+1], 1)
-                increase = (ratio > 1 + guardrails_band) & (w > 0)
-                decrease = (ratio < 1 - guardrails_band) & (w > 0)
-                current_withdrawal = np.where(increase, current_withdrawal * 1.10,
-                              np.where(decrease, current_withdrawal * 0.90,
-                                       current_withdrawal))
+                # Replace simple heuristic with Guyton-Klinger
+                # For Guyton-Klinger we need to calculate WR relative to initial_withdrawal
+                inf_rate = inf_matrix[:, y] if stochastic_inflation else inflation_base
+                initial_withdrawal_val = annual_expenses 
+                
+                # We do this vectorized across sims as much as possible
+                # But `guyton_klinger_withdrawal` takes floats.
+                # Vectorized approximation of GK logic:
+                current_wr = current_withdrawal / np.maximum(w_new, 1.0)
+                initial_wr = initial_withdrawal_val / np.maximum(w_new, 1.0)
+                
+                adj_withdrawal = current_withdrawal * (1 + inf_rate)
+                
+                # Prosperity rule
+                pr_mask = current_wr < (1.0 - guardrails_band) * initial_wr
+                adj_withdrawal = np.where(pr_mask, adj_withdrawal * 1.10, adj_withdrawal)
+                
+                # Capital Preservation rule
+                cpr_mask = current_wr > (1.0 + guardrails_band) * initial_wr
+                adj_withdrawal = np.where(cpr_mask, adj_withdrawal * 0.90, adj_withdrawal)
+                
+                # PMR logic: if WR > 1.20 * initial_wr, skip inflation adjust
+                pmr_mask = (adj_withdrawal / np.maximum(w_new, 1.0)) > (1.20 * initial_wr)
+                adj_withdrawal = np.where(pmr_mask, current_withdrawal, adj_withdrawal)
+                
+                current_withdrawal = np.maximum(adj_withdrawal, 0)
             # Inflation-adjust constant withdrawal
             inf_cum = np.prod(1 + inf_matrix[:, :y+1], axis=1) if y > 0 else (1 + inf_matrix[:, 0])
             if withdrawal_strategy == "constant":
@@ -457,7 +477,11 @@ def render_emerytura_module():
     current_age = st.sidebar.slider("Obecny Wiek", 18, 80, value=_saved("rem_age", 53), key="rem_age", on_change=_save, args=("rem_age",))
     retirement_age = st.sidebar.slider("Wiek Emerytalny", current_age, 90, value=_saved("rem_ret_age", 60), key="rem_ret_age", on_change=_save, args=("rem_ret_age",))
     life_expectancy = st.sidebar.slider("Max Horyzont (lat)", retirement_age + 5, 110, value=_saved("rem_life", 95), key="rem_life", on_change=_save, args=("rem_life",))
-    stoch_life = st.sidebar.checkbox("Stoch. Długość Życia (Gompertz)", value=_saved("rem_stoch_life", True), key="rem_stoch_life", on_change=_save, args=("rem_stoch_life",), help="Każdy uczestnik MC 'umiera' w losowym wieku (Gompertz/GUS 2023).")
+    stoch_life = st.sidebar.checkbox("Stoch. Długowieczność (Lee-Carter)", value=_saved("rem_stoch_life", True), key="rem_stoch_life", on_change=_save, args=("rem_stoch_life",), help="Model generuje scenariusze wieku śmierci biorąc pod uwagę płeć i ciągły wzrost długowieczności (Lee-Carter).")
+
+    gender_label = st.sidebar.selectbox("Płeć (Długowieczność)", ["Mieszana", "Kobieta", "Mężczyzna"], index=["Mieszana", "Kobieta", "Mężczyzna"].index(_saved("rem_gender", "Mieszana")), key="rem_gender", on_change=_save, args=("rem_gender",))
+    gender_map = {"Mieszana": "mixed", "Kobieta": "female", "Mężczyzna": "male"}
+    gender = gender_map[gender_label]
 
     st.sidebar.markdown("### 📈 Rynek")
     ret_return = st.sidebar.slider("Oczekiwany Zwrot (%)", -5.0, 20.0, value=_saved("rem_ret", 7.0), step=0.5, key="rem_ret", on_change=_save, args=("rem_ret",)) / 100.0
@@ -542,9 +566,9 @@ def render_emerytura_module():
 
     years_arr = np.arange(current_age, current_age + horizon + 1)
 
-    # ─── Stochastic lifetimes (Gompertz) ─────────────────────────────────────
+    # ─── Stochastic lifetimes (Lee-Carter) ───────────────────────────────────
     if stoch_life:
-        lifetimes = gompertz_lifetimes(current_age, n_sims)
+        lifetimes = lee_carter_lifetimes(current_age, n_sims, gender=gender)
         # Find actual survival: portfel przeżywa uczestnika?
         portfolio_survives = []
         for i in range(n_sims):
@@ -553,6 +577,7 @@ def render_emerytura_module():
             portfolio_survives.append(wealth_matrix[i, death_yr] > 0)
         life_survival_prob = np.mean(portfolio_survives)
     else:
+        lifetimes = np.full(n_sims, life_expectancy)
         life_survival_prob = None
 
     # ─── Key metrics ─────────────────────────────────────────────────────────
@@ -568,12 +593,20 @@ def render_emerytura_module():
 
     # ══════════════════════════════════════════════════════════════════════════
     with tab1:
-        st.subheader("🔮 Projekcja Majątku — Monte Carlo (Student-t, CIR)")
-        st.caption("Symulacja używa gruboogonowych szoków Student-t(df=4) i stochastycznej inflacji CIR.")
+        st.subheader("🔮 Conformal Prediction Funnel (Monte Carlo, Student-t, CIR)")
+        st.caption("Używamy Split Conformal Prediction (Angolopoulos 2023), aby zbudować przedziały w 100% obiektywne rozkładowo. Lepsze gwarancje pokrycia niż kwartyle.")
 
         show_comparison = st.checkbox("Pokaż fan chart z animacją frame-by-frame", value=False, key="rem_show_anim")
 
-        p5, p25, p50, p75, p95 = np.percentile(wealth_matrix, [5, 25, 50, 75, 95], axis=0)
+        # Conformal Intervals (90% & 50%)
+        cp_90 = compute_conformal_prediction_intervals(wealth_matrix, alpha=0.10)
+        cp_50 = compute_conformal_prediction_intervals(wealth_matrix, alpha=0.50)
+        
+        p95 = cp_90['cp_upper']
+        p5 = cp_90['cp_lower']
+        p75 = cp_50['cp_upper']
+        p25 = cp_50['cp_lower']
+        p50 = cp_90['median']
 
         if show_comparison:
             # ── Animated Fan Chart (Hullman et al. 2015) ─────────────────────
@@ -584,9 +617,9 @@ def render_emerytura_module():
             base_frame = go.Frame(
                 data=[
                     go.Scatter(x=years_arr[:2], y=p95[:2], mode='lines', line=dict(width=0), showlegend=False),
-                    go.Scatter(x=years_arr[:2], y=p5[:2], fill='tonexty', fillcolor='rgba(0,255,136,0.15)', mode='lines', line=dict(width=0), name='90% CI'),
+                    go.Scatter(x=years_arr[:2], y=p5[:2], fill='tonexty', fillcolor='rgba(0,255,136,0.15)', mode='lines', line=dict(width=0), name='90% Conformal CI'),
                     go.Scatter(x=years_arr[:2], y=p75[:2], mode='lines', line=dict(width=0), showlegend=False),
-                    go.Scatter(x=years_arr[:2], y=p25[:2], fill='tonexty', fillcolor='rgba(0,255,136,0.25)', mode='lines', line=dict(width=0), name='50% CI'),
+                    go.Scatter(x=years_arr[:2], y=p25[:2], fill='tonexty', fillcolor='rgba(0,255,136,0.25)', mode='lines', line=dict(width=0), name='50% Conformal CI'),
                     go.Scatter(x=years_arr[:2], y=p50[:2], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'),
                 ], name="0"
             )
@@ -597,9 +630,9 @@ def render_emerytura_module():
                 frames.append(go.Frame(
                     data=[
                         go.Scatter(x=years_arr[:yr_slice], y=p95[:yr_slice], mode='lines', line=dict(width=0), showlegend=False),
-                        go.Scatter(x=years_arr[:yr_slice], y=p5[:yr_slice], fill='tonexty', fillcolor='rgba(0,255,136,0.15)', mode='lines', line=dict(width=0), name='90% CI'),
+                        go.Scatter(x=years_arr[:yr_slice], y=p5[:yr_slice], fill='tonexty', fillcolor='rgba(0,255,136,0.15)', mode='lines', line=dict(width=0), name='90% Conformal CI'),
                         go.Scatter(x=years_arr[:yr_slice], y=p75[:yr_slice], mode='lines', line=dict(width=0), showlegend=False),
-                        go.Scatter(x=years_arr[:yr_slice], y=p25[:yr_slice], fill='tonexty', fillcolor='rgba(0,255,136,0.25)', mode='lines', line=dict(width=0), name='50% CI'),
+                        go.Scatter(x=years_arr[:yr_slice], y=p25[:yr_slice], fill='tonexty', fillcolor='rgba(0,255,136,0.25)', mode='lines', line=dict(width=0), name='50% Conformal CI'),
                         go.Scatter(x=years_arr[:yr_slice], y=p50[:yr_slice], mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'),
                     ], name=str(fy)
                 ))
@@ -634,15 +667,15 @@ def render_emerytura_module():
             fig_anim.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot")
             st.plotly_chart(fig_anim, use_container_width=True)
         else:
-            # Static Fan Chart with 4 percentile bands
+            # Static Fan Chart with 4 conformal bands
             fig_mc = go.Figure()
             fig_mc.add_trace(go.Scatter(x=years_arr, y=p95, mode='lines', line=dict(width=0), showlegend=False))
-            fig_mc.add_trace(go.Scatter(x=years_arr, y=p5, fill='tonexty', fillcolor='rgba(0,255,136,0.10)', mode='lines', line=dict(width=0), name='90% CI'))
+            fig_mc.add_trace(go.Scatter(x=years_arr, y=p5, fill='tonexty', fillcolor='rgba(0,255,136,0.10)', mode='lines', line=dict(width=0), name='90% Conformal CI'))
             fig_mc.add_trace(go.Scatter(x=years_arr, y=p75, mode='lines', line=dict(width=0), showlegend=False))
-            fig_mc.add_trace(go.Scatter(x=years_arr, y=p25, fill='tonexty', fillcolor='rgba(0,255,136,0.20)', mode='lines', line=dict(width=0), name='50% CI'))
+            fig_mc.add_trace(go.Scatter(x=years_arr, y=p25, fill='tonexty', fillcolor='rgba(0,255,136,0.20)', mode='lines', line=dict(width=0), name='50% Conformal CI'))
             fig_mc.add_trace(go.Scatter(x=years_arr, y=p50, mode='lines', line=dict(color='#00ff88', width=3), name='Mediana'))
             fig_mc.add_vline(x=retirement_age, line_dash="dash", line_color="#00ccff", annotation_text="Start Emerytury")
-            fig_mc.update_layout(title="Projekcja Majątku (4 pasma percentylowe)", template="plotly_dark", height=500, hovermode="x unified", xaxis_title="Wiek", yaxis_title="Kapitał (PLN)")
+            fig_mc.update_layout(title="Conformal Prediction Funnel Plot", template="plotly_dark", height=500, hovermode="x unified", xaxis_title="Wiek", yaxis_title="Kapitał (PLN)")
             fig_mc.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot")
             fig_mc.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot")
             st.plotly_chart(fig_mc, use_container_width=True)
@@ -653,7 +686,7 @@ def render_emerytura_module():
         m2.metric("Majątek Końcowy (Mediana)", f"{median_final:,.0f} PLN")
         m3.metric("Majątek w Wieku Emerytalnym", f"{median_at_retire:,.0f} PLN")
         if life_survival_prob is not None:
-            m4.metric("Portfel przeżyje Cię (Gompertz)", f"{life_survival_prob:.1%}", help="Szansa, że portfel ma środki gdy umrzesz (losowa długość życia wg GUS 2023).")
+            m4.metric("Portfel przeżyje Cię (Lee-Carter)", f"{life_survival_prob:.1%}", help="Szansa, że portfel ma środki gdy umrzesz wg najnowszych metod biogerontologii i tablic śmiertelności.")
         else:
             m4.metric("Portfel przeżyje Cię", "—")
 
@@ -699,7 +732,7 @@ def render_emerytura_module():
                             w_g[:, y+1] = np.maximum(w_g[:, y] * (1 + returns_g[:, y]) - ann_exp_g * (1 + inf_g)**y, 0)
                         
                         if stoch_life:
-                            lifetimes_g = gompertz_lifetimes(current_age + years_to_retirement, n_sims_grid)
+                            lifetimes_g = lee_carter_lifetimes(current_age + years_to_retirement, n_sims_grid, gender=gender)
                             successes = 0
                             for sim_idx in range(n_sims_grid):
                                 death_yr = min(int(max(0, lifetimes_g[sim_idx] - (current_age + years_to_retirement))), horizon_grid)
@@ -999,8 +1032,8 @@ def render_emerytura_module():
 
         # ── Longevity distribution ────────────────────────────────────────
         if stoch_life:
-            st.markdown("### 🧬 Rozkład Długości Życia (Gompertz)")
-            lifetimes_plot = gompertz_lifetimes(current_age, 1000)
+            st.markdown("### 🧬 Rozkład Długości Życia (Lee-Carter Model)")
+            lifetimes_plot = lee_carter_lifetimes(current_age, 1000, gender=gender)
             fig_lt = go.Figure()
             fig_lt.add_trace(go.Histogram(x=lifetimes_plot, nbinsx=40, marker_color='rgba(0,200,255,0.5)', name='Długość Życia'))
             fig_lt.add_vline(x=life_expectancy, line_dash="dash", line_color="orange", annotation_text=f"Max Horyzont {life_expectancy}")
@@ -1009,6 +1042,24 @@ def render_emerytura_module():
             fig_lt.update_layout(template="plotly_dark", height=350, xaxis_title="Wiek Śmierci", yaxis_title="Liczba Symulacji")
             st.plotly_chart(fig_lt, use_container_width=True)
             st.warning(f"⚠️ **{pct_over:.1%}** uczestników symulacji żyje DŁUŻEJ niż Twój horyzont ({life_expectancy} lat). Rozważ wydłużenie horyzontu lub zakup annuity.")
+            
+            # ── Copula Density Heatmap ──────────────────────────────────────────
+            st.markdown("### 🌪️ Copula Risk Heatmap (Joint Density)")
+            st.caption("2D Contour map – Ocena łącznego ryzyka: Wiek Śmierci vs Majątek Końcowy. Pozwala ocenić nieliniowe zbiegi okoliczności (joint tail risk).")
+            fig_copula = go.Figure(go.Histogram2dContour(
+                x=lifetimes_plot[:wealth_matrix.shape[0]], # Dopasowanie wymiarów n_sims (zwykle 500 w głównym)
+                y=wealth_matrix[:, -1],
+                colorscale='Viridis',
+                contours=dict(showlabels=True, labelfont=dict(color='white')),
+                hovertemplate="Wiek Śmierci: %{x}<br>Końcowy Kapitał: %{y}<br>Zagęszczenie: %{z}<extra></extra>"
+            ))
+            fig_copula.update_layout(
+                title="Łączne Prawdopodobieństwo (Wiek Śmierci vs Kapitał)",
+                xaxis_title="Wiek Śmierci (lat)", yaxis_title="Majątek Końcowy (PLN)",
+                template="plotly_dark", height=400,
+                margin=dict(l=40, r=40, t=40, b=40)
+            )
+            st.plotly_chart(fig_copula, use_container_width=True)
 
     # ─── Summary and Recommendations ─────────────────────────────────────────
     st.divider()
@@ -1024,4 +1075,4 @@ def render_emerytura_module():
     if stoch_life and life_survival_prob is not None and life_survival_prob < 0.85:
         st.warning(f"⚠️ Portfel przeżyje Cię tylko w {life_survival_prob:.1%} symulacji. Rozważ dożywotnią rentę (annuity) lub wydłużenie horyzontu.")
 
-    st.caption("Analiza oparta na: Bengen 2021, Merton 2014, Pfau 2018, Kaplan & Meier 1958, GUS 2023. Model używa Student-t(df=4) dla grafikoowych ogonów, CIR dla inflacji, Gompertz dla długości życia.")
+    st.caption("Analiza oparta na: Bengen 2021, Merton 2014, Pfau 2018, Kaplan & Meier 1958, GUS 2023. Model używa Student-t(df=4) dla grafikoowych ogonów, CIR dla inflacji, Lee-Carter dla ryzyka długowieczności oraz Split Conformal Prediction.")

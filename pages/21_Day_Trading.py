@@ -413,9 +413,161 @@ with col_b2:
     else:
          st.success(f"✅ Realistyczne założenie! Wystarczy Ci {req_wr_pct:.1f}% skutecznych zagrań dzisiaj, aby uwzględniając prowizje wyjść na docelowe {daily_target_pln} PLN netto.")
 
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 6 — EKONOFIZYKA: FRAKTALE I ROUGH VOLATILITY
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🌀 Sekcja 6 — Ekonofizyka: Rough Volatility & Fractional Brownian Motion")
+
+col_rv1, col_rv2 = st.columns([1, 1])
+
+with col_rv1:
+    h_exponent = st.slider("Wykładnik Hursta (Hurst Exponent - H)", 0.1, 0.9, 0.5, 0.05, key="hurst_h")
+    
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <b>Krótka pamięć rynku:</b> Mniej znaczy "bardziej szorstko". <br>
+    <ul>
+    <li><b>H = 0.5:</b> Klasyczny Random Walk (brak pamięci, Gaus). Szum Billa Browna.</li>
+    <li><b>H < 0.5 (np. 0.2):</b> Mean-Reverting. Szorstka zmienność (Rough Volatility, powrót do średniej - idealne do grid tradingu/scalpingu).</li>
+    <li><b>H > 0.5 (np. 0.8):</b> Persistent. Silne treny, gładkie momentum (podążanie za rynkiem, breakout).</li>
+    </ul>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Simple FBM simulation via Cholesky decomposition of covariance matrix
+    # for rendering speed we limit to N=250
+    np.random.seed(42)
+    N = 250
+    t = np.linspace(0, 1, N)
+    
+    # Covariance matrix for FBM: C(t,s) = 0.5 * (t^(2H) + s^(2H) - |t-s|^(2H))
+    C = np.zeros((N, N))
+    for i in range(N):
+        for j in range(N):
+            C[i, j] = 0.5 * (t[i]**(2*h_exponent) + t[j]**(2*h_exponent) - abs(t[i] - t[j])**(2*h_exponent))
+    
+    # Small nugget for numerical stability
+    C += np.eye(N) * 1e-6
+    try:
+        L = np.linalg.cholesky(C)
+        Z = np.random.randn(N)
+        fbm_path = L @ Z
+    except np.linalg.LinAlgError:
+        # Fallback if matrix is not positive definite
+        fbm_path = np.cumsum(np.random.randn(N))
+    
+    fig_fbm = go.Figure()
+    fig_fbm.add_trace(go.Scatter(y=fbm_path, mode="lines", line=dict(color="#00e676" if h_exponent > 0.5 else ("#a855f7" if h_exponent < 0.5 else "#3498db"), width=2)))
+    
+    fig_fbm.update_layout(
+        title=f"Symulacja Ceny (Fractional Brownian Motion, H={h_exponent})",
+        height=350,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
+        xaxis=dict(title="Czas", gridcolor="#1c1c2e", showticklabels=False),
+        yaxis=dict(title="Cena", gridcolor="#1c1c2e", showticklabels=False),
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_fbm, use_container_width=True)
+
+with col_rv2:
+    # Fractal Dimension vs Hurst
+    # D = 2 - H for 1D paths
+    fractal_dim = 2.0 - h_exponent
+    
+    # Let's plot Hurst vs Fractal Dimension mapping
+    h_arr = np.linspace(0.1, 0.9, 100)
+    d_arr = 2.0 - h_arr
+    
+    fig_fd = go.Figure()
+    fig_fd.add_trace(go.Scatter(x=h_arr, y=d_arr, mode="lines", line=dict(color="#3498db", width=3, dash="dash"), showlegend=False))
+    fig_fd.add_trace(go.Scatter(x=[h_exponent], y=[fractal_dim], mode="markers", marker=dict(color="#ff1744", size=16, line=dict(width=2, color="white")), name="Obecny stan"))
+    
+    fig_fd.update_layout(
+         title=f"Wymiar Fraktalny D = {fractal_dim:.2f}",
+         height=350,
+         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+         font=dict(color="white"),
+         xaxis=dict(title="Wykładnik Hursta (H)", gridcolor="#1c1c2e"),
+         yaxis=dict(title="Wymiar Fraktalny (D)", gridcolor="#1c1c2e"),
+         margin=dict(l=40, r=20, t=40, b=40),
+         showlegend=False
+    )
+    fig_fd.add_vline(x=0.5, line_dash="solid", line_color="#555", annotation_text="Random Walk")
+    st.plotly_chart(fig_fd, use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 7 — MIKROSTRUKTURA: ORDER BOOK HEATMAP
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🧊 Sekcja 7 — Mikrostruktura: Order Book Heatmap / Liquidity Map")
+st.markdown("<p style='color:#bbb;font-size:14px'>Wizualizacja płynności na różnych poziomach cenowych w czasie (Limit Order Book). Cena przyciągana jest jak magnes przez strefy o wysokiej płynności.</p>", unsafe_allow_html=True)
+
+# Generate synthetic heatmap data
+np.random.seed(1)
+time_steps = 100
+price_levels = 50
+liquidity = np.zeros((price_levels, time_steps))
+
+# Add some dynamic price path
+curr_p = 25
+path = [curr_p]
+for i in range(1, time_steps):
+    step = np.random.choice([-1, 0, 1], p=[0.4, 0.2, 0.4])
+    curr_p = max(5, min(45, curr_p + step))
+    path.append(curr_p)
+
+# Generate liquidity pools
+for p_idx in range(price_levels):
+    # Base noise
+    liquidity[p_idx, :] = np.random.uniform(0, 10, time_steps)
+    # Add heavy liquidity at round numbers
+    if p_idx in [10, 20, 30, 40]:
+        liquidity[p_idx, :] += np.random.uniform(50, 80, time_steps)
+        # Maybe liquidity gets eaten
+        for t in range(time_steps):
+            if abs(path[t] - p_idx) <= 1:
+                liquidity[p_idx, t] = np.random.uniform(0, 10)  # Eaten liquidity
+
+fig_ob = go.Figure()
+
+# Heatmap of liquidity
+fig_ob.add_trace(go.Heatmap(
+    z=liquidity,
+    colorscale="Plasma",
+    zmin=0, zmax=80,
+    showscale=True,
+    colorbar=dict(title="Volume", tickfont=dict(color="white"))
+))
+
+# Overlay price path
+fig_ob.add_trace(go.Scatter(
+    x=list(range(time_steps)),
+    y=path,
+    mode="lines+markers",
+    line=dict(color="#00ff88", width=3),
+    marker=dict(size=4, color="#ffffff"),
+    name="Mid Price"
+))
+
+fig_ob.update_layout(
+    title="Heatmapa Płynności Księgi Zleceń (Synthetic LOB)",
+    height=450,
+    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(color="white"),
+    xaxis=dict(title="Czas (Ticks)", gridcolor="#1c1c2e"),
+    yaxis=dict(title="Poziom Cenowy", gridcolor="#1c1c2e"),
+    margin=dict(l=40, r=20, t=40, b=20)
+)
+st.plotly_chart(fig_ob, use_container_width=True)
+
+
 st.markdown("---")
 st.markdown(f"""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:12px'>
-Day Trading OS v1.1 · Quant Platform Ecosystem · Algorytmy Oparte Na:<br>
-Statystyka Rynków Losowych, Twierdzenie Bernoulliego dla Prawdopodobieństwa Dyskretnego, <br>
-Modele Monte Carlo (Path-Dependency Matrix), Risk-of-Ruin Math, Friction Analysis.
+Day Trading OS v2.0 · Quant Platform Ecosystem · Algorytmy Oparte Na:<br>
+Statystyka Rynków Losowych, Twierdzenie Bernoulliego, Modele Monte Carlo, <br>
+Risk-of-Ruin Math, Friction Analysis, Ekonofizyka (Rough Volatility / FBM), <br>
+Liquidity Mapping & Limit Order Book Heatmaps.
 </div>""", unsafe_allow_html=True)

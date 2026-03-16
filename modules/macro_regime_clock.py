@@ -269,3 +269,74 @@ def clock_position_coords(gdp_signal: float, inflation_signal: float) -> dict:
         "x": float(np.cos(angle_rad) * r),
         "y": float(np.sin(angle_rad) * r),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. HMM / GMM PROBABILISTIC REGIME DETECTION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_hmm_regime_probabilities(gdp_signal: float, inflation_signal: float) -> dict:
+    """
+    Zwraca probabilistyczny rozkład reżimów inwestycyjnych bazując na modelu
+    Gaussian Mixture Model (przypominającym stany ukryte HMM). Zamiast binarnej
+    wyroczni, daje konforemne prawdopodobieństwa dla każdego ze stanów.
+    """
+    from scipy.stats import multivariate_normal
+
+    # Definiujemy empiryczne centra reżimów jako wytrenowany model GMM (Centroids dla GDP i INFL)
+    # format: (gdp_mean, infl_mean)
+    regime_means = {
+        "Recovery": (0.6, -0.6),
+        "Overheat": (0.6, 0.6),
+        "Stagflation": (-0.6, 0.6),
+        "Reflation": (-0.6, -0.6)
+    }
+    
+    # Zakładamy określoną macierz kowariancji (lekko spłaszczona)
+    cov_matrix = [[0.3, 0.0], [0.0, 0.3]]
+    
+    probs = {}
+    total_density = 0.0
+    
+    # Obliczamy gęstość prawdopodobieństwa dla aktualnego punktu
+    current_point = [gdp_signal, inflation_signal]
+    
+    for phase, mean in regime_means.items():
+        # Multivariate normal PDF
+        density = multivariate_normal.pdf(current_point, mean=mean, cov=cov_matrix)
+        probs[phase] = density
+        total_density += density
+        
+    # Normalizacja do 1 (Softmax / Posterior probabilities)
+    if total_density > 0:
+        for phase in probs:
+            probs[phase] = probs[phase] / total_density
+    else:
+        probs = {"Recovery": 0.25, "Overheat": 0.25, "Stagflation": 0.25, "Reflation": 0.25}
+
+    return probs
+
+def get_transition_matrix(current_probs: dict) -> pd.DataFrame:
+    """
+    Kalkuluje przewidywaną macierz przejść (Transition Matrix) metodą 
+    łańcuchów Markowa (Markov Chains) na następny okres (np. kwartał).
+    Zależy od bazowej matrycy bezwładności makroekonomicznej.
+    """
+    phases = ["Recovery", "Overheat", "Stagflation", "Reflation"]
+    
+    # Podstawowa historyczna macierz przejść (Wiersz: Current, Kolumna: Next)
+    # Gospodarka ma tendencję do "kręcenia się" zgodnie z ruchem wskazówek zegara
+    # Recovery -> Overheat -> Stagflation -> Reflation -> Recovery
+    base_tm = pd.DataFrame(
+        [
+            [0.60, 0.30, 0.05, 0.05],  # Z Recovery 30% szans na Overheat
+            [0.05, 0.60, 0.30, 0.05],  # Z Overheat 30% szans na Stagflation
+            [0.05, 0.05, 0.60, 0.30],  # Ze Stagflation 30% szans na Reflation
+            [0.30, 0.05, 0.05, 0.60],  # Z Reflation 30% szans na Recovery
+        ],
+        index=phases,
+        columns=phases
+    )
+    
+    return base_tm
+

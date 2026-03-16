@@ -786,31 +786,45 @@ with col_f1:
     <b style='color:{state_col}'>{state_name}</b><br><span style='font-size:12px;color:#aaa'>{hack}</span>
     </div>""", unsafe_allow_html=True)
 
-with col_f2:
-    # Generowanie heatmapy stanów Flow
     sc, ch = np.meshgrid(np.linspace(0, 100, 100), np.linspace(0, 100, 100))
-    Z = np.zeros_like(sc)
+    Z_3d = np.zeros_like(sc)
     for i in range(100):
         for j in range(100):
             s_val, c_val = sc[i, j], ch[i, j]
-            if c_val > s_val + 20: Z[i, j] = 1 # Anxiety
-            elif s_val > c_val + 20: Z[i, j] = 2 # Boredom
-            elif s_val < 30 and c_val < 30: Z[i, j] = 3 # Apathy
-            else: Z[i, j] = 4 # Flow
-            
+            # Sweet spot to kanał przepływu, c_val = s_val + 5
+            distance = abs(c_val - (s_val + 5))
+            # Performance drops with distance from sweet spot, but scales with overall skill
+            perf = s_val - distance * 1.5
+            Z_3d[i, j] = max(0.0, perf)
+
     colorscale_flow = [[0, "#ff1744"], [0.33, "#3498db"], [0.66, "#2a2a3a"], [1, "#00e676"]]
+
+    fig_flow = go.Figure(go.Surface(
+        z=Z_3d, x=sc[0,:], y=ch[:,0],
+        colorscale=colorscale_flow, showscale=False, opacity=0.9
+    ))
     
-    fig_flow = go.Figure(go.Heatmap(z=Z, x=sc[0,:], y=ch[:,0], colorscale=colorscale_flow, showscale=False, opacity=0.4))
-    fig_flow.add_trace(go.Scatter(x=[skills_level], y=[challenge_level], mode="markers", marker=dict(size=18, color="#ffffff", line=dict(color=state_col, width=3)), name="Twój Stan"))
+    current_z = max(0.0, skills_level - abs(challenge_level - (skills_level + 5))*1.5) + 5
+    
+    fig_flow.add_trace(go.Scatter3d(
+        x=[skills_level], y=[challenge_level], z=[current_z],
+        mode="markers", marker=dict(size=6, color="#ffffff", line=dict(color=state_col, width=3)), name="Twój Stan"
+    ))
     
     fig_flow.update_layout(
-        title="Mapa Kognitywna", height=350,
-        xaxis=dict(title="Umiejętności", range=[0, 100]), yaxis=dict(title="Wyzwanie", range=[0, 100]),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=40, r=20, t=40, b=40)
+        title="3D Fitness Landscape (Flow State)",
+        scene=dict(
+            xaxis_title="Umiejętności",
+            yaxis_title="Wyzwanie",
+            zaxis_title="Wydajność",
+            xaxis=dict(gridcolor="#1c1c2e", backgroundcolor="rgba(0,0,0,0)"),
+            yaxis=dict(gridcolor="#1c1c2e", backgroundcolor="rgba(0,0,0,0)"),
+            zaxis=dict(gridcolor="#1c1c2e", backgroundcolor="rgba(0,0,0,0)"),
+            camera=dict(eye=dict(x=1.5, y=-1.5, z=1.2))
+        ),
+        height=400,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=0, r=0, t=40, b=0)
     )
-    fig_flow.add_annotation(x=80, y=80, text="FLOW ZONE", showarrow=False, font=dict(color="#00e676", size=16, weight="bold"))
-    fig_flow.add_annotation(x=20, y=80, text="ANXIETY", showarrow=False, font=dict(color="#ff1744", size=14))
-    fig_flow.add_annotation(x=80, y=20, text="BOREDOM", showarrow=False, font=dict(color="#3498db", size=14))
     st.plotly_chart(fig_flow, use_container_width=True)
 
 
@@ -1348,11 +1362,65 @@ with col_attn2:
         st.warning("🟡 Pojawiają się koszty spadku zdolności samokontroli.")
 
 
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 21 — WNIOSKOWANIE PRZYCZYNOWE (CAUSAL INFERENCE)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🕸️ Sekcja 21 — Wnioskowanie Przyczynowe (Efekt Motyla & Hawkes)")
+
+col_ci1, col_ci2 = st.columns([3, 2])
+
+with col_ci1:
+    # Sankey Diagram / DAG for Probability flow
+    node_labels = ["Deep Work", "Brak Rozpraszaczy", "Wysoki Poziom Energii", "Zrozumienie Rynku", "Znalezienie Wieloryba", "Sukces Finansowy", "Wypalenie", "Szum Informacyjny"]
+    node_colors = ["#3498db", "#3498db", "#00e676", "#3498db", "#a855f7", "#00e676", "#ff1744", "#ff1744"]
+    
+    # Source to Target
+    source = [0, 1, 2, 0, 3, 4, 7, 7, 6]
+    target = [3, 0, 0, 4, 4, 5, 1, 6, 5]
+    value =  [40, 30, 30, 20, 50, 80, 20, 40, 10]
+    
+    fig_ci = go.Figure(data=[go.Sankey(
+        node = dict(
+          pad = 15,
+          thickness = 20,
+          line = dict(color = "black", width = 0.5),
+          label = node_labels,
+          color = node_colors
+        ),
+        link = dict(
+          source = source,
+          target = target,
+          value = value,
+          color = "rgba(255, 255, 255, 0.1)"
+        )
+    )])
+    
+    fig_ci.update_layout(
+        title="Sieć Przyczynowo-Skutkowa (Przepływ Prawdopodobieństwa)",
+        height=350,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"),
+        margin=dict(l=20,r=20,t=40,b=20)
+    )
+    st.plotly_chart(fig_ci, use_container_width=True)
+
+with col_ci2:
+    st.markdown(f'''<div style='background:linear-gradient(135deg,#0f111a,#1a1c28);border:1px solid #2a2a3a;border-radius:14px;padding:18px 20px;margin-bottom:8px'>
+    <div style='color:#00e676;font-size:15px;font-weight:700;letter-spacing:1px;margin-bottom:10px'>Graf Przyczynowy i Hawkes Processes</div>
+    <p style='color:#6b7280;font-size:12px;line-height:1.6'>
+    <b>Causal Inference:</b> To co na ogół uważasz za "szczęście", jest strumieniem prawdopodobieństwa płynącym przez połączone w czasie zdarzenia.<br><br>
+    <b>Procesy Hawkes'a (Self-Exciting Point Processes):</b> Zdarzenia nie są niezależne. Jedno znalezienie Wieloryba podbija bazowe prawdopodobieństwo na spotkanie kolejnego. Kaskada sukcesu (lub ruiny) wyzwala się nieliniowo.<br><br>
+    Patrząc na graf (DAG): Wyeliminowanie węzła <i>Szum Informacyjny</i> automatycznie zasila <i>Deep Work</i> i ucina gałąź <i>Wypalenia</i>.
+    </p></div>''', unsafe_allow_html=True)
+
+
 st.markdown("---")
 st.markdown(f"""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:12px'>
-Life OS v3.0 · Advanced Quant Platform Ecosystem · Integrujący twardą powtarzalność praw nauk systemowych:<br>
+Life OS v3.5 · Advanced Quant Platform Ecosystem · Integrujący twardą powtarzalność praw nauk systemowych:<br>
 Ergodicity (Peters), RPE (Schultz), Network Centrality (Burt), Barbell & Extremistan (Taleb), Kelly Criterion, <br>
-Chronobiology (Panda), Flow State (Csíkszentmihályi), Action Line (Fogg), Nudges (Kahneman & Thaler), <br>
-Mechanism Design, Evolutionary Game Theory (Axelrod/Nowak), Multi-Armed Bandit, Costly Signaling.
+Chronobiology (Panda), Flow State 3D (Csíkszentmihályi), Action Line (Fogg), Nudges (Kahneman & Thaler), <br>
+Mechanism Design, Evolutionary Game Theory (Axelrod/Nowak), Multi-Armed Bandit, Costly Signaling, <br>
+Causal Inference Networks & Hawkes Processes.
 </div>""", unsafe_allow_html=True)
 

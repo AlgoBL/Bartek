@@ -36,7 +36,11 @@ with st.sidebar:
     portfolio_vol = st.slider("Zmienność portfela (%)", 5, 40, 15) / 100
     inflation = st.slider("Oczekiwana inflacja PL (%)", 2, 8, 4) / 100
 
-tab1, tab2, tab3, tab4 = st.tabs(["🪣 Goal-Based Buckets", "👤 Human Capital", "🔍 Real Wealth Preservation", "⚖️ LDI Funding Ratio"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🪣 Goal-Based Buckets", "👤 Human Capital", 
+    "🔍 Real Wealth Preservation", "⚖️ LDI Funding Ratio",
+    "🌳 Hierarchical Risk Parity (HRP)"
+])
 
 with tab1:
     st.markdown("### 🪣 Zdefiniuj Swoje Cele Życiowe")
@@ -243,3 +247,140 @@ with tab4:
     lib_detail = ldi_res.get("liability_detail", pd.DataFrame())
     if not lib_detail.empty:
         st.dataframe(lib_detail, use_container_width=True, hide_index=True)
+
+
+with tab5:
+    st.markdown("### 🌳 Hierarchical Risk Parity (HRP) & Korelacje")
+    st.markdown("<p style='color:#bbb;font-size:14px'>Algorytm HRP (Lopez de Prado, 2016) porządkuje macierz kowariancji korzystając z uczenia maszynowego (Hierarchical Clustering), aby stworzyć portfel niewrażliwy na błędy kwadratowe wariancji (odporność na krachy i iluzję dywersyfikacji). Zamiast Markowitza używa bisekcji ryzyka na klastrach powiązanych aktywów.</p>", unsafe_allow_html=True)
+    
+    col_hrp1, col_hrp2 = st.columns(2)
+    
+    # HRP data preparation
+    assets_hrp = ['S&P500', 'Nasdaq', 'Mniejsze Spółki (R2000)', 'WIG20', 'Złoto', 'Obligacje US 10Y', 'Obligacje PL', 'Bitcoin']
+    cor_hrp = np.array([
+        [1.0,  0.8,  0.6,  0.5, -0.1, -0.3,  0.1,  0.2], # S&P500
+        [0.8,  1.0,  0.5,  0.4, -0.1, -0.3,  0.1,  0.4], # Nasdaq
+        [0.6,  0.5,  1.0,  0.4,  0.0, -0.1,  0.2,  0.3], # R2000
+        [0.5,  0.4,  0.4,  1.0,  0.1, -0.2,  0.6,  0.1], # WIG20
+        [-0.1,-0.1,  0.0,  0.1,  1.0,  0.4,  0.2,  0.3], # Złoto
+        [-0.3,-0.3, -0.1, -0.2,  0.4,  1.0,  0.5, -0.1], # US 10Y
+        [0.1,  0.1,  0.2,  0.6,  0.2,  0.5,  1.0,  0.0], # PL Bonds
+        [0.2,  0.4,  0.3,  0.1,  0.3, -0.1,  0.0,  1.0], # Bitcoin
+    ])
+    vols_hrp = np.array([0.15, 0.22, 0.20, 0.20, 0.12, 0.08, 0.05, 0.60])
+    cov_hrp = np.outer(vols_hrp, vols_hrp) * cor_hrp
+    
+    dist_hrp = np.sqrt(0.5 * (1 - cor_hrp))
+    
+    import scipy.spatial.distance as ssd
+    import scipy.cluster.hierarchy as sch
+    import plotly.figure_factory as ff
+    
+    # 1. Clustering
+    dist_condensed = ssd.squareform(dist_hrp - np.diag(np.diag(dist_hrp)))
+    link = sch.linkage(dist_condensed, 'single')
+    
+    # 2. HRP Recursive Bisection Calculation
+    def get_ivp(cov_sub):
+        iv = 1.0 / np.diag(cov_sub)
+        return iv / iv.sum()
+
+    def get_cluster_var(cov_sub, c_items):
+        c_cov = cov_sub[np.ix_(c_items, c_items)]
+        w_ivp = get_ivp(c_cov)
+        return float(w_ivp.T @ c_cov @ w_ivp)
+        
+    sorted_idx = sch.leaves_list(link)
+    hrp_weights = pd.Series(1.0, index=sorted_idx)
+    c_items = [list(sorted_idx)]
+    
+    while len(c_items) > 0:
+        c_items = [i for i in c_items if len(i) > 1]
+        c_items_new = []
+        for items in c_items:
+            split = len(items) // 2
+            c_left = items[:split]
+            c_right = items[split:]
+            c_items_new.extend([c_left, c_right])
+            
+            v_left = get_cluster_var(cov_hrp, c_left)
+            v_right = get_cluster_var(cov_hrp, c_right)
+            
+            # Risk parity between left and right clusters
+            alpha = 1 - v_left / (v_left + v_right)
+            
+            hrp_weights[c_left] *= alpha
+            hrp_weights[c_right] *= (1 - alpha)
+        c_items = c_items_new
+        
+    hrp_weights = hrp_weights.sort_index()
+    hrp_weights.index = assets_hrp
+    hrp_weights = hrp_weights * 100 # to percentages
+    
+    with col_hrp1:
+        # Plot Dendrogram
+        fig_dendro = ff.create_dendrogram(dist_hrp, orientation='left', labels=assets_hrp, colorscale=['#a855f7', '#00e676', '#3498db', '#ff1744', '#ffea00', '#00ccff', '#ff88aa', '#ffaa00'])
+        fig_dendro.update_layout(
+            title="Drzewo Pokrewieństwa Aktywów (Dendrogram)",
+            template="plotly_dark", height=380, width=800,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(gridcolor="#1c1c2e", title="Odległość Pomiędzy Aktywami", showticklabels=False),
+            yaxis=dict(gridcolor="#1c1c2e"),
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        st.plotly_chart(fig_dendro, use_container_width=True)
+        
+        # We also show correlation heatmap ordered by linkage
+        ordered_cor = cor_hrp[np.ix_(sorted_idx, sorted_idx)]
+        ordered_assets = [assets_hrp[i] for i in sorted_idx]
+        fig_corr = go.Figure(data=go.Heatmap(
+            z=ordered_cor, x=ordered_assets, y=ordered_assets,
+            colorscale=[[0,"#ff1744"], [0.5,"#1c1c2e"], [1,"#00e676"]],
+            zmin=-1, zmax=1, text=np.round(ordered_cor, 2), texttemplate="%{text}"
+        ))
+        fig_corr.update_layout(
+            title="Quasi-Diagonalna Macierz Korelacji",
+            height=350, template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+        
+    with col_hrp2:
+        st.markdown(f"""<div style='background:linear-gradient(135deg,#0f111a,#1a1c28);border:1px solid #2a2a3a;border-radius:14px;padding:18px 20px;margin-bottom:8px'>
+        <div style='color:#00e676;font-size:15px;font-weight:700;letter-spacing:1px;margin-bottom:10px'>Prawdziwa Dywersyfikacja (Risk Parity)</div>
+        <p style='color:#6b7280;font-size:12px;line-height:1.6'>
+        Klasyczny portfel w 60% zależny od akcji tak naprawdę ponosi 90% swojego <b>ryzyka</b> w akcjach (z uwagi na dużą zmienność rynku kapitałowego w stosunku do dłużnego). HRP alokuje kapitał tak, by każdy klaster rozdzielał jednakową "Ilość Bólu" (wymusza równowagę zmienności po dekonstrukcji drzewa).
+        Dlatego najwięcej kapitału wędruje domyślnie w bezpieczne obligacje.
+        </p></div>""", unsafe_allow_html=True)
+        
+        # Prepare Sunburst data
+        # We need parent nodes
+        labels = ["Portfel HRP"]
+        parents = [""]
+        values = [100.0]
+        
+        # Mock clusters for aesthetics (Risk-On vs Risk-Off)
+        labels.extend(["Ryzyko (Risk-On)", "Ochrona (Risk-Off)"])
+        parents.extend(["Portfel HRP", "Portfel HRP"])
+        values.extend([0, 0]) # values are 0 in intermediate nodes, Plotly computes them
+        
+        risk_on_assets = ['S&P500', 'Nasdaq', 'Mniejsze Spółki (R2000)', 'WIG20', 'Bitcoin']
+        for ast in assets_hrp:
+            parent = "Ryzyko (Risk-On)" if ast in risk_on_assets else "Ochrona (Risk-Off)"
+            labels.append(ast)
+            parents.append(parent)
+            values.append(hrp_weights[ast])
+            
+        fig_sun = go.Figure(go.Sunburst(
+            labels=labels, parents=parents, values=values, branchvalues="total",
+            marker=dict(colorscale="Viridis"),
+            texttemplate="<b>%{label}</b><br>%{percentParent:.1%}<br>(%{value:.1f}%)",
+            hovertemplate="%{label}: %{value:.1f}% portfela<extra></extra>"
+        ))
+        fig_sun.update_layout(
+            title="Sugerowana Alokacja HRP (Sunburst Chart)",
+            template="plotly_dark", height=450,
+            paper_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_sun, use_container_width=True)
+
