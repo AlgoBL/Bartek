@@ -634,67 +634,69 @@ def home():
         st.markdown(alert_badge_html(score), unsafe_allow_html=True)
 
     # --- ROW 1: MAIN GAUGE | BUSINESS CYCLE | VIX TS + SAFE HAVEN --------------
-    col_main, col_cycle, col_vts = st.columns([2.2, 1.0, 1.8])
+    tab_overview, tab_quick = st.tabs(["🌐 Widok Główny", "⚡ Szybka Diagnostyka"])
 
-    with col_main:
-        st.plotly_chart(draw_regime_radar(score), use_container_width=True)
+    with tab_overview:
+        col_main, col_cycle, col_vts = st.columns([2.2, 1.0, 1.8])
+        
+        with col_main:
+            st.plotly_chart(draw_regime_radar(score), use_container_width=True)
 
-
-    with col_cycle:
-        phase, desc, icon, color = determine_business_cycle(macro)
-        yc = macro.get("Yield_Curve_Spread", 0)
-        claims = macro.get("FRED_Initial_Jobless_Claims")
-        st.markdown(f"""
-        <div style='background:linear-gradient(135deg,#0f111a,#1a1c28);padding:18px 14px;
-                    border-radius:12px;text-align:center;border:1px solid #2a2a3a;
-                    height:310px;display:flex;flex-direction:column;justify-content:center;'>
-            <div style='font-size:52px;line-height:1;'>{icon}</div>
-            <div style='color:{color};margin-top:8px;font-size:18px;font-weight:700;'>{phase}</div>
-            <div style='color:#888;font-size:11px;margin-top:6px;line-height:1.35;'>{desc}</div>
-            <div style='margin-top:14px;border-top:1px solid #2a2a3a;padding-top:10px;'>
-                <span style='color:#aaa;font-size:10px;'>10Y-3M: <b style='color:{color}'>{yc:+.2f}%</b></span>
-                {"&nbsp;&nbsp;|&nbsp;&nbsp;<span style='color:#aaa;font-size:10px;'>Claims: <b style='color:#f39c12'>" + f"{claims/1000:.0f}k</b></span>" if claims else ""}
+        with col_cycle:
+            phase, desc, icon, color = determine_business_cycle(macro)
+            yc = macro.get("Yield_Curve_Spread", 0)
+            claims = macro.get("FRED_Initial_Jobless_Claims")
+            st.markdown(f"""
+            <div style='background:linear-gradient(135deg,#0f111a,#1a1c28);padding:18px 14px;
+                        border-radius:12px;text-align:center;border:1px solid #2a2a3a;
+                        height:310px;display:flex;flex-direction:column;justify-content:center;'>
+                <div style='font-size:52px;line-height:1;'>{icon}</div>
+                <div style='color:{color};margin-top:8px;font-size:18px;font-weight:700;'>{phase}</div>
+                <div style='color:#888;font-size:11px;margin-top:6px;line-height:1.35;'>{desc}</div>
+                <div style='margin-top:14px;border-top:1px solid #2a2a3a;padding-top:10px;'>
+                    <span style='color:#aaa;font-size:10px;'>10Y-3M: <b style='color:{color}'>{yc:+.2f}%</b></span>
+                    {"&nbsp;&nbsp;|&nbsp;&nbsp;<span style='color:#aaa;font-size:10px;'>Claims: <b style='color:#f39c12'>" + f"{claims/1000:.0f}k</b></span>" if claims else ""}
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    with col_vts:
-        vix_1m = macro.get("VIX_1M")
-        vxmt   = macro.get("VXMT_MidTerm")
-        usd    = macro.get("US_Dollar_Index")
-        gold   = macro.get("Gold")
-        oil    = macro.get("Crude_Oil")
+        with col_vts:
+            vix_1m = macro.get("VIX_1M")
+            vxmt   = macro.get("VXMT_MidTerm")
+            usd    = macro.get("US_Dollar_Index")
+            gold   = macro.get("Gold")
+            oil    = macro.get("Crude_Oil")
 
-        rA, rB, rC = st.columns(3)
-        for col_ref, lbl, val, suf, help_fn in [
-            (rA, "🇺🇸 USD",  usd,  "",  get_help_usd),
-            (rB, "🥇 Gold",  gold, "$", get_help_gold),
-            (rC, "🛢️ Oil",   oil,  "$", get_help_oil),
-        ]:
-            with col_ref:
-                if val:
-                    v_color = "#f1c40f" if "Gold" in lbl else "#00ccff"
-                    safe_tip = help_fn(val).replace('"', "'").replace('\n', ' ').replace('<','&lt;').replace('>','&gt;')
-                    st.markdown(f"""
-                    <div title="{safe_tip}"
-                         style='background:#0f111a;border:1px solid #2a2a3a;border-radius:8px;
-                                padding:8px 4px;text-align:center;margin-top:45px;cursor:default;margin-bottom:8px;'>
-                        <div style='font-size:10px;color:#777;'>&#9432; {lbl}</div>
-                        <div style='font-size:18px;font-weight:700;color:{v_color};'>{suf}{val:.1f}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-        # Render VIX Term Structure Below USD/Gold/Oil
-        if vix_1m is not None:
-            vxmt_val = vxmt or vix_1m
-            ratio = vix_1m / vxmt_val if vxmt_val else 1.0
-            is_back = ratio > 1.02
-            status_text  = "BACKWARDATION ⚠️" if is_back else "CONTANGO ✅"
-            status_color = "#ff1744" if is_back else "#00e676"
-            label = f"VIX TS — <span style='color:{status_color}'>{status_text}</span>"
-            show_gauge(label, draw_vix_term_structure(vix_1m, vxmt), get_help_vts(vix_1m, vxmt), overlap_margin="0px")
-        else:
-            st.plotly_chart(draw_vix_term_structure(vix_1m, vxmt), use_container_width=True)
+            rA, rB, rC = st.columns(3)
+            for col_ref, lbl, val, suf, help_fn in [
+                (rA, "🇺🇸 USD",  usd,  "",  get_help_usd),
+                (rB, "🥇 Gold",  gold, "$", get_help_gold),
+                (rC, "🛢️ Oil",   oil,  "$", get_help_oil),
+            ]:
+                with col_ref:
+                    if val:
+                        v_color = "#f1c40f" if "Gold" in lbl else "#00ccff"
+                        safe_tip = help_fn(val).replace('"', "'").replace('\n', ' ').replace('<','&lt;').replace('>','&gt;')
+                        st.markdown(f"""
+                        <div title="{safe_tip}"
+                             style='background:#0f111a;border:1px solid #2a2a3a;border-radius:8px;
+                                    padding:8px 4px;text-align:center;margin-top:45px;cursor:default;margin-bottom:8px;'>
+                            <div style='font-size:10px;color:#777;'>&#9432; {lbl}</div>
+                            <div style='font-size:18px;font-weight:700;color:{v_color};'>{suf}{val:.1f}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+            # Render VIX Term Structure Below USD/Gold/Oil
+            if vix_1m is not None:
+                vxmt_val = vxmt or vix_1m
+                ratio = vix_1m / vxmt_val if vxmt_val else 1.0
+                is_back = ratio > 1.02
+                status_text  = "BACKWARDATION ⚠️" if is_back else "CONTANGO ✅"
+                status_color = "#ff1744" if is_back else "#00e676"
+                label = f"VIX TS — <span style='color:{status_color}'>{status_text}</span>"
+                show_gauge(label, draw_vix_term_structure(vix_1m, vxmt), get_help_vts(vix_1m, vxmt), overlap_margin="0px")
+            else:
+                st.plotly_chart(draw_vix_term_structure(vix_1m, vxmt), use_container_width=True)
 
     st.divider()
 
@@ -892,6 +894,63 @@ def home():
         </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    with tab_quick:
+        st.markdown("### ⚡ Szybka Diagnostyka Portfela")
+        st.caption("Najważniejsze metryki w jednym miejscu by podjąć szybką akcję.")
+        
+        q1, q2, q3, q4 = st.columns(4)
+        with q1:
+            st.markdown(f"""
+            <div style='background:#0f111a;border:1px solid #2a2a3a;border-radius:10px;padding:15px;height:120px;text-align:center;'>
+                <div style='color:#bbb;font-size:12px;margin-bottom:10px;'>🎯 Wynik Ryzyka</div>
+                <div style='font-size:32px;font-weight:bold;color:{score_color};'>{score:.0f}<span style='font-size:16px;color:#666;'>/100</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with q2:
+            phase, _, icon, color = determine_business_cycle(macro)
+            st.markdown(f"""
+            <div style='background:#0f111a;border:1px solid #2a2a3a;border-radius:10px;padding:15px;height:120px;text-align:center;'>
+                <div style='color:#bbb;font-size:12px;margin-bottom:10px;'>🕒 Cykl Koniunkturalny</div>
+                <div style='font-size:28px;font-weight:bold;color:{color};'>{icon} {phase}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with q3:
+            vix1 = macro.get("VIX_1M", 0)
+            vix_col = "#ff1744" if vix1 > 25 else "#00e676"
+            st.markdown(f"""
+            <div style='background:#0f111a;border:1px solid #2a2a3a;border-radius:10px;padding:15px;height:120px;text-align:center;'>
+                <div style='color:#bbb;font-size:12px;margin-bottom:10px;'>📊 VIX (Implied Vol)</div>
+                <div style='font-size:32px;font-weight:bold;color:{vix_col};'>{vix1:.1f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with q4:
+            n_alerts = n_red + n_yellow
+            al_col = "#e74c3c" if n_alerts > 0 else "#2ecc71"
+            st.markdown(f"""
+            <div style='background:#0f111a;border:1px solid #2a2a3a;border-radius:10px;padding:15px;height:120px;text-align:center;'>
+                <div style='color:#bbb;font-size:12px;margin-bottom:10px;'>⚠️ Gotowe Alerty</div>
+                <div style='font-size:32px;font-weight:bold;color:{al_col};'>{n_alerts}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_qa, col_qs = st.columns([1, 1])
+        with col_qa:
+            st.markdown("**Aktywne Alerty:**")
+            st.markdown(alerts_html, unsafe_allow_html=True)
+        with col_qs:
+            try:
+                # Opcjonalnie podaj sugerowaną Kelly Fraction jeśli mamy zapisaną w GS
+                g = get_gs()
+                k = get_midas_adjusted_vol(pd.Series(), base_vol=g.risky_vol) if 'get_midas_adjusted_vol' in globals() else g.risky_vol
+                st.info(f"💡 Rekomendacja z Symulatora dla {g.risky_mean:.0%} zwrotu i {k:.0%} zmienności nakazuje "
+                        f"zwiększyć ostrożność.")
+            except:
+                st.info("💡 Wszystkie systemy operacyjne w normie.")
 
     # Math expanders dla kluczowych metryk
     with st.expander("🧮 Jak obliczane są metryki ryzyka (VaR / CVaR / Sharpe)?", expanded=False):
@@ -936,6 +995,7 @@ pages = {
 
     # ─── 2. ANALIZA RYZYKA (nowe moduły naukowe) ──────────────────────────────
     "📊  Analiza Ryzyka": [
+        st.Page("pages/22_Factor_Analysis.py", title="Factor Zoo & PCA",    icon="🧬"),
         st.Page("pages/5_EVT_Analysis.py",  title="EVT — Tail Risk",        icon="📐"),
         st.Page("pages/6_BL_Dashboard.py",  title="Black-Litterman AI",     icon="🎯"),
         st.Page("pages/7_DCC_Dashboard.py", title="DCC — Korelacje",        icon="🔗"),

@@ -64,6 +64,12 @@ if "rem_volatility" not in st.session_state:
 if "custom_stress_scenarios" not in st.session_state:
     st.session_state["custom_stress_scenarios"] = {}
 
+if "saved_scenarios" not in st.session_state:
+    st.session_state["saved_scenarios"] = {}
+
+if "baseline_metrics" not in st.session_state:
+    st.session_state["baseline_metrics"] = None
+
 # 3. Main Navigation
 
 st.sidebar.title(t("sim_title"))
@@ -251,11 +257,111 @@ if mode == MC_MODE:
 
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Średni Kapitał", f"{metrics['mean_final_wealth']:,.0f} PLN")
-        col2.metric("CAGR", f"{metrics['mean_cagr']:.2%}")
-        col3.metric("Mediana CAGR", f"{metrics['median_cagr']:.2%}")
-        col4.metric("Szansa Straty", f"{metrics['prob_loss']:.1%}")
         
+        # Helper for Baseline delta
+        def _delta(key, val, fmt, invert=False):
+            if st.session_state["baseline_metrics"] is None: return None
+            base_val = st.session_state["baseline_metrics"].get(key, val)
+            diff = val - base_val
+            if abs(diff) < 1e-6: return None
+            # Formatting
+            if "%" in fmt: d_str = f"{diff:+.2%}"
+            else: d_str = f"{diff:+.2f}"
+            # Color logic
+            if invert: color = "normal" if diff <= 0 else "inverse"
+            else: color = "normal" if diff >= 0 else "inverse"
+            return d_str, color
+
+        # Metrics display with delta
+        d1 = _delta('mean_final_wealth', metrics['mean_final_wealth'], ".0f")
+        col1.metric("Średni Kapitał", f"{metrics['mean_final_wealth']:,.0f} PLN", 
+                    delta=d1[0] if d1 else None, delta_color=d1[1] if d1 else "normal")
+                    
+        d2 = _delta('mean_cagr', metrics['mean_cagr'], "%")
+        col2.metric("CAGR", f"{metrics['mean_cagr']:.2%}", 
+                    delta=d2[0] if d2 else None, delta_color=d2[1] if d2 else "normal")
+                    
+        d3 = _delta('median_cagr', metrics['median_cagr'], "%")
+        col3.metric("Mediana CAGR", f"{metrics['median_cagr']:.2%}",
+                    delta=d3[0] if d3 else None, delta_color=d3[1] if d3 else "normal")
+                    
+        d4 = _delta('prob_loss', metrics['prob_loss'], "%", invert=True)
+        col4.metric("Szansa Straty", f"{metrics['prob_loss']:.1%}",
+                    delta=d4[0] if d4 else None, delta_color=d4[1] if d4 else "normal")
+        
+        # ── Buttons for Scenario and Baseline ──
+        c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
+        with c_btn1:
+            if st.button("📌 Ustaw jako Baseline", key="set_baseline_btn", help="Kolejne symulacje będą pokazywać różnicę względem tego wyniku."):
+                st.session_state["baseline_metrics"] = metrics.copy()
+                st.rerun()
+        with c_btn2:
+            if st.button("🗑️ Reset Baseline", key="clear_baseline_btn"):
+                st.session_state["baseline_metrics"] = None
+                st.rerun()
+                
+        with st.expander("💾 Zapisz Scenariusz do Porównania", expanded=False):
+            scn_name = st.text_input("Nazwa scenariusza", value=f"Scenariusz {len(st.session_state['saved_scenarios'])+1}")
+            if st.button("Zapisz", key="save_scen_btn"):
+                st.session_state["saved_scenarios"][scn_name] = {
+                    "wealth_paths": wealth_paths,
+                    "metrics": metrics,
+                    "years": years
+                }
+                st.success(f"Zapisano '{scn_name}'")
+        
+        # ── COMPARISON VIEW ──
+        if len(st.session_state["saved_scenarios"]) > 0:
+            with st.expander("📊 Porównanie Scenariuszy A/B/C", expanded=False):
+                st.markdown("Porównanie zapisanych wyników symulacji.")
+                
+                # Checkboxes to select scenarios to plot
+                sel_scens = []
+                st.write("Wybierz do nałożenia na wykres:")
+                sc_cols = st.columns(min(4, max(1, len(st.session_state["saved_scenarios"]))))
+                for i, sname in enumerate(st.session_state["saved_scenarios"].keys()):
+                    with sc_cols[i % len(sc_cols)]:
+                        if st.checkbox(sname, value=True, key=f"chk_{sname}"):
+                            sel_scens.append(sname)
+                
+                if st.button("Wyczyść zapisane scenariusze"):
+                    st.session_state["saved_scenarios"] = {}
+                    st.rerun()
+                
+                if sel_scens:
+                    fig_comp = go.Figure()
+                    colors = ['#00e676', '#3498db', '#f39c12', '#e74c3c', '#9b59b6']
+                    
+                    rows_comp = []
+                    for i, sname in enumerate(sel_scens):
+                        sdata = st.session_state["saved_scenarios"][sname]
+                        smet = sdata["metrics"]
+                        
+                        # Add to table
+                        rows_comp.append({
+                            "Scenariusz": sname,
+                            "Mediana CAGR": f"{smet['median_cagr']:.2%}",
+                            "Max Drawdown": f"{smet['mean_max_drawdown']:.1%}",
+                            "Sharpe": f"{smet['median_sharpe']:.2f}",
+                            "Ulcer Index": f"{calculate_ulcer_index(np.median(sdata['wealth_paths'], axis=0)):.2f}"
+                        })
+                        
+                        # Add to plot (median path)
+                        med_path = np.median(sdata["wealth_paths"], axis=0)
+                        days_c = np.arange(len(med_path))
+                        fig_comp.add_trace(go.Scatter(
+                            x=days_c, y=med_path, mode='lines',
+                            name=sname, line=dict(color=colors[i % len(colors)], width=2)
+                        ))
+                    
+                    fig_comp.update_layout(
+                        template="plotly_dark", title="Mediana Kapitału — Porównanie",
+                        xaxis_title="Dni", yaxis_title="PLN", height=350,
+                        hovermode="x unified", margin=dict(l=20, r=20, t=40, b=20)
+                    )
+                    st.plotly_chart(fig_comp, use_container_width=True)
+                    st.dataframe(pd.DataFrame(rows_comp), use_container_width=True, hide_index=True)
+
         display_chart_guide("Kluczowe Wskaźniki (KPI)", """
         *   **Średni Kapitał**: Oczekiwana wartość końcowa (średnia arytmetyczna ze wszystkich symulacji).
         *   **CAGR**: Średnioroczna stopa zwrotu (procent składany).
