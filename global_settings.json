@@ -29,6 +29,8 @@
   ],
   "alloc_safe_pct": 0.95,
   "initial_capital": 1000000.0,
+  "bg_refresh_enabled": true,
+  "bg_refresh_interval_minutes": 4,
   "profile_name": "Domyślny",
-  "last_updated": "2026-03-06T12:54:52"
+  "last_updated": "2026-03-16T16:10:36"
 }

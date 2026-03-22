@@ -9,6 +9,7 @@ from modules.regime_adaptive_allocation import (
     detect_regime_rule_based, fit_gaussian_mixture_regimes,
     regime_conditional_weights, REGIMES,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Regime Adaptive Allocation", page_icon="🔀", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

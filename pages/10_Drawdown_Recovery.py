@@ -9,6 +9,7 @@ from modules.drawdown_recovery_analyzer import (
     underwater_analysis, sequence_of_returns_risk,
     breakeven_calculator, recovery_probability_mc,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Drawdown Recovery Analyzer", page_icon="📉", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

@@ -8,6 +8,7 @@ from modules.styling import apply_styling
 from modules.liquidity_risk_analyzer import (
     amihud_ratio, liquidity_adjusted_var, liquidity_ladder,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Liquidity Risk Analyzer", page_icon="💧", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

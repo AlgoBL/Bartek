@@ -3,6 +3,7 @@ import streamlit as st
 from modules.styling import apply_styling
 from modules.emerytura import render_emerytura_module
 from modules.global_settings import get_gs, apply_gs_to_session, gs_sidebar_badge
+from modules.i18n import t
 
 # 2. Apply Custom Styling
 st.markdown(apply_styling(), unsafe_allow_html=True)

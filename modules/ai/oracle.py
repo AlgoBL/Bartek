@@ -22,7 +22,7 @@ FRED_SERIES = {
     "Financial_Stress_Index": "STLFSI4", # St. Louis Fed Financial Stress Index
 }
 
-async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_id: str) -> tuple[str, float | None]:
+async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_id: str) -> tuple[str, float | None, float | None]:
     """Pobiera ostatnią wartość serii FRED asynchronicznie (aiohttp)."""
     try:
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
@@ -31,10 +31,18 @@ async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_id: st
             text = await resp.text()
             df = pd.read_csv(io.StringIO(text), parse_dates=["observation_date"])
             df = df.replace(".", float("nan")).dropna()
-            return series_id, float(df.iloc[-1, 1])
+            
+            val = float(df.iloc[-1, 1])
+            pct = 0.0
+            if len(df) > 1:
+                prev = float(df.iloc[-2, 1])
+                if prev != 0:
+                    pct = round(((val / prev) - 1) * 100, 2)
+            
+            return series_id, val, pct
     except Exception as e:
         logger.warning(f"Błąd pobierania FRED ({series_id}): {e}")
-        return series_id, None
+        return series_id, None, None
 
 
 class TheOracle:
@@ -70,10 +78,10 @@ class TheOracle:
         ]
 
     # ── Makro Snapshot ──────────────────────────────────────────────────────
-    async def _fetch_ticker_async(self, name: str, ticker: str) -> tuple[str, float | None]:
+    async def _fetch_ticker_async(self, name: str, ticker: str) -> tuple[str, float | None, float | None]:
         from modules.data_provider import fetch_ticker_async
-        _, val = await fetch_ticker_async(ticker, period="5d")
-        return name, val
+        _, val, pct = await fetch_ticker_async(ticker, period="5d")
+        return name, val, pct
 
     async def get_macro_snapshot_async(self) -> dict:
         """Asynchroniczne pobieranie wskaźników makro (YFinance + FRED)."""
@@ -163,15 +171,17 @@ class TheOracle:
             res_bond_vol = await bond_vol_task
             
             # Populate snapshot
-            for name, val in results_tickers:
+            for name, val, pct in results_tickers:
                 if val is not None:
                     snapshot[name] = val
+                    snapshot[f"{name}_change"] = pct if pct is not None else 0.0
                 
             inv_fred = {v: k for k, v in FRED_SERIES.items()}
-            for sid, val in results_fred:
+            for sid, val, pct in results_fred:
                 if val is not None:
                     name = inv_fred.get(sid, sid)
                     snapshot[f"FRED_{name}"] = val
+                    snapshot[f"FRED_{name}_change"] = pct if pct is not None else 0.0
                 
             if res_crypto[1] is not None:
                 snapshot[res_crypto[0]] = res_crypto[1]

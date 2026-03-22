@@ -113,6 +113,13 @@ class GlobalPortfolio:
     # Kapitał startowy
     initial_capital: float = DEFAULT_INITIAL_CAPITAL
 
+    # Tło (Heartbeat Engine)
+    bg_refresh_enabled: bool = True
+    bg_refresh_interval_minutes: int = 15
+
+    # Język interfejsu / Interface language
+    language: str = "pl"  # "pl" | "en"
+
     # Metadane
     profile_name: str = "Domyślny"
     last_updated: str = ""
@@ -170,6 +177,9 @@ def load_global_settings() -> GlobalPortfolio:
             risky_assets=data.get("risky_assets", copy.deepcopy(DEFAULT_RISKY_ASSETS)),
             alloc_safe_pct=float(data.get("alloc_safe_pct", DEFAULT_SAFE_ALLOCATION)),
             initial_capital=float(data.get("initial_capital", DEFAULT_INITIAL_CAPITAL)),
+            bg_refresh_enabled=bool(data.get("bg_refresh_enabled", True)),
+            bg_refresh_interval_minutes=int(data.get("bg_refresh_interval_minutes", 15)),
+            language=data.get("language", "pl"),
             profile_name=data.get("profile_name", "Domyślny"),
             last_updated=data.get("last_updated", ""),
         )
@@ -230,6 +240,9 @@ def apply_gs_to_session(gs: Optional[GlobalPortfolio] = None) -> None:
     """
     if gs is None:
         gs = get_gs()
+
+    # ── Język interfejsu ─────────────────────────────────────────────────────
+    st.session_state["_lang"] = gs.language
 
     # ── Symulator MC ────────────────────────────────────────────────────────
     _set_default("_s.mc_alloc_safe",  int(round(gs.alloc_safe_pct * 100)))
@@ -302,6 +315,7 @@ def gs_sidebar_badge() -> None:
     Renderuje miniaturkę aktualnych ustawień globalnych na dole sidebara.
     Wywołaj na końcu sidebara w każdym module.
     """
+    from modules.i18n import t
     gs = get_gs()
     risky_preview = ", ".join(
         f"{a['ticker']} {a['weight']:.0f}%" for a in gs.risky_assets[:3]
@@ -309,6 +323,7 @@ def gs_sidebar_badge() -> None:
     if len(gs.risky_assets) > 3:
         risky_preview += f" +{len(gs.risky_assets)-3}"
 
+    safe_suffix = "@ " + f"{gs.safe_rate*100:.2f}%" if gs.safe_type == "fixed" else t("gs_safe_basket")
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         f"""
@@ -321,14 +336,14 @@ def gs_sidebar_badge() -> None:
             color: #94a3b8;
             margin-top: 4px;
         ">
-        🌐 <b style="color:#00ccff">Portfel Globalny</b><br>
-        🔒 Bezp.: <b>{gs.alloc_safe_pct:.0%}</b>
-        {"@ " + f"{gs.safe_rate*100:.2f}%" if gs.safe_type == "fixed" else "(koszyk)"}<br>
-        ⚡ Ryz.: {risky_preview}<br>
-        💰 Kapitał: <b>{gs.initial_capital:,.0f} PLN</b>
+        🌐 <b style="color:#00ccff">{t('gs_global_badge')}</b><br>
+        🔒 {t('gs_badge_safe')}: <b>{gs.alloc_safe_pct:.0%}</b>
+        {safe_suffix}<br>
+        ⚡ {t('gs_badge_risky')}: {risky_preview}<br>
+        💰 {t('gs_badge_capital')}: <b>{gs.initial_capital:,.0f} PLN</b>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    if st.sidebar.button("🌐 Zmień Ustawienia Globalne", key="_gs_badge_btn", use_container_width=True):
+    if st.sidebar.button(t("gs_change_btn"), key="_gs_badge_btn", use_container_width=True):
         st.switch_page("pages/0_Globalne_Ustawienia.py")

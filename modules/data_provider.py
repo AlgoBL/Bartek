@@ -155,15 +155,22 @@ def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = Non
         return pd.DataFrame()
 
 
-async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, float | None]:
+async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, float | None, float | None]:
     """Asynchroniczne pobieranie ceny zamknięcia. Yahoo -> StooqFallback"""
     try:
         data = await asyncio.to_thread(_fetch_from_yfinance_sync, [ticker], period=period)
         if not data.empty:
             # yfinance shape handle  
             if isinstance(data.columns, pd.MultiIndex):
-                return ticker, round(float(data[ticker]["Close"].dropna().iloc[-1]), 3)
-            return ticker, round(float(data["Close"].dropna().iloc[-1]), 3)
+                series = data[ticker]["Close"].dropna()
+            else:
+                series = data["Close"].dropna()
+                
+            val = round(float(series.iloc[-1]), 3)
+            pct = 0.0
+            if len(series) > 1:
+                pct = round(float((series.iloc[-1] / series.iloc[-2]) - 1) * 100, 2)
+            return ticker, val, pct
             
     except Exception as e:
         logger.debug(f"Brak danych Yahoo dla {ticker} (async): {e}")
@@ -175,9 +182,13 @@ async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, floa
         data = await asyncio.to_thread(_fetch_from_stooq_sync, [ticker], start=start)
         if not data.empty:
             # dla 1 tickera pandas_datareader zwraca kolumny 'Close', 'High'
-            val = round(float(data["Close"].dropna().iloc[-1]), 3)
-            return ticker, val
+            series = data["Close"].dropna()
+            val = round(float(series.iloc[-1]), 3)
+            pct = 0.0
+            if len(series) > 1:
+                pct = round(float((series.iloc[-1] / series.iloc[-2]) - 1) * 100, 2)
+            return ticker, val, pct
     except Exception as e:
         logger.debug(f"Brak danych STOOQ dla {ticker} (async): {e}")
         
-    return ticker, None
+    return ticker, None, None

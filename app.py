@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html, inject_accordion_js
+from modules.i18n import t
 import datetime
 
 st.set_page_config(
@@ -16,19 +17,41 @@ st.set_page_config(
 # Wstrzykuje JavaScript kontrolera accordion
 inject_accordion_js()
 
-# Smart cache keyed on date+hour — odswiezenie raz na godzine
-_CACHE_KEY = datetime.datetime.now().strftime("%Y%m%d%H")
+from modules.background_updater import bg_engine, CACHE_FILE
+import json
+import os
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_control_center_data(cache_key: str = ""):
-    from modules.ai.oracle import TheOracle
-    from modules.ai.agents import LocalGeopolitics
-    oracle = TheOracle()
-    macro = oracle.get_macro_snapshot()
-    geo = LocalGeopolitics()
-    news = oracle.get_latest_news_headlines(30)
-    geo_report = geo.analyze_news(news)
-    return macro, geo_report
+@st.cache_resource
+def init_background_engine(enabled: bool, interval: int):
+    """Odpalony raz per serwer Streamlita."""
+    from modules.background_updater import bg_engine
+    bg_engine.set_config(enabled, interval)
+    if enabled:
+        bg_engine.start()
+    return bg_engine
+
+def fetch_control_center_data_from_cache():
+    """Błyskawicznie czyta z JSON. Fallback do pobrania w locie jeśli pliku brak."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                packet = json.load(f)
+            if packet.get("status") == "success":
+                return packet.get("macro", {}), packet.get("geo_report", {})
+        except Exception as e:
+            st.warning(f"Błąd odczytu Heartbeat Cache: {e}")
+            
+    # Fallback wymuszony na starcie jesli brak pliku
+    bg_engine.fetch_now_sync()
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                packet = json.load(f)
+            return packet.get("macro", {}), packet.get("geo_report", {})
+        except Exception:
+            pass
+            
+    return {}, {}
 
 def calculate_regime_score(macro, geo_report):
     score = 50.0
@@ -60,18 +83,18 @@ def determine_business_cycle(macro):
 
     # Inwersja krzywej jest dominującym sygnałem restrykcji / spowolnienia
     if yc is not None and yc < 0:
-        return "Spowolnienie (Slowdown)", "Zacieśnianie polityki przez bank centralny. Inwersja krzywej.", "📉", "#f39c12"
-    
+        return t("bc_slowdown"), t("bc_slowdown_desc"), "📉", "#f39c12"
+
     # Recesja: wysokie bezrobocie (claims) i yc >= 0 (często po "un-inversion")
     if claims is not None and claims > 300000 and (yc is None or yc >= 0):
-        return "Recesja (Recession)", "Kryzys gospodarczy. Rosnące bezrobocie, dno rynkowe.", "💀", "#e74c3c"
-    
+        return t("bc_recession"), t("bc_recession_desc"), "💀", "#e74c3c"
+
     # Odrodzenie: PMI poniżej 50 (ciągle słabo), ale krzywa już stroma (>0.5)
     if pmi is not None and pmi < 50 and yc is not None and yc > 0.5:
-        return "Odrodzenie (Recovery)", "Dno za nami. Stymulacja systemowa dyskontuje poprawę.", "🌱", "#3498db"
-    
+        return t("bc_recovery"), t("bc_recovery_desc"), "🌱", "#3498db"
+
     # Domyślnie Ekspansja
-    return "Ekspansja (Expansion)", "Silny wzrost gospodarczy. Zyski rosną, optymizm na rynkach.", "🚀", "#2ecc71"
+    return t("bc_expansion"), t("bc_expansion_desc"), "🚀", "#2ecc71"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  KONTEKSTOWE OPISY WSKAŹNIKÓW (DYMKI)
@@ -248,7 +271,7 @@ def draw_regime_radar(score):
     else:             needle_color = "#ff1744"
 
     # Określa strefę słownie
-    zone_label = "🟢 HOSSA / RISK-ON" if score <= 30 else ("🔴 PANIKA / ALARM" if score > 65 else "🟡 NEUTRAL / OSTROŻNIE")
+    zone_label = t("zone_bull") if score <= 30 else (t("zone_panic") if score > 65 else t("zone_neutral"))
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -294,9 +317,9 @@ def draw_regime_radar(score):
         font={'color': "white", 'family': 'Inter'},
         # Czytelne etykiety stref POZA łukiem (poza kolizją z tickami)
         annotations=[
-            dict(text="HOSSA",   x=0.12, y=0.08, xref="paper", yref="paper",
+            dict(text=t("hossa_label"),   x=0.12, y=0.08, xref="paper", yref="paper",
                  font=dict(size=9, color="#00e676", family='Inter'), showarrow=False, opacity=0.7),
-            dict(text="PANIKA",  x=0.88, y=0.08, xref="paper", yref="paper",
+            dict(text=t("panika_label"),  x=0.88, y=0.08, xref="paper", yref="paper",
                  font=dict(size=9, color="#ff1744", family='Inter'), showarrow=False, opacity=0.7),
         ]
     )
@@ -476,45 +499,59 @@ def show_gauge(label, fig, help_text, overlap_margin="-20px"):
 def get_active_alerts(score, macro, geo_report):
     alerts = []
     vix = macro.get("VIX_1M")
-    if vix and vix > 25: alerts.append(f"🔴 VIX={vix:.1f} — Wysoka zmienność (>25)")
+    if vix and vix > 25: alerts.append(t("alert_vix_high", v=vix))
     if macro.get("Yield_Curve_Inverted"):
         yc = macro.get("Yield_Curve_Spread", 0)
-        alerts.append(f"🔴 Krzywa odwrócona ({yc:.2f}%)")
+        alerts.append(t("alert_inv_curve", yc=yc))
     vix_ts = macro.get("VIX_TS_Ratio", 1.0)
-    if vix_ts > 1.05: alerts.append(f"🔴 VIX Backwardation ({vix_ts:.2f})")
+    if vix_ts > 1.05: alerts.append(t("alert_backw", r=vix_ts))
     gex = macro.get("total_gex_billions")
-    if gex is not None and gex < -2: alerts.append(f"🟡 GEX={gex:.1f}B — Short Gamma")
+    if gex is not None and gex < -2: alerts.append(t("alert_gex", g=gex))
     hy = macro.get("FRED_HY_Spread")
-    if hy and hy > 600: alerts.append(f"🔴 HY Spread={hy:.0f}bps — Kryzys kredytowy")
-    elif hy and hy > 400: alerts.append(f"🟡 HY Spread={hy:.0f}bps — Podwyższone ryzyko")
+    if hy and hy > 600: alerts.append(t("alert_hy", h=hy))
+    elif hy and hy > 400: alerts.append(t("alert_hy_warn", h=hy))
     ted = macro.get("FRED_TED_Spread")
-    if ted and ted > 0.5: alerts.append(f"🔴 TED={ted:.2f} — Napięcie bankowe")
+    if ted and ted > 0.5: alerts.append(t("alert_ted", t=ted))
     fci = macro.get("FRED_Financial_Stress_Index")
-    if fci and fci > 0: alerts.append(f"🟡 STLFSI={fci:.2f} — Powyżej normy")
+    if fci and fci > 0: alerts.append(t("alert_fci", f=fci))
     breadth = macro.get("Breadth_Momentum")
-    if breadth and breadth < -0.02: alerts.append(f"🟡 Breadth={breadth*10000:.0f}bp — Wąska hossa")
+    if breadth and breadth < -0.02: alerts.append(t("alert_breadth", b=breadth*10000))
     sent = geo_report.get("compound_sentiment")
-    if sent is not None and sent < -0.15: alerts.append(f"🟡 Sentyment NLP={sent:.2f} — Negatywny")
+    if sent is not None and sent < -0.15: alerts.append(t("alert_sent", s=sent))
     m2 = macro.get("FRED_M2_YoY_Growth")
-    if m2 is not None and m2 < 0: alerts.append(f"🟡 M2={m2:.1f}% — Kurczenie płynności")
-    if not alerts: alerts.append("✅ Brak aktywnych alertów — środowisko Risk-On")
+    if m2 is not None and m2 < 0: alerts.append(t("alert_m2", m=m2))
+    if not alerts: alerts.append(t("alert_none"))
     return alerts
 
 def get_vanguard_report(score, macro, geo_report):
     sent = geo_report.get("compound_sentiment", 0)
     cycle, _, _, _ = determine_business_cycle(macro)
     if score > 70:
-        return "ALARM: Wysokie ryzyko systemowe. Dark Pools i VIX wskazują na kaskadową zmienność. Rekomendacja: Obrona kapitału.", "#e74c3c"
+        return t("vr_alarm"), "#e74c3c"
     elif score < 35 and sent > 0.1:
-        return "STATUS: Rynek w silnym reżimie Risk-On. Płynność wspiera wzrosty. Rekomendacja: Ekspansja w Risky Sleeve.", "#2ecc71"
+        return t("vr_risk_on"), "#2ecc71"
     else:
-        return f"STATUS: Reżim mieszany. Faza {cycle}. Rynek szuka kierunku przy stabilnych warunkach finansowych.", "#3498db"
+        return t("vr_mixed", cycle=cycle), "#3498db"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  STRONA GŁÓWNA
 # ─────────────────────────────────────────────────────────────────────────────
 
+@st.fragment(run_every="10s")
+def check_for_updates():
+    import os
+    from modules.background_updater import CACHE_FILE
+    if not os.path.exists(CACHE_FILE):
+        return
+    current_mtime = os.path.getmtime(CACHE_FILE)
+    if "last_cache_mtime" not in st.session_state:
+        st.session_state["last_cache_mtime"] = current_mtime
+    elif current_mtime > st.session_state["last_cache_mtime"]:
+        st.session_state["last_cache_mtime"] = current_mtime
+        st.rerun()
+
 def home():
+    check_for_updates()
     st.markdown(apply_styling(), unsafe_allow_html=True)
     # Lokalne overrides tylko dla Control Center (gauge gap i h4 margins)
     st.markdown("""
@@ -525,27 +562,46 @@ def home():
     </style>
     """, unsafe_allow_html=True)
 
+    # Inicjalizacja Background Engine na bazie Global Settings
+    from modules.global_settings import get_gs
+    gs = get_gs()
+    init_background_engine(gs.bg_refresh_enabled, gs.bg_refresh_interval_minutes)
+
     if "force_navigate" in st.session_state:
         target = st.session_state.pop("force_navigate")
         if target == "📉 Symulator": st.switch_page("pages/1_Symulator.py")
         elif target == "⚡ Stress Test": st.switch_page("pages/3_Stress_Test.py")
 
     with st.spinner(""):
-        _prog = st.progress(0, text="⚡ Synchronizacja terminala V9.5...")
+        _prog = st.progress(0, text=t("cc_sync_text"))
         try:
-            _prog.progress(20, text="📡 Pobieranie danych makroekonomicznych...")
-            macro, geo_report = fetch_control_center_data(cache_key=_CACHE_KEY)
-            _prog.progress(90, text="🧠 Analiza sentymentu i regimu...")
-            _prog.progress(100, text="✅ Terminal zsynchronizowany")
+            _prog.progress(70, text=t("cc_sync_fetch"))
+            macro, geo_report = fetch_control_center_data_from_cache()
+            _prog.progress(100, text=t("cc_sync_done"))
         except Exception as e:
             _prog.empty()
-            st.error(f"Błąd synchronizacji terminala: {e}")
+            st.error(f"{t('cc_sync_err')}: {e}")
             macro, geo_report = {}, {}
         finally:
             _prog.empty()
 
+    # Opcjonalny wskaźnik aktywności
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            try:
+                 pack = json.load(f)
+                 last_ts = pack.get("timestamp", "Nieznany")
+            except:
+                 last_ts = "Błąd"
+
+        status_color = "#00e676" if gs.bg_refresh_enabled else "#aaa"
+        status_text = t("cc_engine_active") if gs.bg_refresh_enabled else t("cc_engine_inactive")
+        st.markdown(f"<div style='text-align:right;font-size:10px;color:#aaa;margin-top:-35px;margin-bottom:10px;'>"
+                    f"{t('cc_last_sync')}: <b>{last_ts}</b> | {t('cc_engine_label')}: <span style='color:{status_color};'><b>{status_text}</b></span></div>",
+                    unsafe_allow_html=True)
+
     if not macro:
-        st.warning("Brak połączenia z siecią sensorów.")
+        st.warning(t("cc_no_data"))
         return
 
     score = calculate_regime_score(macro, geo_report)
@@ -559,12 +615,12 @@ def home():
         _usd_val  = macro.get("US_Dollar_Index") or 0
         _hy_val   = macro.get("FRED_HY_Spread") or 0
         _ticker_items = [
-            {"name": "VIX",        "value": _vix_val,  "change": 0, "suffix": ""},
-            {"name": "Gold",       "value": _gold_val,  "change": 0, "suffix": "$"},
-            {"name": "WTI",        "value": _oil_val,   "change": 0, "suffix": "$"},
-            {"name": "DXY",        "value": _usd_val,   "change": 0, "suffix": ""},
-            {"name": "HY Spread",  "value": _hy_val,    "change": 0, "suffix": "", },
-            {"name": "SCORE",      "value": score,       "change": 0, "suffix": ""},
+            {"name": "VIX",        "value": _vix_val,  "change": macro.get("VIX_1M_change", 0.0), "suffix": ""},
+            {"name": "Gold",       "value": _gold_val,  "change": macro.get("Gold_change", 0.0), "suffix": "$"},
+            {"name": "WTI",        "value": _oil_val,   "change": macro.get("Crude_Oil_change", 0.0), "suffix": "$"},
+            {"name": "DXY",        "value": _usd_val,   "change": macro.get("US_Dollar_Index_change", 0.0), "suffix": ""},
+            {"name": "HY Spread",  "value": _hy_val,    "change": macro.get("FRED_HY_Spread_change", 0.0), "suffix": "", },
+            {"name": "SCORE",      "value": score,       "change": 0.0, "suffix": ""},
         ]
         _ticker_items = [i for i in _ticker_items if i["value"] > 0]
         if _ticker_items:
@@ -645,10 +701,15 @@ def home():
     # ─── ROW 2: 5-PILLAR GRID ─────────────────────────────────────────────────
     PILLAR_STYLE = "text-align:center;font-size:13px;font-weight:700;letter-spacing:1px;margin-bottom:4px;padding:4px 0;border-radius:6px;"
     p1, p2, p3, p4, p5 = st.columns(5)
+    _pillar1 = t("p1_stress")
+    _pillar2 = t("p2_macro")
+    _pillar3 = t("p3_real")
+    _pillar4 = t("p4_sent")
+    _pillar5 = t("p5_credit")
 
     # ── PILLAR 1: STRESS & VOL ──
     with p1:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#ff1744;background:rgba(255,23,68,0.08);'>📡 STRESS &amp; VOL</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#ff1744;background:rgba(255,23,68,0.08);'>{_pillar1}</h4>", unsafe_allow_html=True)
 
         bv = macro.get("Bond_Vol_Proxy")
         if bv is not None:
@@ -664,7 +725,7 @@ def home():
 
     # ── PILLAR 2: MACRO & POLICY ──
     with p2:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#3498db;background:rgba(52,152,219,0.08);'>🏛️ MACRO &amp; POLICY</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#3498db;background:rgba(52,152,219,0.08);'>{_pillar2}</h4>", unsafe_allow_html=True)
 
         fci = macro.get("FRED_Financial_Stress_Index")
         if fci is not None:
@@ -679,7 +740,7 @@ def home():
 
     # ── PILLAR 3: REAL ECONOMY ──
     with p3:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#2ecc71;background:rgba(46,204,113,0.08);'>🏭 REAL ECONOMY</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#2ecc71;background:rgba(46,204,113,0.08);'>{_pillar3}</h4>", unsafe_allow_html=True)
 
         bdry = macro.get("Baltic_Dry")
         if bdry is not None:
@@ -695,7 +756,7 @@ def home():
 
     # ── PILLAR 4: SENTIMENT & BREADTH ──
     with p4:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#f1c40f;background:rgba(241,196,15,0.08);'>🧠 SENTIMENT</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#f1c40f;background:rgba(241,196,15,0.08);'>{_pillar4}</h4>", unsafe_allow_html=True)
 
         sent = geo_report.get("compound_sentiment", 0)
         show_gauge("News NLP Sentiment", draw_advanced_gauge("NLP Sentiment", sent, -1.0, 1.0, invert=True), get_help_sentiment(sent))
@@ -710,7 +771,7 @@ def home():
 
     # ── PILLAR 5: CREDIT & LIQUIDITY ──
     with p5:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#a855f7;background:rgba(168,85,247,0.08);'>💳 CREDIT &amp; LIQ</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#a855f7;background:rgba(168,85,247,0.08);'>{_pillar5}</h4>", unsafe_allow_html=True)
 
         gex = macro.get("total_gex_billions")
         if gex is not None:
@@ -736,7 +797,7 @@ def home():
     st.divider()
 
     # --- ROW 3: INTERACTIVE RISK MAP (Bubble Chart) ----------------------------
-    with st.expander("🗺️ Interaktywna Mapa Ryzyka / Portfela — Kliknij aby rozwinąć", expanded=False):
+    with st.expander(t("cc_risk_map"), expanded=False):
         st.markdown(
             "<p style='color:#6b7280;font-size:12px;margin:0 0 8px 0;'>"
             "X = oczekiwany zwrot | Y = ryzyko (volatility) | Rozmiar = alokacja | Kolor = reżim"

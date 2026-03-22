@@ -5,6 +5,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 from modules.styling import apply_styling
+from modules.i18n import t
 
 st.set_page_config(page_title="Life OS — Algorytm Łowcy", page_icon="🎯", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

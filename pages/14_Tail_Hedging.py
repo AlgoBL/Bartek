@@ -9,6 +9,7 @@ from modules.tail_risk_hedging import (
     bs_put_price, put_hedge_calculator, collar_strategy,
     hedge_recommendation, ETF_HEDGES,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Tail Risk Hedging", page_icon="🛡️", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

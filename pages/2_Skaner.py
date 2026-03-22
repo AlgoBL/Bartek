@@ -23,6 +23,7 @@ from modules.ai.asset_universe import (
 )
 from modules.ui.status_manager import StatusManager
 from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR, REGIME_CRISIS
+from modules.i18n import t
 
 # ... existsing code ...
 

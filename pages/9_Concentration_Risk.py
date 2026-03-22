@@ -10,6 +10,7 @@ from modules.styling import apply_styling
 from modules.concentration_risk_monitor import (
     compute_hhi, pca_concentration, concentration_risk_score, diversification_ratio,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Concentration Risk Monitor", page_icon="🎯", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

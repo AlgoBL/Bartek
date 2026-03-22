@@ -10,6 +10,7 @@ from modules.wealth_protection_optimizer import (
     real_wealth_preservation_score, ldi_funding_ratio,
     BUCKET_ALLOCATIONS, INFLATION_PL,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Wealth Protection Optimizer", page_icon="🏰", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

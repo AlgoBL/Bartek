@@ -8,6 +8,7 @@ from modules.tax_optimizer_pl import (
     create_position, tax_loss_harvesting, ike_ikze_optimizer,
     annual_belka_estimate, IKE_LIMIT_PLN, IKZE_LIMIT_PLN, TAX_BELKA,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Tax Optimizer PL", page_icon="💰", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

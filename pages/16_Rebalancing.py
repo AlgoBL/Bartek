@@ -8,6 +8,7 @@ from modules.styling import apply_styling
 from modules.smart_rebalancing_engine import (
     compute_drift, minimum_trade_rebalance, rebalancing_cost_benefit,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Smart Rebalancing", page_icon="⚖️", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

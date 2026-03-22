@@ -12,6 +12,7 @@ from modules.portfolio_health_monitor import (
     drawdown_alert, volatility_spike_detector, correlation_breakdown_alert,
     kelly_fraction_monitor, portfolio_health_score, get_active_alerts,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Portfolio Health Monitor", page_icon="🏥", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -40,17 +41,17 @@ st.divider()
 
 # ── Sidebar: Portfolio Input ─────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Konfiguracja Portfela")
+    st.markdown(t("hm_config"))
 
     tickers_input = st.text_area(
-        "Tickery aktywów (każdy w nowej linii)",
+        t("hm_tickers"),
         value="SPY\nTLT\nGLD\nQQQ\nEEM",
         height=120,
     )
-    tickers = [t.strip().upper() for t in tickers_input.strip().split("\n") if t.strip()]
+    tickers = [t_str.strip().upper() for t_str in tickers_input.strip().split("\n") if t_str.strip()]
 
     weights_input = st.text_area(
-        "Wagi (suma = 1, kolejność jak wyżej)",
+        t("hm_weights"),
         value="0.40\n0.30\n0.10\n0.10\n0.10",
         height=120,
     )
@@ -63,16 +64,16 @@ with st.sidebar:
         weights = np.ones(len(tickers)) / len(tickers)
 
     dd_thresholds = st.multiselect(
-        "Progi Drawdown Alert (%)",
+        t("hm_dd_thresh"),
         [3, 5, 8, 10, 15, 20, 25, 30],
         default=[5, 10, 15, 20],
     )
-    dd_thresholds = [t / 100 for t in dd_thresholds]
+    dd_thresholds = [d / 100 for d in dd_thresholds]
 
-    vol_threshold = st.slider("Próg spike zmienności (Z-score)", 1.0, 4.0, 2.0, 0.5)
+    vol_threshold = st.slider(t("hm_vol_thresh"), 1.0, 4.0, 2.0, 0.5)
 
 # ── Load Data ────────────────────────────────────────────────────────────────
-with st.spinner("Pobieranie danych..."):
+with st.spinner(t("loading")):
     prices_df, returns_df = load_demo_data(tickers)
 
 if prices_df is None or prices_df.empty:
@@ -80,7 +81,8 @@ if prices_df is None or prices_df.empty:
     st.stop()
 
 # ── Build Portfolio Equity Curve ─────────────────────────────────────────────
-available = [t for t in tickers if t in prices_df.columns]
+# Fix variable shadowing: rename loop var to not shadow t() function
+available = [ticker for ticker in tickers if ticker in prices_df.columns]
 if not available:
     st.error("Żaden ticker nie ma danych.")
     st.stop()
@@ -118,12 +120,12 @@ with col2:
     dd_detail = health.get("drawdown_detail", {})
     dd_val = dd_detail.get("current_drawdown", 0)
     dd_color = "#00e676" if dd_val > -0.05 else "#ffea00" if dd_val > -0.10 else "#ff1744"
-    dd_days = dd_detail.get("days_in_dd", 0)
+    dd_days_html = t("hm_days_ath", d=dd_days)
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-label">BIEŻĄCY DRAWDOWN</div>
         <div class="metric-value" style="color:{dd_color}">{dd_val:.1%}</div>
-        <div style="color:#6b7280;font-size:12px;">{dd_days} dni pod ATH</div>
+        <div style="color:#6b7280;font-size:12px;">{dd_days_html}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -146,7 +148,7 @@ st.divider()
 
 # ── ACTIVE ALERTS ─────────────────────────────────────────────────────────────
 alerts = get_active_alerts(equity_curve, returns_used)
-st.markdown("### 🚨 Aktywne Alerty")
+st.markdown(t("hm_alerts"))
 for alert in alerts:
     lvl = alert["level"]
     icon = alert["icon"]
@@ -162,7 +164,10 @@ for alert in alerts:
 st.divider()
 
 # ── CHARTS ───────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Equity & Drawdown", "📊 Zmienność", "🔗 Korelacje", "🎯 Health Breakdown"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    t("hm_tab_equity"), t("hm_tab_vol"),
+    t("hm_tab_corr"), t("hm_tab_health")
+])
 
 with tab1:
     col_a, col_b = st.columns([2, 1])
@@ -202,10 +207,10 @@ with tab1:
     with col_b:
         # Drawdown alert details
         dd_a = drawdown_alert(equity_curve, thresholds=dd_thresholds)
-        st.markdown("**Drawdown Szczegóły**")
-        st.metric("ATH", f"{dd_a.get('ath', 0):,.0f} PLN")
-        st.metric("Bieżąca wartość", f"{dd_a.get('current_value', 0):,.0f} PLN")
-        st.metric("Recovery needed", f"{dd_a.get('recovery_needed', 0):.1%}")
+        st.markdown(t("hm_dd_details"))
+        st.metric(t("hm_ath"), f"{dd_a.get('ath', 0):,.0f} PLN")
+        st.metric(t("hm_current_val"), f"{dd_a.get('current_value', 0):,.0f} PLN")
+        st.metric(t("hm_recovery"), f"{dd_a.get('recovery_needed', 0):.1%}")
         alert_l = dd_a.get("alert_label", "")
         st.markdown(f"**Status:** {alert_l}")
 

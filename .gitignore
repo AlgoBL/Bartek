@@ -8,3 +8,4 @@ venv/
 .env
 .ipynb_checkpoints
 secrets.json
+data/

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from modules.styling import apply_styling, math_explainer
+from modules.i18n import t
 
 st.set_page_config(page_title="DCC Correlacje", page_icon="🔗", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

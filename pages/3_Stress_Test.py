@@ -22,6 +22,7 @@ from modules.frontier import compute_efficient_frontier
 from modules.emerytura import render_emerytura_module
 from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR, REGIME_CRISIS
 from modules.global_settings import get_gs, apply_gs_to_session, force_apply_gs_to_session, gs_sidebar_badge
+from modules.i18n import t
 
 # ... existsing code ...
 
@@ -63,25 +64,22 @@ if "custom_stress_scenarios" not in st.session_state:
 
 # 3. Main Navigation
 
-st.title("⚡ Stress Testing — Historyczne Kryzysy")
-st.markdown("""
-Testuje jak Twoja strategia Barbell zachowałaby się w 5 historycznych kryzysach.
-Wczytuje prawdziwe dane historyczne z Yahoo Finance i porównuje z benchmarkiem (SPY/QQQ).
-""")
+st.title(t("st_title"))
+st.markdown(t("st_subtitle"))
 
-st.sidebar.title("⚡ Konfiguracja Stress Testu")
-st.sidebar.markdown("### ⚙️ Ustawienia")
-st.sidebar.markdown("### Aktywa do Testu")
+st.sidebar.title(t("st_sidebar_title"))
+st.sidebar.markdown(t("settings"))
+st.sidebar.markdown(t("st_assets"))
 
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS, run_reverse_stress_test
 
 # Przywracanie z globalnych
-if st.sidebar.button("↩ Przywróć z Globalnych", key="st_restore_gs", use_container_width=True):
+if st.sidebar.button(t("restore_global"), key="st_restore_gs", use_container_width=True):
     force_apply_gs_to_session(get_gs())
     st.rerun()
 
 _gs_now = get_gs()
-st_safe_str  = st.sidebar.text_input("Koszyk Bezpieczny", value=st.session_state.get("_s.st_safe", _gs_now.safe_tickers_str or "TLT, GLD"), key="st_safe")
+st_safe_str  = st.sidebar.text_input(t("st_safe_basket"), value=st.session_state.get("_s.st_safe", _gs_now.safe_tickers_str or "TLT, GLD"), key="st_safe")
 
 default_risky = st.session_state.pop('st_risky_transfer', "SPY, QQQ, BTC-USD")
 if 'st_risky' not in st.session_state:
@@ -91,40 +89,40 @@ else:
     if default_risky != "SPY, QQQ, BTC-USD" and default_risky != st.session_state['st_risky']:
         st.session_state['st_risky'] = default_risky
 
-st_risky_str = st.sidebar.text_input("Koszyk Ryzykowny", key="st_risky")
+st_risky_str = st.sidebar.text_input(t("st_risky_basket"), key="st_risky")
 _gs_sw_default = int(round(get_gs().alloc_safe_pct * 100))
-st_safe_w    = st.sidebar.slider("Waga Bezpieczna (%)", 10, 95, st.session_state.get("_s.st_sw", _gs_sw_default), key="st_sw") / 100.0
-st_capital   = st.sidebar.number_input("Kapitał Początkowy", value=int(st.session_state.get("_s.st_cap", int(get_gs().initial_capital))), step=10000, key="st_cap")
+st_safe_w    = st.sidebar.slider(t("st_safe_weight"), 10, 95, st.session_state.get("_s.st_sw", _gs_sw_default), key="st_sw") / 100.0
+st_capital   = st.sidebar.number_input(t("st_capital"), value=int(st.session_state.get("_s.st_cap", int(get_gs().initial_capital))), step=10000, key="st_cap")
 
 # ─────────────────────────────────────────────────────────────────
 # 🆕 WŁASNY SZOK (CUSTOM SHOCK)
 # ─────────────────────────────────────────────────────────────────
 st.sidebar.divider()
-st.sidebar.markdown("### 💣 Własny Szok")
-st.sidebar.caption("Zdefiniuj ręcznie krach, by natychmiast zobaczyć teoretyczną stratę portfela.")
-c_safe = st.sidebar.slider("Szok Koszyka Bezpiecznego (-%)", 0, 50, 0, step=5) / 100.0
-c_risky = st.sidebar.slider("Szok Koszyka Ryzykownego (-%)", 0, 90, 40, step=5) / 100.0
+st.sidebar.markdown(t("st_custom_shock"))
+st.sidebar.caption(t("st_shock_cap"))
+c_safe = st.sidebar.slider(t("st_safe_shock").replace("%%", "%"), 0, 50, 0, step=5) / 100.0
+c_risky = st.sidebar.slider(t("st_risky_shock").replace("%%", "%"), 0, 90, 40, step=5) / 100.0
 
-if st.sidebar.button("💣 Oblicz Strata z Szoku"):
+if st.sidebar.button(t("st_shock_btn")):
     from modules.stress_test import run_custom_shock
-    st.subheader("💣 Niestandardowy Szok Cenowy")
+    st.subheader(t("st_custom_title"))
     c_res = run_custom_shock(st_safe_w, c_risky, c_safe, st_capital)
     st.warning(c_res['message'])
     c1, c2, c3 = st.columns(3)
-    c1.metric("Wartość Bezpieczna", f"{c_res['safe_value']:,.0f}")
-    c2.metric("Wartość Ryzykowna", f"{c_res['risky_value']:,.0f}")
-    c3.metric("Kapitał Po Szoku", f"{c_res['final']:,.0f}", f"-{c_res['loss_pct']*100:.1f}%", delta_color="inverse")
+    c1.metric(t("st_safe_val"), f"{c_res['safe_value']:,.0f}")
+    c2.metric(t("st_risky_val"), f"{c_res['risky_value']:,.0f}")
+    c3.metric(t("st_final"), f"{c_res['final']:,.0f}", f"-{c_res['loss_pct']*100:.1f}%", delta_color="inverse")
 
 # ─────────────────────────────────────────────────────────────────
 # 🆕 REVERSE STRESS TESTING
 # ─────────────────────────────────────────────────────────────────
 st.sidebar.divider()
-st.sidebar.markdown("### 🧨 Reverse Stress Test")
-st.sidebar.caption("Odwrócony test stresu (Basel III). Wylicza, jak duży krach na ryzyku wywoła zadaną stratę portfela.")
-rst_target_loss = st.sidebar.slider("Zakładana strata portfela (-%)", 5, 80, 20, step=5) / 100.0
+st.sidebar.markdown(t("st_reverse"))
+st.sidebar.caption(t("st_reverse_cap"))
+rst_target_loss = st.sidebar.slider(t("st_target_loss").replace("%%", "%"), 5, 80, 20, step=5) / 100.0
 
-if st.sidebar.button("🧨 Szukaj Punktu Pęknięcia"):
-    st.subheader("🧨 Reverse Stress Test (Punkt Pęknięcia)")
+if st.sidebar.button(t("st_break_btn")):
+    st.subheader(t("st_break_title"))
     rst_res = run_reverse_stress_test(safe_weight=st_safe_w, target_loss=rst_target_loss)
     
     if rst_res.get("error"):
@@ -144,18 +142,18 @@ crisis_options = list(CRISIS_SCENARIOS.keys())
 custom_options = list(st.session_state["custom_stress_scenarios"].keys())
 
 selected_crises = st.multiselect(
-    "Wybierz Scenariusze Kryzysu",
+    t("st_select"),
     crisis_options + custom_options,
     default=crisis_options[:3],
     key="st_crises"
 )
 
-if st.button("🚀 Uruchom Stress Test", type="primary", key="st_run"):
+if st.button(t("st_run_btn"), type="primary", key="st_run"):
     st_safe_tickers  = [x.strip() for x in st_safe_str.split(",")  if x.strip()]
     st_risky_tickers = [x.strip() for x in st_risky_str.split(",") if x.strip()]
 
     st_results = {}
-    with st.spinner("Pobieranie danych historycznych i symulacja..."):
+    with st.spinner(t("st_loading")):
         # 1. Historical Scenarios
         for crisis in selected_crises:
             if crisis in CRISIS_SCENARIOS:
@@ -214,15 +212,15 @@ if 'stress_results' in st.session_state:
         m = result['metrics']
         c1, c2, c3, c4 = st.columns(4)
         c1.metric(
-            "Barbell MaxDD w Krachu",
+            t("st_barbell_dd"),
             f"{m['crash_portfolio_max_dd']:.1%}",
-            delta=f"{m['dd_protection']:.1%} lepsza niż benchmark",
+            delta=f"{m['dd_protection']:.1%} {'lepsza niż' if t('lang_label') == '🌐 Język interfejsu' else 'better than'} benchmark",
             delta_color="inverse"
         )
-        c2.metric("Benchmark MaxDD", f"{m['crash_benchmark_max_dd']:.1%}")
+        c2.metric(t("st_bench_dd"), f"{m['crash_benchmark_max_dd']:.1%}")
         c3.metric(
-            "Czas Odrabiania Strat",
-            f"{m['recovery_days']} sesji" if isinstance(m['recovery_days'], int) else str(m['recovery_days'])
+            t("st_recovery"),
+            f"{m['recovery_days']} {'sesji' if st.session_state.get('_lang','pl')=='pl' else 'sessions'}" if isinstance(m['recovery_days'], int) else str(m['recovery_days'])
         )
         c4.metric("Ulcer Index", f"{m['ulcer_index']:.2f}")
 
@@ -250,14 +248,14 @@ if 'stress_results' in st.session_state:
             )
             fig_st.add_annotation(
                 x=x_str, y=1, xref="x", yref="paper",
-                text="Dno krachu", showarrow=False,
+                text=t("st_crash_bottom"), showarrow=False,
                 yanchor="bottom", font=dict(color="red", size=11),
             )
 
         fig_st.update_layout(
             title=f"{crisis_name} — Barbell vs Benchmark",
             template="plotly_dark", height=400,
-            yaxis_title="Wartość Portfela (PLN)",
+            yaxis_title=t("st_portfolio_val"),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(15,15,25,0.9)",
             hovermode="x unified"

@@ -9,6 +9,7 @@ from modules.macro_regime_clock import (
     historical_performance_table, clock_position_coords,
     get_hmm_regime_probabilities, get_transition_matrix
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Macro Regime Clock", page_icon="🕐", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

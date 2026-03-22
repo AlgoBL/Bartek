@@ -9,6 +9,7 @@ from modules.sentiment_flow_tracker import (
     compute_etf_flow_proxy, composite_fear_greed,
     short_squeeze_risk, ETF_UNIVERSE,
 )
+from modules.i18n import t
 
 st.set_page_config(page_title="Sentiment Flow Tracker", page_icon="🌊", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)

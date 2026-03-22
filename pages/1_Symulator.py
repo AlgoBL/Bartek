@@ -16,6 +16,7 @@ from modules.scanner import calculate_convecity_metrics, score_asset, compute_hi
 from modules.ai.scanner_engine import ScannerEngine
 from config import TAX_BELKA, RISK_FREE_RATE_PL
 from modules.global_settings import get_gs, apply_gs_to_session, force_apply_gs_to_session, gs_sidebar_badge
+from modules.i18n import t
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
@@ -65,19 +66,21 @@ if "custom_stress_scenarios" not in st.session_state:
 
 # 3. Main Navigation
 
-st.sidebar.title("🛠️ Konfiguracja Strategii")
-st.sidebar.markdown("### ⚙️ Ustawienia")
+st.sidebar.title(t("sim_title"))
+st.sidebar.markdown(f"### {t('settings')}")
 
 # Przycisk przywracania ustawień globalnych
-if st.sidebar.button("↩ Przywróć z Globalnych", key="sim_restore_gs", help="Przywróć domyślne wartości z Globalnych Ustawień Portfela", use_container_width=True):
+if st.sidebar.button(t("restore_global"), key="sim_restore_gs", help="Przywróć domyślne wartości z Globalnych Ustawień Portfela", use_container_width=True):
     force_apply_gs_to_session(get_gs())
     st.rerun()
 
-mode = st.sidebar.radio("Tryb Symulacji", ["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"], index=["Monte Carlo (Teoretyczny)", "Intelligent Barbell (Backtest Algorytmiczny)"].index(_saved("sim_mode", "Monte Carlo (Teoretyczny)")), key="sim_mode", on_change=_save, args=("sim_mode",))
+MC_MODE = "Monte Carlo (Teoretyczny)"
+AI_MODE = "Intelligent Barbell (Backtest Algorytmiczny)"
+mode = st.sidebar.radio(t("sim_mode_label"), [MC_MODE, AI_MODE], index=[MC_MODE, AI_MODE].index(_saved("sim_mode", MC_MODE)), key="sim_mode", on_change=_save, args=("sim_mode",))
 
-if mode == "Monte Carlo (Teoretyczny)":
-    st.sidebar.markdown("### 1. Kapitał i Czas")
-    initial_capital = st.sidebar.number_input("Kapitał Początkowy (PLN)", value=_saved("mc_cap", 100000), step=10000, key="mc_cap", on_change=_save, args=("mc_cap",))
+if mode == MC_MODE:
+    st.sidebar.markdown(t("sim_cap_time"))
+    initial_capital = st.sidebar.number_input(t("sim_initial_cap"), value=_saved("mc_cap", 100000), step=10000, key="mc_cap", on_change=_save, args=("mc_cap",))
     years = st.sidebar.slider("Horyzont Inwestycyjny (Lata)", 1, 30, value=_saved("mc_years", 10), key="mc_years", on_change=_save, args=("mc_years",))
 
     st.sidebar.markdown("---")

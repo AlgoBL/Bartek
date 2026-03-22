@@ -17,6 +17,7 @@ from modules.global_settings import (
     apply_gs_to_session, force_apply_gs_to_session,
     PRESET_PROFILES,
 )
+from modules.i18n import t
 from config import GLOBAL_SETTINGS_PATH
 
 st.set_page_config(
@@ -31,7 +32,7 @@ gs = get_gs()
 apply_gs_to_session(gs)   # wstrzyknij jako domyślne (nie nadpisuje lokalnych zmian)
 
 # ── Nagłówek ──────────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <div style="
     background: linear-gradient(135deg, rgba(0,204,255,0.15) 0%, rgba(168,85,247,0.15) 100%);
     border: 1px solid rgba(0,204,255,0.3);
@@ -39,10 +40,9 @@ st.markdown("""
     padding: 24px 32px;
     margin-bottom: 24px;
 ">
-    <h1 style="margin:0; font-size:2rem;">🌐 Globalne Ustawienia Portfela</h1>
+    <h1 style="margin:0; font-size:2rem;">{t('gs_header')}</h1>
     <p style="color:#94a3b8; margin:6px 0 0 0;">
-    Skonfiguruj swój portfel raz — ustawienia automatycznie propagują się do
-    Symulatora, Stress Testów, Wealth Optimizera i wszystkich pozostałych modułów.
+    {t('gs_subtitle')}
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -50,21 +50,20 @@ st.markdown("""
 # ── KPI STATUS BAR ─────────────────────────────────────────────────────────────
 blended = gs.blended_rate
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("🔒 Część Bezpieczna", f"{gs.alloc_safe_pct:.0%}")
-k2.metric("⚡ Część Ryzykowna",  f"{gs.alloc_risky_pct:.0%}")
-k3.metric("📈 Stopa Bezpieczna", f"{gs.safe_rate*100:.2f}%")
-k4.metric("🎯 Blended Rate",     f"{blended*100:.2f}%",
-          help="Efektywna oczekiwana stopa całego portfela: safe*rate + risky*8% (szacunek)")
-k5.metric("💰 Kapitał Startowy", f"{gs.initial_capital:,.0f} PLN")
+k1.metric(t("gs_safe_pct"),    f"{gs.alloc_safe_pct:.0%}")
+k2.metric(t("gs_risky_pct"),   f"{gs.alloc_risky_pct:.0%}")
+k3.metric(t("gs_safe_rate"),   f"{gs.safe_rate*100:.2f}%")
+k4.metric(t("gs_blended"),     f"{blended*100:.2f}%", help=t("gs_blended_help"))
+k5.metric(t("capital_start_label"),  f"{gs.initial_capital:,.0f} PLN")
 
 st.divider()
 
 # ── ZAKŁADKI ──────────────────────────────────────────────────────────────────
 tab_portfolio, tab_profiles, tab_status, tab_preview = st.tabs([
-    "🏦 Portfel",
-    "📋 Profile",
-    "🔗 Status Propagacji",
-    "📊 Podgląd",
+    t("gs_tab_portfolio"),
+    t("gs_tab_profiles"),
+    t("gs_tab_status"),
+    t("gs_tab_preview"),
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -76,10 +75,9 @@ with tab_portfolio:
     # ─── LEWA KOLUMNA ─────────────────────────────────────────────────────────
     with col_left:
 
-        # ── Kapitał startowy ──────────────────────────────────────────────────
-        st.markdown("### 💰 Kapitał Startowy")
+        st.markdown(f"### {t('capital_start_label')}")
         new_capital = st.number_input(
-            "Kapitał Startowy (PLN)",
+            t("capital_start"),
             min_value=1_000.0, max_value=100_000_000.0,
             value=float(gs.initial_capital),
             step=10_000.0,
@@ -89,16 +87,52 @@ with tab_portfolio:
 
         st.markdown("---")
 
+        # ── Heartbeat Engine ──────────────────────────────────────────────────
+        st.markdown(t("gs_heartbeat"))
+        st.caption(t("gs_heartbeat_cap"))
+
+        col_hb1, col_hb2 = st.columns([1, 2])
+        with col_hb1:
+            bg_enabled = st.toggle(t("gs_bg_toggle"), value=gs.bg_refresh_enabled, key="gs_bg_enabled")
+
+        with col_hb2:
+            bg_interval = st.slider(
+                t("gs_bg_interval"),
+                min_value=1, max_value=120,
+                value=gs.bg_refresh_interval_minutes,
+                step=1,
+                disabled=not bg_enabled,
+                key="gs_bg_interval"
+            )
+
+        st.markdown("---")
+
+        # ── Język interfejsu ──────────────────────────────────────────────────
+        st.markdown(f"### {t('lang_label')}")
+        lang_opts = [t("lang_pl"), t("lang_en")]
+        lang_idx = 0 if gs.language == "pl" else 1
+        lang_sel = st.radio(
+            t("lang_label"),
+            lang_opts,
+            index=lang_idx,
+            key="gs_language",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        new_language = "pl" if lang_sel == lang_opts[0] else "en"
+
+        st.markdown("---")
+
         # ── Podział portfela ──────────────────────────────────────────────────
-        st.markdown("### 📊 Podział Bezpieczna / Ryzykowna")
+        st.markdown(t("gs_alloc_header"))
 
         alloc_safe_int = st.slider(
-            "Część Bezpieczna (%)",
+            t("gs_alloc_slider"),
             min_value=0, max_value=100,
             value=int(round(gs.alloc_safe_pct * 100)),
             step=5,
             key="gs_alloc_safe",
-            help="Przesuń suwak, aby określić podział między częścią bezpieczną (obligacje) a ryzykowną (akcje, krypto).",
+            help=t("gs_alloc_help"),
         )
         alloc_safe_new = alloc_safe_int / 100.0
         alloc_risky_new = 1.0 - alloc_safe_new
@@ -123,12 +157,12 @@ with tab_portfolio:
         st.markdown("---")
 
         # ── Część Bezpieczna ──────────────────────────────────────────────────
-        st.markdown("### 🔒 Część Bezpieczna")
+        st.markdown(t("gs_safe_header"))
 
-        safe_type_opts = ["🏦 Obligacje Skarbowe RP 3-letnie (TOS — stała stopa)", "📁 Własny Koszyk Tickerów"]
+        safe_type_opts = [t("gs_safe_fixed"), t("gs_safe_tickers")]
         safe_type_idx = 0 if gs.safe_type == "fixed" else 1
         safe_type_sel = st.radio(
-            "Rodzaj aktywa bezpiecznego",
+            t("gs_safe_type_label"),
             safe_type_opts,
             index=safe_type_idx,
             key="gs_safe_type",
@@ -140,39 +174,38 @@ with tab_portfolio:
         new_safe_tickers = list(gs.safe_tickers)
 
         if new_safe_type == "fixed":
-            st.markdown("##### Oprocentowanie obligacji TOS")
+            st.markdown(t("gs_bond_rate"))
             new_safe_rate = st.number_input(
-                "Oprocentowanie roczne (%)",
+                t("gs_bond_rate_input"),
                 min_value=0.01, max_value=20.0,
                 value=float(gs.safe_rate * 100),
                 step=0.01,
                 format="%.2f",
                 key="gs_safe_rate",
-                help="Obligacje Skarbowe 3-letnie. Domyślnie TOS = 5.51%",
+                help=t("gs_bond_rate_help"),
             ) / 100.0
 
-            # EAR calc
             from config import TAX_BELKA
             rate_net = new_safe_rate * (1 - TAX_BELKA)
             ear = (1 + rate_net) - 1
             st.info(
-                f"📈 **Efektywna stopa netto** po podatku Belki ({TAX_BELKA:.0%}): "
-                f"**{ear*100:.3f}%** rocznie"
+                f"{t('gs_ear_info')} ({TAX_BELKA:.0%}): "
+                f"**{ear*100:.3f}%** {'rocznie' if gs.language == 'pl' else 'annually'}"
             )
         else:
-            st.markdown("##### Koszyk bezpieczny (tickers Yahoo Finance)")
+            st.markdown(t("gs_ticker_basket"))
             safe_tickers_str_input = st.text_input(
-                "Tickery bezpieczne (oddzielone przecinkami)",
+                t("gs_ticker_input"),
                 value=gs.safe_tickers_str or "TLT, IEF, GLD",
                 key="gs_safe_tickers_str",
             )
-            new_safe_tickers = [t.strip().upper() for t in safe_tickers_str_input.split(",") if t.strip()]
-            st.caption("Przykłady: TLT (obligacje 20+), IEF (obligacje 7-10), GLD (złoto), TIPS (inflacja)")
+            new_safe_tickers = [t_str.strip().upper() for t_str in safe_tickers_str_input.split(",") if t_str.strip()]
+            st.caption(t("gs_ticker_examples"))
 
     # ─── PRAWA KOLUMNA ────────────────────────────────────────────────────────
     with col_right:
-        st.markdown("### ⚡ Część Ryzykowna")
-        st.caption("Zdefiniuj papiery wartościowe i ich wagę w części ryzykownej portfela. Wagi powinny sumować się do 100%.")
+        st.markdown(t("gs_risky_header"))
+        st.caption(t("gs_risky_caption"))
 
         # Edytowalna tabela ryzykownych aktywów
         risky_df_default = pd.DataFrame(gs.risky_assets)
@@ -181,14 +214,17 @@ with tab_portfolio:
                 [{"ticker": "SPY", "weight": 100.0, "asset_class": "ETF US"}]
             )
 
-        # Upewnij się że kolumna asset_class istnieje
         if "asset_class" not in risky_df_default.columns:
             risky_df_default["asset_class"] = "N/A"
 
+        col_ticker  = t("ticker")
+        col_weight  = t("weight_pct")
+        col_class   = t("asset_class")
+
         risky_df_default = risky_df_default.rename(columns={
-            "ticker": "Ticker",
-            "weight": "Waga (%)",
-            "asset_class": "Klasa Aktywu",
+            "ticker": col_ticker,
+            "weight": col_weight,
+            "asset_class": col_class,
         })
 
         edited_risky = st.data_editor(
@@ -197,40 +233,40 @@ with tab_portfolio:
             use_container_width=True,
             key="gs_risky_table",
             column_config={
-                "Ticker": st.column_config.TextColumn("Ticker", help="Symbol Yahoo Finance, np. SPY, BTC-USD"),
-                "Waga (%)": st.column_config.NumberColumn("Waga (%)", min_value=0.1, max_value=100.0, format="%.1f"),
-                "Klasa Aktywu": st.column_config.SelectboxColumn(
-                    "Klasa Aktywu",
+                col_ticker: st.column_config.TextColumn(col_ticker, help="Yahoo Finance symbol, e.g. SPY, BTC-USD"),
+                col_weight: st.column_config.NumberColumn(col_weight, min_value=0.1, max_value=100.0, format="%.1f"),
+                col_class: st.column_config.SelectboxColumn(
+                    col_class,
                     options=["ETF US", "ETF Tech", "ETF Europe", "Akcja", "Krypto", "Obligacje", "Surowce", "Inne"],
                 ),
             },
         )
 
         # Walidacja wag
-        total_w = edited_risky["Waga (%)"].sum() if not edited_risky.empty else 0
+        total_w = edited_risky[col_weight].sum() if not edited_risky.empty else 0
         if abs(total_w - 100.0) > 0.5:
-            st.error(f"⚠️ Suma wag = **{total_w:.1f}%** — musi wynosić 100%. Różnica: {total_w-100:.1f}%")
+            st.error(t("gs_weight_err", w=total_w, d=total_w - 100))
             wt_ok = False
         else:
-            st.success(f"✅ Suma wag = {total_w:.1f}% — wagi prawidłowe.")
+            st.success(t("gs_weight_ok", w=total_w))
             wt_ok = True
 
         # Przygotuj nowe risky_assets z edytora
         new_risky_assets = []
         for _, row in edited_risky.iterrows():
-            t = str(row.get("Ticker", "")).strip().upper()
+            tick = str(row.get(col_ticker, "")).strip().upper()
             try:
-                w = float(row.get("Waga (%)", 0))
+                w = float(row.get(col_weight, 0))
             except (ValueError, TypeError):
                 w = 0.0
-            ac = str(row.get("Klasa Aktywu", "Inne"))
-            if t:
-                new_risky_assets.append({"ticker": t, "weight": w, "asset_class": ac})
+            ac = str(row.get(col_class, "Inne"))
+            if tick:
+                new_risky_assets.append({"ticker": tick, "weight": w, "asset_class": ac})
 
         st.markdown("---")
 
         # ── Szybkie podpowiedzi do dodania aktywów ──────────────────────────
-        st.markdown("##### 💡 Popularne aktywa do dodania")
+        st.markdown(t("gs_popular"))
         suggestion_cols = st.columns(4)
         suggestions = [
             ("SPY", "ETF US"), ("QQQ", "ETF Tech"), ("BTC-USD", "Krypto"), ("GLD", "Surowce"),
@@ -250,16 +286,16 @@ with tab_portfolio:
     btn_col1, btn_col2, btn_col3, _ = st.columns([2, 2, 2, 3])
 
     profile_name_input = st.text_input(
-        "Nazwa profilu",
+        t("gs_profile_name"),
         value=gs.profile_name,
         key="gs_profile_name",
-        help="Nadaj nazwę bieżącej konfiguracji dla łatwej identyfikacji",
+        help=t("gs_profile_help"),
     )
 
-    save_ok = wt_ok  # allow save only when weights are valid
+    save_ok = wt_ok
 
     with btn_col1:
-        if st.button("💾 Zapisz jako Domyślne", type="primary", use_container_width=True, disabled=not save_ok):
+        if st.button(t("save_default"), type="primary", use_container_width=True, disabled=not save_ok):
             new_gs = GlobalPortfolio(
                 safe_type=new_safe_type,
                 safe_rate=new_safe_rate,
@@ -267,19 +303,26 @@ with tab_portfolio:
                 risky_assets=new_risky_assets,
                 alloc_safe_pct=alloc_safe_new,
                 initial_capital=new_capital,
+                bg_refresh_enabled=bg_enabled,
+                bg_refresh_interval_minutes=bg_interval,
+                language=new_language,
                 profile_name=profile_name_input,
             )
             ok = save_global_settings(new_gs)
             set_gs(new_gs)
             force_apply_gs_to_session(new_gs)
+
+            from modules.background_updater import bg_engine
+            bg_engine.set_config(bg_enabled, bg_interval)
+
             if ok:
-                st.toast(f"✅ Ustawienia zapisane jako '{profile_name_input}' do {GLOBAL_SETTINGS_PATH}", icon="✅")
+                st.toast(t("gs_toast_saved", name=profile_name_input, path=GLOBAL_SETTINGS_PATH), icon="✅")
                 st.rerun()
             else:
-                st.error("❌ Błąd zapisu do pliku. Sprawdź uprawnienia do katalogu.")
+                st.error(t("gs_write_err"))
 
     with btn_col2:
-        if st.button("📤 Zastosuj (bez zapisu)", use_container_width=True, disabled=not save_ok):
+        if st.button(t("apply_no_save"), use_container_width=True, disabled=not save_ok):
             new_gs = GlobalPortfolio(
                 safe_type=new_safe_type,
                 safe_rate=new_safe_rate,
@@ -287,33 +330,41 @@ with tab_portfolio:
                 risky_assets=new_risky_assets,
                 alloc_safe_pct=alloc_safe_new,
                 initial_capital=new_capital,
+                bg_refresh_enabled=bg_enabled,
+                bg_refresh_interval_minutes=bg_interval,
+                language=new_language,
                 profile_name=profile_name_input,
             )
             set_gs(new_gs)
             force_apply_gs_to_session(new_gs)
-            st.toast("📤 Ustawienia zastosowane do tej sesji (nie zapisane na dysk).", icon="📤")
+
+            from modules.background_updater import bg_engine
+            bg_engine.set_config(bg_enabled, bg_interval)
+
+            st.toast(t("gs_toast_applied"), icon="📤")
             st.rerun()
 
     with btn_col3:
-        if st.button("🔄 Przywróć Domyślne Fabryczne", use_container_width=True):
+        if st.button(t("restore_factory"), use_container_width=True):
             factory = GlobalPortfolio()
             set_gs(factory)
             force_apply_gs_to_session(factory)
-            st.toast("🔄 Przywrócono wartości fabryczne.", icon="🔄")
+            st.toast(t("gs_toast_factory"), icon="🔄")
             st.rerun()
 
     if gs.last_updated:
-        st.caption(f"📅 Ostatni zapis: `{gs.last_updated}` | Profil: **{gs.profile_name}** | Plik: `{GLOBAL_SETTINGS_PATH}`")
+        st.caption(
+            f"📅 {t('last_save')}: `{gs.last_updated}` | "
+            f"{t('profile')}: **{gs.profile_name}** | "
+            f"{t('file')}: `{GLOBAL_SETTINGS_PATH}`"
+        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ZAKŁADKA 2: PROFILE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_profiles:
-    st.markdown("### 📋 Gotowe Profile Inwestora")
-    st.markdown(
-        "Wczytaj jeden z predefiniowanych profili jednym kliknięciem. "
-        "Po wczytaniu wróć do zakładki **🏦 Portfel** i kliknij **💾 Zapisz jako Domyślne**."
-    )
+    st.markdown(t("gs_profiles_header"))
+    st.markdown(t("gs_profiles_intro"))
     st.markdown("")
 
     for preset_name, preset_data in PRESET_PROFILES.items():
@@ -322,15 +373,15 @@ with tab_profiles:
         )
         alloc_safe = preset_data["alloc_safe_pct"]
 
-        with st.expander(f"{preset_name}  |  {alloc_safe:.0%} bezpieczna / {1-alloc_safe:.0%} ryzykowna", expanded=False):
+        with st.expander(f"{preset_name}  |  {alloc_safe:.0%} / {1-alloc_safe:.0%}", expanded=False):
             c1, c2, c3 = st.columns([2, 3, 2])
             with c1:
-                st.metric("Część bezpieczna", f"{alloc_safe:.0%}")
+                st.metric(t("gs_safe_pct"), f"{alloc_safe:.0%}")
                 st.metric("Stopa TOS", f"{preset_data['safe_rate']*100:.2f}%")
             with c2:
-                st.markdown(f"**Koszyk ryzykowny:**  \n{risky_preview}")
+                st.markdown(f"**{t('gs_risky_header').replace('### ', '')}:**  \n{risky_preview}")
             with c3:
-                if st.button(f"⬇️ Wczytaj", key=f"preset_{preset_name}", use_container_width=True):
+                if st.button(t("gs_load_profile"), key=f"preset_{preset_name}", use_container_width=True):
                     preset_gs = GlobalPortfolio(
                         safe_type=preset_data["safe_type"],
                         safe_rate=preset_data["safe_rate"],
@@ -338,79 +389,77 @@ with tab_profiles:
                         risky_assets=copy.deepcopy(preset_data["risky_assets"]),
                         alloc_safe_pct=preset_data["alloc_safe_pct"],
                         initial_capital=preset_data.get("initial_capital", gs.initial_capital),
+                        language=gs.language,
                         profile_name=preset_data["profile_name"],
                     )
                     set_gs(preset_gs)
                     force_apply_gs_to_session(preset_gs)
-                    st.toast(f"⬇️ Wczytano profil: {preset_name}", icon="⬇️")
+                    st.toast(t("gs_toast_loaded", name=preset_name), icon="⬇️")
                     st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ZAKŁADKA 3: STATUS PROPAGACJI
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_status:
-    st.markdown("### 🔗 Status Propagacji Globalnych Ustawień")
-    st.markdown(
-        "Poniżej widać, jakie wartości zostały wstrzyknięte do każdego modułu "
-        "automatycznie na podstawie Twoich globalnych ustawień."
-    )
+    st.markdown(t("gs_prop_header"))
+    st.markdown(t("gs_prop_intro"))
 
     propagation_map = [
         {
-            "Moduł": "1_Symulator.py (Monte Carlo)",
-            "Parametr": "Alokacja bezpieczna",
-            "Wartość": f"{gs.alloc_safe_pct:.0%}",
-            "Klucz": "_s.mc_alloc_safe",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "1_Symulator.py (Monte Carlo)",
+            t("gs_prop_param"): t("gs_alloc_slider"),
+            t("gs_prop_value"): f"{gs.alloc_safe_pct:.0%}",
+            t("gs_prop_key"): "_s.mc_alloc_safe",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
         {
-            "Moduł": "1_Symulator.py (AI Backtest)",
-            "Parametr": "Stopa obligacji / koszyk Safe",
-            "Wartość": f"{gs.safe_rate*100:.2f}%" if gs.safe_type == "fixed" else gs.safe_tickers_str,
-            "Klucz": "_s.ai_safe_rate / ai_safe_type",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "1_Symulator.py (AI Backtest)",
+            t("gs_prop_param"): t("gs_safe_rate"),
+            t("gs_prop_value"): f"{gs.safe_rate*100:.2f}%" if gs.safe_type == "fixed" else gs.safe_tickers_str,
+            t("gs_prop_key"): "_s.ai_safe_rate / ai_safe_type",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
         {
-            "Moduł": "1_Symulator.py (AI Backtest)",
-            "Parametr": "Koszyk ryzykowny",
-            "Wartość": gs.risky_tickers_str[:40] + ("…" if len(gs.risky_tickers_str) > 40 else ""),
-            "Klucz": "_s.ai_risky_tickers",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "1_Symulator.py (AI Backtest)",
+            t("gs_prop_param"): t("gs_risky_header").replace("### ",""),
+            t("gs_prop_value"): gs.risky_tickers_str[:40] + ("…" if len(gs.risky_tickers_str) > 40 else ""),
+            t("gs_prop_key"): "_s.ai_risky_tickers",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
         {
-            "Moduł": "1_Symulator.py",
-            "Parametr": "Kapitał startowy",
-            "Wartość": f"{gs.initial_capital:,.0f} PLN",
-            "Klucz": "_s.mc_cap / ai_cap",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "1_Symulator.py",
+            t("gs_prop_param"): t("capital_start_label"),
+            t("gs_prop_value"): f"{gs.initial_capital:,.0f} PLN",
+            t("gs_prop_key"): "_s.mc_cap / ai_cap",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
         {
-            "Moduł": "3_Stress_Test.py",
-            "Parametr": "Waga bezpieczna",
-            "Wartość": f"{gs.alloc_safe_pct:.0%}",
-            "Klucz": "_s.st_sw",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "3_Stress_Test.py",
+            t("gs_prop_param"): t("st_safe_weight"),
+            t("gs_prop_value"): f"{gs.alloc_safe_pct:.0%}",
+            t("gs_prop_key"): "_s.st_sw",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
         {
-            "Moduł": "3_Stress_Test.py",
-            "Parametr": "Koszyki Safe & Risky",
-            "Wartość": f"Safe: {gs.safe_tickers_str or 'TLT, GLD'} | Risky: {gs.risky_tickers_str[:25]}",
-            "Klucz": "_s.st_safe / st_risky",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "3_Stress_Test.py",
+            t("gs_prop_param"): f"{t('st_safe_basket')} & {t('st_risky_basket')}",
+            t("gs_prop_value"): f"Safe: {gs.safe_tickers_str or 'TLT, GLD'} | Risky: {gs.risky_tickers_str[:25]}",
+            t("gs_prop_key"): "_s.st_safe / st_risky",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
         {
-            "Moduł": "4_Emerytura.py",
-            "Parametr": "Kapitał startowy",
-            "Wartość": f"{gs.initial_capital:,.0f} PLN",
-            "Klucz": "rem_initial_capital",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "4_Emerytura.py",
+            t("gs_prop_param"): t("capital_start_label"),
+            t("gs_prop_value"): f"{gs.initial_capital:,.0f} PLN",
+            t("gs_prop_key"): "rem_initial_capital",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
         {
-            "Moduł": "19_Wealth_Optimizer.py",
-            "Parametr": "Łączny majątek",
-            "Wartość": f"{gs.initial_capital:,.0f} PLN",
-            "Klucz": "_gs_wealth_total",
-            "Status": "✅ Aktywny",
+            t("gs_prop_module"): "19_Wealth_Optimizer.py",
+            t("gs_prop_param"): t("wo_wealth"),
+            t("gs_prop_value"): f"{gs.initial_capital:,.0f} PLN",
+            t("gs_prop_key"): "_gs_wealth_total",
+            t("gs_prop_status"): t("gs_prop_active"),
         },
     ]
 
@@ -418,32 +467,27 @@ with tab_status:
     st.dataframe(df_prop, use_container_width=True, hide_index=True)
 
     st.markdown("---")
-    st.markdown("#### ℹ️ Jak działa propagacja?")
-    st.markdown("""
-    1. **Pierwsze odwiedzenie modułu** w sesji: wartości z Globalnych Ustawień są automatycznie wstrzykiwane jako domyślne.
-    2. **Ręczna zmiana w module** (np. przesunięcie slidera w Symulatorze): zmiana jest **lokalna** i nie nadpisuje ustawień globalnych.
-    3. **Przycisk ↩ Przywróć z Globalnych** (dostępny w każdym module): resetuje lokalne zmiany do wartości globalnych.
-    4. **Po zapisaniu nowych ustawień globalnych**: odśwież moduł lub kliknij przycisk ↩, aby moduł załadował nowe wartości.
-    """)
+    st.markdown(t("gs_how_header"))
+    st.markdown(t("gs_how_text"))
 
-    if st.button("🔄 Force Sync — Synchronizuj wszystkie moduły teraz", type="secondary"):
+    if st.button(t("gs_force_sync"), type="secondary"):
         force_apply_gs_to_session(gs)
-        st.success("✅ Session state zsynchronizowany z globalnymi ustawieniami.")
+        st.success(t("gs_sync_ok"))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ZAKŁADKA 4: PODGLĄD PORTFELA
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_preview:
-    st.markdown("### 📊 Wizualizacja Portfela")
+    st.markdown(t("gs_preview_header"))
 
     # ── Pie Chart główny ──────────────────────────────────────────────────────
     col_pie1, col_pie2 = st.columns(2)
 
     with col_pie1:
-        st.markdown("#### Podział Bezpieczna / Ryzykowna")
+        st.markdown(t("gs_pie_safe"))
         fig_split = go.Figure(go.Pie(
-            labels=["🔒 Bezpieczna", "⚡ Ryzykowna"],
+            labels=[t("gs_pie_safe_lbl"), t("gs_pie_risky_lbl")],
             values=[gs.alloc_safe_pct, gs.alloc_risky_pct],
             hole=0.55,
             marker_colors=["#3b82f6", "#f97316"],
@@ -463,10 +507,10 @@ with tab_preview:
             )],
         )
         st.plotly_chart(fig_split, use_container_width=True)
-        st.caption("Liczba w środku = efektywna blended rate portfela")
+        st.caption(t("gs_pie_center_cap"))
 
     with col_pie2:
-        st.markdown("#### Skład Części Ryzykownej")
+        st.markdown(t("gs_pie_risky"))
         if gs.risky_assets:
             labels_r = [a["ticker"] for a in gs.risky_assets]
             values_r = [a["weight"] for a in gs.risky_assets]
@@ -492,12 +536,12 @@ with tab_preview:
             )
             st.plotly_chart(fig_risky, use_container_width=True)
         else:
-            st.info("Brak aktywów ryzykownych do wyświetlenia.")
+            st.info(t("gs_no_risky"))
 
     st.markdown("---")
 
     # ── Tabela szczegółów ─────────────────────────────────────────────────────
-    st.markdown("#### 📋 Szczegółowy Skład Portfela")
+    st.markdown(t("gs_detail_header"))
 
     cap = gs.initial_capital
     rows = []
@@ -505,29 +549,29 @@ with tab_preview:
     # Bezpieczna część
     safe_label = f"TOS {gs.safe_rate*100:.2f}%" if gs.safe_type == "fixed" else gs.safe_tickers_str
     rows.append({
-        "Segment": "🔒 Bezpieczna",
-        "Składnik": safe_label,
-        "Waga w Portfelu": f"{gs.alloc_safe_pct:.1%}",
-        "Kwota (PLN)": f"{gs.alloc_safe_pct * cap:,.0f}",
-        "Klasa": "Obligacje / Skarbowe",
+        t("gs_col_segment"):   t("gs_seg_safe"),
+        t("gs_col_component"): safe_label,
+        t("gs_col_weight"):    f"{gs.alloc_safe_pct:.1%}",
+        t("gs_col_amount"):    f"{gs.alloc_safe_pct * cap:,.0f}",
+        t("gs_col_class"):     t("gs_bonds_label"),
     })
 
     # Ryzykowna część (rozpisana per tytuł)
     for a in gs.risky_assets:
         weight_in_total = gs.alloc_risky_pct * (a["weight"] / max(sum(x["weight"] for x in gs.risky_assets), 1e-6))
         rows.append({
-            "Segment": "⚡ Ryzykowna",
-            "Składnik": a["ticker"],
-            "Waga w Portfelu": f"{weight_in_total:.2%}",
-            "Kwota (PLN)": f"{weight_in_total * cap:,.0f}",
-            "Klasa": a.get("asset_class", "N/A"),
+            t("gs_col_segment"):   t("gs_seg_risky"),
+            t("gs_col_component"): a["ticker"],
+            t("gs_col_weight"):    f"{weight_in_total:.2%}",
+            t("gs_col_amount"):    f"{weight_in_total * cap:,.0f}",
+            t("gs_col_class"):     a.get("asset_class", "N/A"),
         })
 
     df_detail = pd.DataFrame(rows)
     st.dataframe(df_detail, use_container_width=True, hide_index=True)
 
     # ── Wykres słupkowy kwot ──────────────────────────────────────────────────
-    labels_bar = [r["Składnik"] for r in rows]
+    labels_bar = [r[t("gs_col_component")] for r in rows]
     values_bar = [gs.alloc_safe_pct * cap] + [
         gs.alloc_risky_pct * (a["weight"] / max(sum(x["weight"] for x in gs.risky_assets), 1e-6)) * cap
         for a in gs.risky_assets
@@ -546,7 +590,7 @@ with tab_preview:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(10,11,20,0.6)",
         height=350,
-        yaxis_title="Kwota (PLN)",
+        yaxis_title=t("gs_bar_yaxis"),
         showlegend=False,
         margin=dict(t=20, b=20),
     )
