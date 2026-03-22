@@ -123,6 +123,44 @@ with tab_portfolio:
 
         st.markdown("---")
 
+        # ── Personalizacja Modułów (Menu) ─────────────────────────────────────
+        st.markdown("### 🎛️ Objętość Menu")
+        st.caption("Wybierz moduły naukowe do wyświetlenia na pasku bacznym.")
+        
+        all_possible_modules = [
+            # Analiza Ryzyka
+            "Factor Zoo & PCA", "EVT — Tail Risk", "Black-Litterman AI", 
+            "DCC — Korelacje", "Stress Test",
+            # Narzedzia
+            "Symulator Barbell", "Skaner Rynku",
+            # Planowanie
+            "Emerytura / FIRE",
+            # Ochrona Kapitału
+            "Portfolio Health Monitor", "Concentration Risk", 
+            "Drawdown Recovery", "Investment Clock",
+            # Zarzadzanie
+            "Regime Allocation", "Liquidity Risk", "Tail Risk Hedging", "Tax Optimizer PL",
+            # Wzrost
+            "Smart Rebalancing", "Sentiment & Flow", "Alt. Risk Premia", "Wealth Optimizer",
+            # Life OS
+            "Life OS — Łowca", "Day Trading", "Walk-Forward CPCV",
+        ]
+        
+        # Jeśli lista w gs jest pusta, załóżmy że domyślnie wszystko włączone
+        default_visible = gs.visible_modules if gs.visible_modules else all_possible_modules
+        # Oczyść ze starych kluczy niewykorzystanych
+        default_visible = [m for m in default_visible if m in all_possible_modules]
+        
+        new_visible_modules = st.multiselect(
+            "Widoczne moduły",
+            all_possible_modules,
+            default=default_visible,
+            key="gs_visible_modules",
+            label_visibility="collapsed"
+        )
+
+        st.markdown("---")
+
         # ── Podział portfela ──────────────────────────────────────────────────
         st.markdown(t("gs_alloc_header"))
 
@@ -306,6 +344,7 @@ with tab_portfolio:
                 bg_refresh_enabled=bg_enabled,
                 bg_refresh_interval_minutes=bg_interval,
                 language=new_language,
+                visible_modules=new_visible_modules,
                 profile_name=profile_name_input,
             )
             ok = save_global_settings(new_gs)
@@ -390,6 +429,7 @@ with tab_profiles:
                         alloc_safe_pct=preset_data["alloc_safe_pct"],
                         initial_capital=preset_data.get("initial_capital", gs.initial_capital),
                         language=gs.language,
+                        visible_modules=gs.visible_modules,
                         profile_name=preset_data["profile_name"],
                     )
                     set_gs(preset_gs)

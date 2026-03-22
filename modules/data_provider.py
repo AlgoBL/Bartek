@@ -40,9 +40,10 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
         # History jest bezpieczne wielowątkowo
         tkr = yf.Ticker(tickers[0])
         kw = {"auto_adjust": auto_adjust}
-        if start and end:
+        if start:
             kw["start"] = start
-            kw["end"] = end
+            if end:
+                kw["end"] = end
         elif period:
             kw["period"] = period
         else:
@@ -50,9 +51,10 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
         return tkr.history(**kw)
         
     kwargs = {"progress": False, "auto_adjust": auto_adjust, "threads": True}
-    if start and end:
+    if start:
         kwargs["start"] = start
-        kwargs["end"] = end
+        if end:
+            kwargs["end"] = end
     elif period:
         kwargs["period"] = period
     else:

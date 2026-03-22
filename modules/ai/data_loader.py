@@ -7,16 +7,19 @@ from modules.logger import setup_logger
 logger = setup_logger(__name__)
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(tickers, start_date="2000-01-01", end_date=None):
+def load_data(tickers, start_date=None, end_date=None, period=None):
     """
     Fetches historical adjusted close prices for given tickers.
+    If period is provided (e.g. '5y'), start_date and end_date are ignored.
     Uses Streamlit caching to prevent rate limiting and improve speed.
     """
+    if start_date is None and period is None:
+        start_date = "2000-01-01"
     if isinstance(tickers, str):
         tickers = [tickers]
         
     try:
-        data = fetch_data(tickers, start=start_date, end=end_date, auto_adjust=False)
+        data = fetch_data(tickers, start=start_date, end=end_date, period=period, auto_adjust=False)
         
         # yfinance > 0.2 returns MultiIndex (Price, Ticker) if multiple tickers, 
         # or just (Price) if single ticker BUT sometimes still MultiIndex.

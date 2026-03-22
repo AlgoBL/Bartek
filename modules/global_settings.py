@@ -120,6 +120,9 @@ class GlobalPortfolio:
     # Język interfejsu / Interface language
     language: str = "pl"  # "pl" | "en"
 
+    # Personalizacja Menu (Visible Modules)
+    visible_modules: List[str] = field(default_factory=list)
+
     # Metadane
     profile_name: str = "Domyślny"
     last_updated: str = ""
@@ -180,6 +183,7 @@ def load_global_settings() -> GlobalPortfolio:
             bg_refresh_enabled=bool(data.get("bg_refresh_enabled", True)),
             bg_refresh_interval_minutes=int(data.get("bg_refresh_interval_minutes", 15)),
             language=data.get("language", "pl"),
+            visible_modules=data.get("visible_modules", []),
             profile_name=data.get("profile_name", "Domyślny"),
             last_updated=data.get("last_updated", ""),
         )

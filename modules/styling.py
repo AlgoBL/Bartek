@@ -27,93 +27,63 @@ def inject_accordion_js():
     <script>
     (function() {
         var doc = window.parent.document;
-        var _observer = null;
-        var _clickHandler = null;
-
-        function collapseAll(nav) {
-            nav.querySelectorAll('details').forEach(function(d) {
-                d.removeAttribute('open');
-            });
-        }
-
-        function openActive(nav) {
+        
+        function enforceAccordion(nav) {
             var activeLink = nav.querySelector('a[aria-current="page"]');
-            if (activeLink) {
-                var det = activeLink.closest('details');
-                if (det) { det.setAttribute('open', ''); return; }
+            var activeDetails = activeLink ? activeLink.closest('details') : null;
+            
+            nav.querySelectorAll('details').forEach(function(d) {
+                // Listeners for manual clicks
+                if (!d.dataset.accordionAttached) {
+                    d.addEventListener('toggle', function(e) {
+                        if (e.target.open) {
+                            nav.querySelectorAll('details').forEach(function(other) {
+                                if (other !== e.target && other.open) {
+                                    other.removeAttribute('open');
+                                }
+                            });
+                        }
+                    }, true);
+                    d.dataset.accordionAttached = "true";
+                }
+            });
+            
+            // On navigation or load, force only the active section to be open
+            if (activeDetails && !activeDetails.open) {
+                activeDetails.setAttribute('open', '');
             }
-            // Fallback: strona glowna — otwieramy sekcje Dashboard (index 1)
-            var allDet = nav.querySelectorAll('details');
-            if (allDet.length > 1) allDet[1].setAttribute('open', '');
-            else if (allDet.length === 1) allDet[0].setAttribute('open', '');
-        }
-
-        function applyAccordion() {
-            var nav = doc.querySelector('[data-testid="stSidebarNav"]');
-            if (!nav) return false;
-            if (nav.querySelectorAll('details').length === 0) return false;
-            collapseAll(nav);
-            openActive(nav);
-            return true;
-        }
-
-        function attachAccordionClick(nav) {
-            if (_clickHandler) nav.removeEventListener('click', _clickHandler, true);
-            _clickHandler = function(e) {
-                var summary = e.target.closest('summary');
-                if (!summary) return;
-                var clickedDet = summary.closest('details');
-                if (!clickedDet) return;
-                // Zapobiegamy domyslnemu dzialaniu przegladarki
-                e.preventDefault();
-                e.stopPropagation();
-                var wasOpen = clickedDet.hasAttribute('open');
-                // Zamknij wszystkie sekcje
+            
+            if (activeDetails) {
                 nav.querySelectorAll('details').forEach(function(d) {
-                    d.removeAttribute('open');
+                    if (d !== activeDetails && d.open) {
+                        d.removeAttribute('open');
+                    }
                 });
-                // Jesli nie bylo otwarte — otworz klikniete (toggle)
-                if (!wasOpen) {
-                    clickedDet.setAttribute('open', '');
-                }
-            };
-            nav.addEventListener('click', _clickHandler, true);
-        }
-
-        function attachObserver(nav) {
-            if (_observer) { _observer.disconnect(); }
-            _observer = new MutationObserver(function(mutations) {
-                var needsUpdate = false;
-                for (var i = 0; i < mutations.length; i++) {
-                    var m = mutations[i];
-                    if (m.type === 'attributes' && m.attributeName === 'aria-current') {
-                        needsUpdate = true; break;
+            } else {
+                // Fallback if no active link: open the first details if multiple, or close all but first
+                var allDet = nav.querySelectorAll('details');
+                if (allDet.length > 0) {
+                    var anyOpen = false;
+                    for(var i=0; i<allDet.length; i++) {
+                        if (allDet[i].open) anyOpen = true;
                     }
-                    if (m.type === 'childList' && m.addedNodes.length > 0) {
-                        needsUpdate = true; break;
+                    if (!anyOpen && allDet.length > 1) {
+                        allDet[1].setAttribute('open', '');
+                    } else if (!anyOpen && allDet.length === 1) {
+                        allDet[0].setAttribute('open', '');
                     }
                 }
-                if (needsUpdate) { setTimeout(applyAccordion, 100); }
-            });
-            _observer.observe(nav, {
-                subtree: true, childList: true,
-                attributes: true, attributeFilter: ['aria-current']
-            });
-        }
-
-        // Glowna inicjalizacja z retry co 150ms (max 6 sekund)
-        var attempts = 0;
-        var initTimer = setInterval(function() {
-            attempts++;
-            var nav = doc.querySelector('[data-testid="stSidebarNav"]');
-            if (nav && nav.querySelectorAll('details').length > 0) {
-                clearInterval(initTimer);
-                applyAccordion();
-                attachAccordionClick(nav);
-                attachObserver(nav);
             }
-            if (attempts > 40) clearInterval(initTimer);
-        }, 150);
+        }
+
+        // The interval ensures even when Streamlit completely unmounts and remounts the navigation, 
+        // the accordion logic is instantly re-applied and listeners attached.
+        setInterval(function() {
+            var nav = doc.querySelector('[data-testid="stSidebarNav"]');
+            if (nav) {
+                enforceAccordion(nav);
+            }
+        }, 300);
 
     })();
     </script>

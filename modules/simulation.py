@@ -168,6 +168,63 @@ def _sample_frank_copula(n: int, theta: float = 3.0) -> np.ndarray:
     return np.column_stack([u, v])
 
 
+def fit_best_copula(u: np.ndarray, v: np.ndarray) -> dict:
+    """
+    Fits Clayton, Gumbel, and Frank copulas using Maximum Likelihood Estimation (MLE)
+    and selects the best one based on AIC.
+
+    Returns dict with keys: 'best_family', 'best_theta', 'all_results'.
+    """
+    import scipy.optimize as opt
+    
+    # Clip to prevent log(0)
+    u = np.clip(u, 1e-4, 1 - 1e-4)
+    v = np.clip(v, 1e-4, 1 - 1e-4)
+
+    def clayton_nll(theta):
+        if theta <= 1e-4: return 1e9
+        term1 = (theta + 1) * np.log(u * v)
+        term2 = (1 / theta + 2) * np.log(u**(-theta) + v**(-theta) - 1)
+        return float(-np.sum(np.log(theta + 1) - term1 - term2))
+
+    def gumbel_nll(theta):
+        if theta <= 1.0: return 1e9
+        lu = -np.log(u)
+        lv = -np.log(v)
+        c = lu**theta + lv**theta
+        c_inv = c**(1/theta)
+        term1 = np.log(c_inv + theta - 1)
+        term2 = (2 - theta) / theta * np.log(c)
+        term3 = (theta - 1) * np.log(lu * lv)
+        term4 = c_inv
+        log_pdf = term1 + term2 + term3 - term4 - np.log(u * v)
+        return float(-np.sum(log_pdf))
+
+    def frank_nll(theta):
+        if abs(theta) <= 1e-4: return 1e9
+        term1 = theta * (1 - np.exp(-theta)) * np.exp(-theta * (u + v))
+        term2 = (1 - np.exp(-theta) - (1 - np.exp(-theta * u)) * (1 - np.exp(-theta * v)))**2
+        log_pdf = np.log(term1 / term2)
+        return float(-np.sum(log_pdf))
+
+    res_c = opt.minimize_scalar(clayton_nll, bounds=(0.01, 20), method='bounded')
+    res_g = opt.minimize_scalar(gumbel_nll, bounds=(1.001, 20), method='bounded')
+    res_f = opt.minimize_scalar(frank_nll, bounds=(0.1, 30), method='bounded')
+
+    candidates = [
+        {"family": "clayton", "theta": float(res_c.x), "aic": 2 + 2 * res_c.fun, "nll": res_c.fun},
+        {"family": "gumbel", "theta": float(res_g.x), "aic": 2 + 2 * res_g.fun, "nll": res_g.fun},
+        {"family": "frank", "theta": float(res_f.x), "aic": 2 + 2 * res_f.fun, "nll": res_f.fun},
+    ]
+
+    best = min(candidates, key=lambda x: x["aic"])
+    return {
+        "best_family": best["family"],
+        "best_theta": best["theta"],
+        "all_results": candidates
+    }
+
+
 def generate_archimedean_copula_shocks(
     n_sims: int, n_days: int,
     family: str = "clayton",
@@ -519,6 +576,26 @@ def simulate_barbell_strategy(
     df = max(2.1, risky_kurtosis)
     
     # ─── Random Shocks: Copula selection ────────────────────────────────────
+    if copula_family == "Auto-Fit (MLE)":
+        import yfinance as yf
+        from scipy.stats import rankdata
+        try:
+            proxy_df = yf.download(["SPY", "TLT"], period="5y", progress=False)["Close"].pct_change().dropna()
+            # Depending on yfinance version, columns could be MultiIndex. We flatten or select explicitly.
+            if isinstance(proxy_df.columns, pd.MultiIndex):
+                proxy_df.columns = proxy_df.columns.get_level_values(0)
+            if not proxy_df.empty and "SPY" in proxy_df.columns and "TLT" in proxy_df.columns:
+                u = rankdata(proxy_df["SPY"]) / (len(proxy_df) + 1)
+                v = rankdata(proxy_df["TLT"]) / (len(proxy_df) + 1)
+                fit_res = fit_best_copula(u, v)
+                copula_family = fit_res["best_family"]
+                copula_theta = fit_res["best_theta"]
+            else:
+                copula_family, copula_theta = "clayton", 2.0
+        except Exception as e:
+            logger.warning(f"Auto-Fit (MLE) config failed: {e}")
+            copula_family, copula_theta = "clayton", 2.0
+
     if use_fft_fbm:
         # Davies-Harte FFT: O(N log N) — najbardziej wydajna metoda
         vol_paths, spot_shocks_2d = simulate_rough_bergomi_vol_fft(

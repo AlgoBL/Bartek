@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html, inject_accordion_js, inject_command_palette_js
+from modules.global_settings import get_gs
 from modules.i18n import t
 import datetime
 
@@ -1028,6 +1029,7 @@ pages = {
         st.Page("pages/13_Liquidity_Risk.py",     title="Liquidity Risk",           icon="💧"),
         st.Page("pages/14_Tail_Hedging.py",       title="Tail Risk Hedging",        icon="🛡️"),
         st.Page("pages/15_Tax_Optimizer.py",      title="Tax Optimizer PL",         icon="💰"),
+        st.Page("pages/23_Walk_Forward.py",       title="Walk-Forward CPCV",        icon="🔄"),
     ],
 
     # ─── 7. WZROST MAJĄTKU (NOWE) ─────────────────────────────────────────────
@@ -1045,5 +1047,21 @@ pages = {
     ],
 }
 
-pg = st.navigation(pages, position="sidebar", expanded=False)
+gs = get_gs()
+if hasattr(gs, 'visible_modules') and gs.visible_modules:
+    filtered_pages = {
+        "🌐  Ustawienia": pages["🌐  Ustawienia"],
+        "🏠  Dashboard": pages["🏠  Dashboard"],
+    }
+    for group, group_pages in pages.items():
+        if group in ["🌐  Ustawienia", "🏠  Dashboard"]:
+            continue
+        valid_pages = [p for p in group_pages if p.title in gs.visible_modules]
+        if valid_pages:
+            filtered_pages[group] = valid_pages
+    pages_to_display = filtered_pages
+else:
+    pages_to_display = pages
+
+pg = st.navigation(pages_to_display, position="sidebar", expanded=False)
 pg.run()

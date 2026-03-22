@@ -119,6 +119,7 @@ with col1:
 with col2:
     dd_detail = health.get("drawdown_detail", {})
     dd_val = dd_detail.get("current_drawdown", 0)
+    dd_days = dd_detail.get("days_in_dd", 0)
     dd_color = "#00e676" if dd_val > -0.05 else "#ffea00" if dd_val > -0.10 else "#ff1744"
     dd_days_html = t("hm_days_ath", d=dd_days)
     st.markdown(f"""

@@ -189,6 +189,26 @@ if mode == MC_MODE:
         )
 
     st.sidebar.markdown("---")
+    st.sidebar.markdown("### 5.5 🕸️ Zależność Ogonowa (Kopuła)")
+    copula_family_opt = st.sidebar.selectbox(
+        "Model kopuły",
+        ["student_t", "clayton", "gumbel", "frank", "Auto-Fit (MLE)"],
+        index=["student_t", "clayton", "gumbel", "frank", "Auto-Fit (MLE)"].index(_saved("mc_copula_family", "student_t")),
+        key="mc_copula_family",
+        on_change=_save, args=("mc_copula_family",),
+        help="Zależność ogonowa. Clayton dla wspólnych spadków, Gumbel dla wspólnych wzrostów, Auto-Fit szuka optymalnych MLE parametrów."
+    )
+    
+    copula_theta_val = 2.0
+    if copula_family_opt not in ["student_t", "Auto-Fit (MLE)"]:
+        copula_theta_val = st.sidebar.slider(
+            "Siła zależności (θ)", 0.1, 20.0, value=_saved("mc_copula_theta", 2.0), step=0.1,
+            key="mc_copula_theta", on_change=_save, args=("mc_copula_theta",)
+        )
+    elif copula_family_opt == "Auto-Fit (MLE)":
+        st.sidebar.caption("💡 Parametry zostaną skalibrowane podczas symulacji (Max Likelihood na S&P500 i TLT).")
+
+    st.sidebar.markdown("---")
     st.sidebar.markdown("### 6. 🌩️ Scenario Builder")
     with st.sidebar.expander("Stwórz własny kryzys (Szok)", expanded=False):
         st.markdown("Zdefiniuj ręcznie krach na rynku akcji w konkretnym roku w przyszłości.")
@@ -224,7 +244,9 @@ if mode == MC_MODE:
             "use_fbm": use_fbm,
             "fbm_hurst": fbm_hurst,
             "use_alpha_stable": use_alpha_stable,
-            "alpha_stable_alpha": alpha_stable_alpha
+            "alpha_stable_alpha": alpha_stable_alpha,
+            "copula_family": copula_family_opt,
+            "copula_theta": copula_theta_val
         }
         
         # Submit to process pool

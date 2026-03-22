@@ -12,6 +12,7 @@ requests
 tabulate
 google-generativeai
 pandas-datareader
+statsmodels
 
 # --- Naukowe ulepszenia (2024 upgrade) ---
 networkx           # MST Correlation Network (Mantegna 1999)

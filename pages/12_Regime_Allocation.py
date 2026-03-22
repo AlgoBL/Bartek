@@ -101,7 +101,7 @@ with c4:
 
 st.divider()
 
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Probs reżimów", "📈 Reżim historyczny", "🎯 Wagi Barbella", "🧩 Wyjaśnialność (XAI)"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Probs reżimów", "📈 Reżim historyczny", "🎯 Wagi Barbella", "🧩 Wyjaśnialność (XAI)", "📉 Benchmark MSM"])
 
 with tab1:
     col_a, col_b = st.columns(2)
@@ -234,3 +234,39 @@ with tab4:
                 """)
             else:
                 st.error("Brak dostatecznej historii dla GMM, aby obliczyć Feature Importance.")
+
+with tab5:
+    st.markdown("### 📉 Markov Switching Model (MSM) Benchmark")
+    st.markdown("Klasyczny model Hamiltona (1989) pozwalający na uzyskanie obiektywnego punktu odniesienia z ekonometrii dla nowszych modeli GMM oraz sieci neuronowych (TCN).")
+    
+    if st.button("Uruchom benchmark MSM (2 Reżimy - Volatility)", key="run_msm"):
+        with st.spinner("Estymacja parametrów Maximum Likelihood dla modelu Markova... (potrwa to kilka sekund na dużych danych)"):
+            try:
+                from statsmodels.tsa.regime_switching.markov_switching import MarkovRegression
+                # Skalujemy x100 żeby solver optymalizacji ułatwił znalezienie zbieżności
+                returns_scaled = returns.dropna() * 100
+                res_model = MarkovRegression(returns_scaled, k_regimes=2, trend='c', switching_variance=True)
+                res_fit = res_model.fit(iter=150)
+                
+                msm_probs = res_fit.smoothed_marginal_probabilities
+                
+                fig_msm = go.Figure()
+                fig_msm.add_trace(go.Scatter(x=msm_probs.index, y=msm_probs[0] * 100, name="Reżim 0 (Bull / Low Vol)", line=dict(color="#00e676"), fill="tozeroy"))
+                fig_msm.add_trace(go.Scatter(x=msm_probs.index, y=msm_probs[1] * 100, name="Reżim 1 (Bear / High Vol)", line=dict(color="#ff1744"), fill="tozeroy"))
+                fig_msm.update_layout(
+                    template="plotly_dark", height=350, title="Zygzak Prawdopodobieństw wg MSM (Smoothed Probabilities)",
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    yaxis_title="P(Regime) %"
+                )
+                st.plotly_chart(fig_msm, use_container_width=True)
+                
+                c_msm1, c_msm2 = st.columns(2)
+                with c_msm1:
+                    st.markdown("**Macierz przejść (Transition Probabilities)**")
+                    st.dataframe(res_fit.params.filter(like='p[').to_frame(name="Prawdopodobieństwo Przejścia"), use_container_width=True)
+                with c_msm2:
+                    st.markdown("**Estymaty Parametrów (Skala x100)**")
+                    st.dataframe(res_fit.params.filter(regex=r'^(?!p\[)').to_frame(name="Estymaty Modelu"), use_container_width=True)
+                    
+            except Exception as e:
+                st.error(f"Błąd estymacji MSM (nie osiągnięto zbieżności algorytmu EM): {e}")
