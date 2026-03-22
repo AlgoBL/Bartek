@@ -120,6 +120,148 @@ def inject_accordion_js():
     """
     components.html(js_code, height=0, width=0)
 
+def inject_command_palette_js():
+    import streamlit.components.v1 as components
+    js_code = """
+    <script>
+    (function() {
+        var doc = window.parent.document;
+        if (doc.getElementById("cmd-palette-overlay")) return;
+
+        var overlay = doc.createElement("div");
+        overlay.id = "cmd-palette-overlay";
+        Object.assign(overlay.style, {
+            position: "fixed", top: "0", left: "0", width: "100vw", height: "100vh",
+            backgroundColor: "rgba(5, 6, 13, 0.7)", backdropFilter: "blur(5px)",
+            zIndex: "999999", display: "none", alignItems: "flex-start",
+            justifyContent: "center", paddingTop: "15vh"
+        });
+
+        var modal = doc.createElement("div");
+        Object.assign(modal.style, {
+            width: "600px", maxWidth: "90vw", backgroundColor: "#0f111a",
+            border: "1px solid rgba(0, 230, 118, 0.4)", borderRadius: "12px",
+            boxShadow: "0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 230, 118, 0.15)",
+            overflow: "hidden", display: "flex", flexDirection: "column"
+        });
+
+        var input = doc.createElement("input");
+        input.type = "text";
+        input.placeholder = "🔍 Szukaj modułu... (np. Symulator, Factor, Day Trading)";
+        Object.assign(input.style, {
+            width: "100%", padding: "20px", fontSize: "18px", backgroundColor: "transparent",
+            border: "none", color: "#e2e4f0", outline: "none",
+            borderBottom: "1px solid rgba(255, 255, 255, 0.05)"
+        });
+
+        var listWrapper = doc.createElement("div");
+        Object.assign(listWrapper.style, { maxHeight: "400px", overflowY: "auto" });
+
+        modal.appendChild(input);
+        modal.appendChild(listWrapper);
+        overlay.appendChild(modal);
+        doc.body.appendChild(overlay);
+
+        var links = [];
+        var activeIndex = 0;
+
+        function getNavLinks() {
+            var items = doc.querySelectorAll('[data-testid="stSidebarNavLink"]');
+            var result = [];
+            items.forEach(function(item) {
+                var rawText = item.textContent || item.innerText;
+                // remove redundant spaces or emoji if unwanted, but we keep it here
+                result.push({ element: item, text: rawText.trim() });
+            });
+            return result;
+        }
+
+        function renderList(query) {
+            listWrapper.innerHTML = "";
+            var q = query.toLowerCase();
+            var filtered = links.filter(function(l) { return l.text.toLowerCase().includes(q); });
+
+            if (activeIndex >= filtered.length) activeIndex = 0;
+            if (filtered.length === 0) {
+                listWrapper.innerHTML = "<div style='padding:15px 20px;color:#666;font-family:sans-serif;'>Brak wyników...</div>";
+                return;
+            }
+
+            filtered.forEach(function(l, i) {
+                var item = doc.createElement("div");
+                item.textContent = l.text;
+                Object.assign(item.style, {
+                    padding: "15px 20px", cursor: "pointer", fontFamily: "sans-serif",
+                    color: i === activeIndex ? "#00e676" : "#e2e4f0",
+                    backgroundColor: i === activeIndex ? "rgba(0, 230, 118, 0.1)" : "transparent",
+                    borderLeft: i === activeIndex ? "3px solid #00e676" : "3px solid transparent",
+                    transition: "all 0.1s ease"
+                });
+
+                item.onmouseenter = function() { activeIndex = i; renderList(query); };
+                item.onclick = function() { closeModal(); l.element.click(); };
+                listWrapper.appendChild(item);
+            });
+        }
+
+        function openModal() {
+            links = getNavLinks();
+            overlay.style.display = "flex";
+            input.value = "";
+            activeIndex = 0;
+            renderList("");
+            setTimeout(function() { input.focus(); }, 100);
+        }
+
+        function closeModal() {
+            overlay.style.display = "none";
+            input.blur();
+        }
+
+        doc.addEventListener("keydown", function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+                e.preventDefault();
+                overlay.style.display === "none" ? openModal() : closeModal();
+            } else if (e.key === "Escape" && overlay.style.display !== "none") {
+                e.preventDefault();
+                closeModal();
+            }
+        });
+
+        input.addEventListener("input", function(e) {
+            activeIndex = 0;
+            renderList(e.target.value);
+        });
+
+        input.addEventListener("keydown", function(e) {
+            var q = input.value.toLowerCase();
+            var filtered = links.filter(function(l) { return l.text.toLowerCase().includes(q); });
+
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                if (activeIndex < filtered.length - 1) activeIndex++;
+                renderList(input.value);
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                if (activeIndex > 0) activeIndex--;
+                renderList(input.value);
+            } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (filtered.length > 0) {
+                    closeModal();
+                    filtered[activeIndex].element.click();
+                }
+            }
+        });
+
+        overlay.addEventListener("click", function(e) {
+            if (e.target === overlay) closeModal();
+        });
+    })();
+    </script>
+    """
+    components.html(js_code, height=0, width=0)
+
 def apply_styling() -> str:
     return """
     <style>

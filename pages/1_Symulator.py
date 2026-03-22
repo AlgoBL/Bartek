@@ -160,6 +160,20 @@ if mode == MC_MODE:
         on_change=_save, args=("mc_use_jump",),
         help="Symuluje nagłe luki cenowe (Czarne Łabędzie) poprzez proces Poissona. Merton (1976)."
     )
+    use_alpha_stable = st.sidebar.checkbox(
+        "Lévy-Stable Processes (Heavy Tails)",
+        value=_saved("mc_use_alpha_stable", False), key="mc_use_alpha_stable",
+        on_change=_save, args=("mc_use_alpha_stable",),
+        help="Symuluj rynki finansowe za pomocą procesów o nieskończonej wariancji "
+             "z parametrem α wg algorytmu CMS (Chambers-Mallows-Stuck 1976)."
+    )
+    alpha_stable_alpha = 1.7
+    if use_alpha_stable:
+        alpha_stable_alpha = st.sidebar.slider(
+            "Wykładnik ogona α (Tail Index)", 1.05, 2.0, value=_saved("mc_alpha_stable_alpha", 1.7), step=0.05,
+            key="mc_alpha_stable_alpha", on_change=_save, args=("mc_alpha_stable_alpha",),
+            help="Dla α=2.0 mamy rozkład normalny. α<2 modelują rynki z grubymi ogonami (krypto to często α≈1.6, S&P500 α≈1.8)."
+        )
     use_fbm = st.sidebar.checkbox(
         "Rynki Fraktalne (fBM)",
         value=_saved("mc_use_fbm", False), key="mc_use_fbm",
@@ -208,7 +222,9 @@ if mode == MC_MODE:
             "use_jump_diffusion": use_jump_diffusion,
             "custom_scenarios": custom_scenarios,
             "use_fbm": use_fbm,
-            "fbm_hurst": fbm_hurst
+            "fbm_hurst": fbm_hurst,
+            "use_alpha_stable": use_alpha_stable,
+            "alpha_stable_alpha": alpha_stable_alpha
         }
         
         # Submit to process pool

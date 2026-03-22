@@ -88,6 +88,23 @@ def generate_student_t_copula_shocks(n_sims, n_days, n_assets, df=4, correlation
     std_t = np.sqrt(df / (df - 2)) if df > 2 else 1.0
     return t_shocks / std_t
 
+def generate_symmetric_alpha_stable(alpha, size):
+    """
+    Chambers-Mallows-Stuck (1976) generator for symmetric alpha-stable (beta=0).
+    Szybka alternatywa dla scipy.stats.levy_stable (o rzędy wielkości).
+    Dla alpha ok. 1.7 symuluje grube ogony (Lévy markets).
+    """
+    phi = np.random.uniform(-np.pi/2, np.pi/2, size)
+    w = np.random.exponential(1.0, size)
+    if abs(alpha - 1.0) < 1e-4:
+        return np.tan(phi)
+    elif abs(alpha - 2.0) < 1e-4:
+        return np.sqrt(2 * w) * np.sin(phi) # limit is normal
+    else:
+        part1 = np.sin(alpha * phi) / (np.cos(phi) ** (1/alpha))
+        part2 = (np.cos((1 - alpha) * phi) / w) ** ((1 - alpha) / alpha)
+        return part1 * part2
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ARCHIMEDEAN COPULAS — Referencja: Nelson (2006), Joe (1997)
@@ -483,11 +500,15 @@ def simulate_barbell_strategy(
     custom_scenarios: list = None,     # [{"year": 5, "drop_pct": 0.40}]
     use_fbm: bool = False,             # Fractional Brownian Motion
     fbm_hurst: float = 0.5,            # Hurst exponent for fBM
+    # ==== SREDNI PRIORYTET ====
+    use_alpha_stable: bool = False,    # Lévy-Stable Process vs t-Student
+    alpha_stable_alpha: float = 1.7,   # Tail index for Lévy-Stable
 ):
     """
     Monte Carlo Simulation z:
-    - GARCH(1,1) lub Rough Bergomi zmiennością
-    - Kopuła t-Studenta (default) lub Archimedejska (Clayton/Gumbel/Frank)
+    - GARCH(1,1) / Rough Bergomi / fBM
+    - Kopuła t-Studenta / Archimedejska (Clayton/Gumbel/Frank)
+    - Prawdopodobieństwo Lévy-Stable (Heavy Tails)
     - Merton Jump-Diffusion
     - Belka Tax (19%) na zyski
     """
@@ -547,6 +568,12 @@ def simulate_barbell_strategy(
             random_shocks = t.rvs(df, size=(n_simulations, total_days))
             std_t = np.sqrt(df / (df - 2))
             standardized_shocks = random_shocks / std_t
+        rough_daily_vols = None
+    elif use_alpha_stable:
+        raw_shocks = generate_symmetric_alpha_stable(alpha_stable_alpha, size=(n_simulations, total_days))
+        # Standaryzacja skali jest problematyczna dla α < 2 (nieskończona wariancja).
+        # Używamy konwencji gdzie scale=1/sqrt(2) dla α=2 by powracało do N(0,1).
+        standardized_shocks = raw_shocks * 0.7071
         rough_daily_vols = None
     else:
         df = max(2.1, risky_kurtosis)

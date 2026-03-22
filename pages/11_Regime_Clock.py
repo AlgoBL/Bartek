@@ -10,6 +10,12 @@ from modules.macro_regime_clock import (
     get_hmm_regime_probabilities, get_transition_matrix
 )
 from modules.i18n import t
+from modules.spectral_analysis import (
+    compute_fourier_spectrum, plot_fourier_spectrum,
+    compute_wavelet_transform, plot_wavelet_transform
+)
+from modules.ai.data_loader import load_data
+import datetime
 
 st.set_page_config(page_title="Macro Regime Clock", page_icon="🕐", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -233,7 +239,50 @@ with st.expander("📚 Metodologia Investment Clock"):
     | 🌅 Recovery | ↑ | ↓ | Akcje |
     | ☀️ Overheat | ↑ | ↑ | Surowce |
     | 🌪️ Stagflation | ↓ | ↑ | Złoto/Cash |
-    | 🌙 Reflation | ↓ | ↓ | Obligacje |
-
     *Źródło: Merrill Lynch "The Investment Clock" (2004); 50 lat danych 1973-2023*
     """)
+
+st.divider()
+
+st.markdown("### 🌊 Analiza Spektralna i Falowa (Głębokie Cykle Rynkowe)")
+st.markdown("*Matematyczna dekompozycja historycznych cykli giełdowych przy użyciu Fouriera i falki Morleta (Wavelet Transform).*")
+
+with st.expander("▶️ Uruchom Analizę Spektralną (Głębokie Analizy S&P 500)", expanded=False):
+    st.info("Obliczanie transformaty Fouriera i Wavelet dla danych od 2000 roku może zająć kilka sekund.")
+    if st.button("Uruchom Analizę (S&P 500)", key="run_spectral"):
+        with st.spinner("Pobieranie danych S&P 500 i dekompozycja sygnału..."):
+            end_date = datetime.date.today()
+            start_date = end_date - datetime.timedelta(days=365*25) # 25 years
+            df = load_data(["^GSPC"], start_date=start_date.strftime("%Y-%m-%d"))
+            
+            if not df.empty and "^GSPC" in df.columns:
+                prices = df["^GSPC"].values
+                dates = df.index
+                
+                # Fourier
+                f_periods, f_pxx = compute_fourier_spectrum(prices)
+                fig_fourier = plot_fourier_spectrum(f_periods, f_pxx)
+                
+                # Wavelet
+                w_widths, w_power = compute_wavelet_transform(prices)
+                fig_wavelet = plot_wavelet_transform(w_widths, w_power, dates)
+                
+                # Render
+                st.plotly_chart(fig_fourier, use_container_width=True)
+                
+                st.markdown("""
+                **Interpretacja Fouriera:** Szczyty (pik-i) na powyższym wykresie oznaczają najsilniejsze cykliczności w historii rynku.
+                Historycznie, rynki finansowe operują w oparciu o naturalne cykle koniunkturalne: *Kitchina* (zapasy) ok. 4 lat oraz *Juglara* (inwestycje stałe) ok. 9 lat.
+                """)
+                
+                st.plotly_chart(fig_wavelet, use_container_width=True)
+                
+                st.markdown("""
+                **Interpretacja Wavelet (Falki Morleta):** 
+                W przeciwieństwie do Fouriera, transformata falowa pokazuje **kiedy** dany cykl był najsilniejszy. 
+                Jaśniejsze kolory (żółty/biały) = reżim silnej cykliczności w danym paśmie częstotliwości.
+                Widać wyraźnie jak cykl 8-letni dominował w pewnych dekadach (kropki/smużki na wysokości ~8 lat), 
+                a następnie tracił na znaczeniu na rzez cykli krótszych.
+                """)
+            else:
+                st.error("Błąd pobierania danych dla analizy.")

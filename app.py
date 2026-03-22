@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html, inject_accordion_js
+from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html, inject_accordion_js, inject_command_palette_js
 from modules.i18n import t
 import datetime
 
@@ -16,6 +16,7 @@ st.set_page_config(
 
 # Wstrzykuje JavaScript kontrolera accordion
 inject_accordion_js()
+inject_command_palette_js()
 
 from modules.background_updater import bg_engine, CACHE_FILE
 import json

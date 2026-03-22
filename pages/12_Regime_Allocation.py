@@ -10,6 +10,8 @@ from modules.regime_adaptive_allocation import (
     regime_conditional_weights, REGIMES,
 )
 from modules.i18n import t
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.inspection import permutation_importance
 
 st.set_page_config(page_title="Regime Adaptive Allocation", page_icon="🔀", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -99,7 +101,7 @@ with c4:
 
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["📊 Probs reżimów", "📈 Reżim historyczny", "🎯 Wagi Barbella"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Probs reżimów", "📈 Reżim historyczny", "🎯 Wagi Barbella", "🧩 Wyjaśnialność (XAI)"])
 
 with tab1:
     col_a, col_b = st.columns(2)
@@ -166,3 +168,69 @@ with tab3:
     st.plotly_chart(fig_w, use_container_width=True)
     st.info(f"💡 **EMA Smoothing {smooth_alpha:.0%}**: wagi nie zmieniają się gwałtownie. Im wyższy smooth_alpha, tym wolniejsze dostosowanie.")
     st.markdown("**Interpretacja:** Regime-adaptive allocation automatycznie przesuwa ciężar portfela między bezpiecznymi aktywami (obligacje, złoto) a ryzykownymi (akcje, ETF) w zależności od fazy rynkowej detektowanej przez GMM.")
+
+with tab4:
+    st.markdown("### 🧩 SHAP & Feature Importance (Surrogate Model)")
+    st.markdown("*Jakie zmienne rynkowe zadecydowały o obecnej klasyfikacji reżimu przez modele GMM/DL? (Wyjaśnialność Black-Box)*")
+    
+    if st.button("Oblicz ważność cech (XAI)", key="run_xai"):
+        with st.spinner("Trenowanie modelu surrogate (Random Forest) i wyliczanie Permutation Importance..."):
+            # Prepare features (same as LSTM/TCN)
+            df_feats = pd.DataFrame({"r": returns})
+            df_feats["vol_21"]   = df_feats["r"].rolling(21, min_periods=5).std().fillna(df_feats["r"].std())
+            df_feats["vol_5"]    = df_feats["r"].rolling(5,  min_periods=2).std().fillna(df_feats["r"].std())
+            df_feats["mom_63"]   = df_feats["r"].rolling(63, min_periods=10).mean().fillna(0)
+            df_feats["mom_21"]   = df_feats["r"].rolling(21, min_periods=5).mean().fillna(0)
+            df_feats["skew_63"]  = df_feats["r"].rolling(63, min_periods=10).skew().fillna(0)
+            df_feats["rng"]      = (df_feats["r"] - df_feats["r"].rolling(21).mean()) / (df_feats["vol_21"] + 1e-8)
+            
+            df_feats = df_feats.dropna()
+            
+            if "state_probs" in gmm_res and len(df_feats) > 0:
+                # Align labels
+                aligned_probs = gmm_res["state_probs"].reindex(df_feats.index).fillna(method='ffill').dropna()
+                y_labels = aligned_probs.values.argmax(axis=1)
+                
+                # Align X
+                X = df_feats.loc[aligned_probs.index]
+                
+                # Train surrogate model
+                rf = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+                rf.fit(X, y_labels)
+                
+                # Permutation Importance (Proxy for SHAP)
+                result = permutation_importance(rf, X, y_labels, n_repeats=5, random_state=42)
+                
+                imp_df = pd.DataFrame({
+                    "Cecha": X.columns,
+                    "Ważność": result.importances_mean,
+                    "Odchylenie": result.importances_std
+                }).sort_values('Ważność', ascending=True)
+                
+                fig_xai = go.Figure(go.Bar(
+                    x=imp_df["Ważność"],
+                    y=imp_df["Cecha"],
+                    orientation='h',
+                    marker_color="#00e676",
+                    error_x=dict(type='data', array=imp_df["Odchylenie"], color="#ffffff")
+                ))
+                
+                fig_xai.update_layout(
+                    template="plotly_dark", height=350,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    title="Feature Importance (Permutation na Surrogate RF)",
+                    xaxis_title="Zmniejszenie dokładności modelu (Ważność)",
+                    yaxis_title="Cecha rynkowa",
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+                )
+                
+                st.plotly_chart(fig_xai, use_container_width=True)
+                
+                st.markdown("""
+                **Interpretacja Permutacyjna:**
+                Wykres obrazuje, które ze zmiennych wymiarujących zachowanie rynku są najistotniejsze z punktu widzenia ukrytych reżimów (Hidden Markov / TCN). 
+                * **vol_21** / **vol_5** — zmienność zazwyczaj najlepiej separuje stany rynkowe (Volatility Clustering).
+                * **mom_63** / **mom_21** — momentum determinuje czy znajdujemy się w fazie długiej hossy, czy też na dnie bessy.
+                """)
+            else:
+                st.error("Brak dostatecznej historii dla GMM, aby obliczyć Feature Importance.")

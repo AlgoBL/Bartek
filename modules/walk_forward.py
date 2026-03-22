@@ -550,3 +550,97 @@ def deflated_sharpe_ratio(
         f"({'✅ Prawdziwa przewaga' if psr_result['psr'] > 0.95 else '❌ Może być data snooping'})"
     )
     return psr_result
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COMBINATORIAL PURGED CROSS-VALIDATION (CPCV) & PBO (Bailey et al. 2014)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_strategy_matrix(spy_returns: pd.Series, tlt_returns: pd.Series, n_strategies: int = 20) -> pd.DataFrame:
+    """
+    Generuje macierz zwrotów (T x M) dla M różnych wariantów strategii Barbella.
+    Różne wagi SPY vs TLT. Służy do demonstracji efektu przeuczenia (overfitting).
+    """
+    df = pd.DataFrame(index=spy_returns.index)
+    weights = np.linspace(0.1, 0.9, n_strategies)
+    for i, w_risky in enumerate(weights):
+        w_safe = 1.0 - w_risky
+        strat_name = f"Barbell_R{w_risky*100:.0f}"
+        df[strat_name] = spy_returns * w_risky + tlt_returns * w_safe
+    return df
+
+def cpcv_pbo(strategy_returns: pd.DataFrame, n_chunks: int = 6):
+    """
+    Metoda Combinatorial Purged Cross-Validation (CPCV)
+    i Probability of Backtest Overfitting (PBO) wg Bailey et al. (2014).
+    """
+    from itertools import combinations
+    T = len(strategy_returns)
+    chunk_size = T // n_chunks
+    
+    # Podział na blok (chunks)
+    chunks = []
+    for i in range(n_chunks):
+        start = i * chunk_size
+        end = (i + 1) * chunk_size if i < n_chunks - 1 else T
+        chunks.append(strategy_returns.iloc[start:end])
+        
+    # Kombinacje Out-of-Sample (S = N/2)
+    S = n_chunks // 2
+    combos = list(combinations(range(n_chunks), S))
+    
+    rankits = [] # OOS rank 
+    
+    for c in combos:
+        oos_idx = list(c) # Out-of-Sample chunks
+        is_idx = [i for i in range(n_chunks) if i not in oos_idx] # In-Sample chunks
+        
+        is_data = pd.concat([chunks[i] for i in is_idx])
+        oos_data = pd.concat([chunks[i] for i in oos_idx])
+        
+        # Oceny In-Sample (Sharpe proxy na podstawie log zwrotów wbudowane)
+        is_sharpes = is_data.mean() / (is_data.std() + 1e-10)
+        best_strat = is_sharpes.idxmax()
+        
+        # Oceny Out-of-Sample
+        oos_sharpes = oos_data.mean() / (oos_data.std() + 1e-10)
+        best_strat_oos_sharpe = oos_sharpes[best_strat]
+        
+        # Ranga OOS
+        rank = (oos_sharpes <= best_strat_oos_sharpe).mean()
+        rankits.append(rank)
+        
+    rankits = np.array(rankits)
+    # PBO = P(Rank < 0.5)
+    pbo = np.mean(rankits < 0.50)
+    
+    return pbo, rankits
+
+def plot_cpcv_results(rankits: np.ndarray, pbo: float):
+    """Generuje wykres dystrybucji wag OOS rankit."""
+    import plotly.graph_objects as go
+    
+    clipped_rankits = np.clip(rankits, 0.01, 0.99)
+    logits = np.log(clipped_rankits / (1 - clipped_rankits))
+    
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(
+        x=logits,
+        nbinsx=15,
+        marker_color='#a855f7',
+        opacity=0.75,
+        name='Logit(Rank)'
+    ))
+    
+    fig.add_vline(x=0, line_dash='dash', line_color='red', annotation_text="Mediana OOS")
+    
+    fig.update_layout(
+        template='plotly_dark',
+        title=f"Probability of Backtest Overfitting (PBO = {pbo*100:.1f}%)",
+        xaxis_title="Logit Rang OOS (Wartości <0 oznaczają underperformance)",
+        yaxis_title="Częstotliwość",
+        height=350,
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+    )
+    
+    return fig
