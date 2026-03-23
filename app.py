@@ -552,6 +552,28 @@ def check_for_updates():
         st.session_state["last_cache_mtime"] = current_mtime
         st.rerun()
 
+def get_action_recommendations(score: float, macro: dict, alerts: list) -> list:
+    """Generuje listę rekomendowanych akcji na podstawie obecnego stanu."""
+    actions = []
+    
+    if score > 65:
+        actions.append("🔴 <b>Zredukuj ryzyko:</b> Rozważ przeniesienie 10-20% z części ryzykownej do bezpiecznej (TOS).")
+        actions.append("🛡️ <b>Sprawdź Ochronę:</b> Uruchom <i>Stress Test</i> dla nowych ustawień lub dokup opcje (<i>Tail Risk Hedging</i>).")
+    elif score > 35:
+        if "VIX" in str(alerts):
+            actions.append("🟡 <b>Uwaga na zmienność:</b> VIX rośnie. Wstrzymaj nowe zakupy akcji do czasu uspokojenia.")
+        else:
+            actions.append("⚖️ <b>Utrzymuj kurs:</b> Rynek jest zbalansowany. Kontynuuj automatyczny rebalancing zgodnie z planem.")
+        actions.append("🔍 <b>Zoptymalizuj:</b> Skorzystaj z <i>Wealth Optimizer</i> by dostosować wagi w części ryzykownej.")
+    else:
+        actions.append("🟢 <b>Risk-On:</b> Środowisko sprzyja ryzyku. Rozważ dokupienie aktywów technologicznych (<i>ETF Tech</i>) lub krypto.")
+        
+    if macro.get("RECESSION_PROB", 0) > 40:
+        actions.append("⚠️ <b>Ryzyko Recesji:</b> Zwiększ udział długoterminowych obligacji skarbowych, by zablokować wysokie rentowności.")
+        
+    return actions
+
+
 def home():
     check_for_updates()
     st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -894,6 +916,21 @@ def home():
         <div style='border-top:1px solid #1e1e2e;padding-top:8px;flex-wrap:wrap;display:flex;'>
             {alerts_html}
         </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # --- PANEL AKCJI (ACTION PANEL) -------------------------------------------
+    action_recs = get_action_recommendations(score, macro, alerts)
+    panel_class = "action-panel alarm" if score > 65 else "action-panel warning" if score > 35 else "action-panel"
+    
+    actions_html = "".join([f"<div class='action-rec-item'>👉 {rec}</div>" for rec in action_recs])
+    
+    st.markdown(f"""
+    <div class='{panel_class}'>
+        <div style='font-size:12px; font-weight:700; color:#00e676; letter-spacing:1px; margin-bottom:10px;'>
+            💡 REKOMENDOWANA AKCJA:
+        </div>
+        {actions_html}
     </div>
     """, unsafe_allow_html=True)
     

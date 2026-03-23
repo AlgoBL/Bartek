@@ -92,7 +92,7 @@ def build_factor_returns(
     def _get_returns(ticker: str) -> pd.Series:
         try:
             if isinstance(raw.columns, pd.MultiIndex):
-                return raw[ticker]["Close"].pct_change().dropna()
+                return raw["Close"][ticker].pct_change().dropna()
             return raw["Close"].pct_change().dropna()
         except Exception as e:
             logger.debug(f"Brak danych lub błąd dla FF5 proxy {ticker}: {e}")

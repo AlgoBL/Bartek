@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from modules.vanguard_math import compute_tail_dependence_matrix
-from modules.styling import apply_styling
+from modules.styling import apply_styling, module_header, add_crisis_annotations
 from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
 from modules.metrics import (
     calculate_trade_stats, calculate_omega, calculate_ulcer_index,
@@ -64,8 +64,13 @@ if "custom_stress_scenarios" not in st.session_state:
 
 # 3. Main Navigation
 
-st.title(t("st_title"))
-st.markdown(t("st_subtitle"))
+st.markdown(module_header(
+    title=t("st_title"),
+    subtitle=t("st_subtitle"),
+    icon="🛡️",
+    badge="Ochrona Kapitału"
+), unsafe_allow_html=True)
+
 
 st.sidebar.title(t("st_sidebar_title"))
 st.sidebar.markdown(t("settings"))
@@ -252,6 +257,8 @@ if 'stress_results' in st.session_state:
                 yanchor="bottom", font=dict(color="red", size=11),
             )
 
+        add_crisis_annotations(fig_st, show=True, opacity=0.15)
+        
         fig_st.update_layout(
             title=f"{crisis_name} — Barbell vs Benchmark",
             template="plotly_dark", height=400,
@@ -291,7 +298,6 @@ if 'stress_results' in st.session_state:
                 
                 fig_corr_time.add_hline(y=0, line_dash="solid", line_color="white", opacity=0.3)
                 
-                # Also mark crash end
                 if crash_end_dt is not None and not pd.isnull(crash_end_dt) and \
                         (crash_end_dt in df_chart.index or (df_chart.index.min() < crash_end_dt < df_chart.index.max())):
                     fig_corr_time.add_shape(
@@ -299,6 +305,8 @@ if 'stress_results' in st.session_state:
                         xref="x", yref="y", line=dict(color="red", dash="dash", width=1.5),
                     )
                     
+                add_crisis_annotations(fig_corr_time, show=True, opacity=0.1)
+
                 fig_corr_time.update_layout(
                     title=f"⏳ Płynna Korelacja (Safe vs Risky) w czasie {crisis_name}",
                     template="plotly_dark", height=250,

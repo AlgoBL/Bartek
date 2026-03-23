@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from modules.styling import apply_styling
+from modules.styling import apply_styling, module_header
 from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -61,12 +61,12 @@ if "custom_stress_scenarios" not in st.session_state:
 
 # 3. Main Navigation
 
-st.header("🌍 Skaner V6.0")
-st.markdown("""
-**Architektura V6**: Wielu-agentowy system globalnej syntezy rynkowej.
-Oracle → Ekonomista → Geopolityk (FinBERT NLP) → CIO → EVT Engine → Composite Barbell Score.
-Dane przetwarzane przez **Polars** (Arrow backend) dla maksymalnej wydajności.
-""")
+st.markdown(module_header(
+    title="Skaner V6.0",
+    subtitle="Architektura V6: Wielu-agentowy system globalnej syntezy rynkowej. Oracle → Ekonomista → Geopolityk (FinBERT NLP) → CIO → EVT Engine → Composite Barbell Score. Dane przetwarzane przez Polars dla maksymalnej wydajności.",
+    icon="🌍",
+    badge="Autonomiczny System Selekcji"
+), unsafe_allow_html=True)
 
 # ── Backend Status Badges ─────────────────────────────────────────────
 from modules.ai.agents import get_sentiment_backend

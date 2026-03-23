@@ -7,7 +7,7 @@ import plotly.express as px
 import yfinance as yf
 from datetime import datetime, timedelta
 
-from modules.styling import apply_styling
+from modules.styling import apply_styling, module_header
 from modules.portfolio_health_monitor import (
     drawdown_alert, volatility_spike_detector, correlation_breakdown_alert,
     kelly_fraction_monitor, portfolio_health_score, get_active_alerts,
@@ -35,9 +35,13 @@ def load_demo_data(tickers, period="2y"):
 
 
 # ── Header ──────────────────────────────────────────────────────────────────
-st.markdown("# 🏥 Portfolio Health Monitor")
-st.markdown("*Ciągłe monitorowanie kondycji portfela — alerty, drawdown, zmienność, korelacje*")
-st.divider()
+# ── Header ──────────────────────────────────────────────────────────────────
+st.markdown(module_header(
+    title="Portfolio Health Monitor",
+    subtitle="Ciągłe monitorowanie kondycji portfela — alerty, drawdown, zmienność, korelacje",
+    icon="🏥",
+    badge="Diagnostic Center"
+), unsafe_allow_html=True)
 
 # ── Sidebar: Portfolio Input ─────────────────────────────────────────────────
 with st.sidebar:

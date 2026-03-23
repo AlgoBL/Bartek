@@ -123,6 +123,9 @@ class GlobalPortfolio:
     # Personalizacja Menu (Visible Modules)
     visible_modules: List[str] = field(default_factory=list)
 
+    # Tryb UI: 'expert' | 'educational'
+    ui_mode: str = "expert"
+
     # Metadane
     profile_name: str = "Domyślny"
     last_updated: str = ""
@@ -184,6 +187,7 @@ def load_global_settings() -> GlobalPortfolio:
             bg_refresh_interval_minutes=int(data.get("bg_refresh_interval_minutes", 15)),
             language=data.get("language", "pl"),
             visible_modules=data.get("visible_modules", []),
+            ui_mode=data.get("ui_mode", "expert"),
             profile_name=data.get("profile_name", "Domyślny"),
             last_updated=data.get("last_updated", ""),
         )
@@ -226,6 +230,11 @@ def get_gs() -> GlobalPortfolio:
     if SESSION_KEY not in st.session_state:
         st.session_state[SESSION_KEY] = load_global_settings()
     return st.session_state[SESSION_KEY]
+
+
+def should_show_explainer() -> bool:
+    """Zwraca True jeśli tryb UI to 'educational' — wtedy pokazujemy explainery automatycznie."""
+    return get_gs().ui_mode == "educational"
 
 
 def set_gs(gs: GlobalPortfolio) -> None:

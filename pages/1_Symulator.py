@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from modules.styling import apply_styling
+from modules.styling import apply_styling, module_header, add_crisis_annotations
 from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
 from modules.metrics import (
     calculate_trade_stats, calculate_omega, calculate_ulcer_index,
@@ -15,7 +15,7 @@ from modules.analysis_content import display_analysis_report, display_scanner_me
 from modules.scanner import calculate_convecity_metrics, score_asset, compute_hierarchical_dendrogram
 from modules.ai.scanner_engine import ScannerEngine
 from config import TAX_BELKA, RISK_FREE_RATE_PL
-from modules.global_settings import get_gs, apply_gs_to_session, force_apply_gs_to_session, gs_sidebar_badge
+from modules.global_settings import get_gs, apply_gs_to_session, force_apply_gs_to_session, gs_sidebar_badge, should_show_explainer
 from modules.i18n import t
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
@@ -222,9 +222,14 @@ if mode == MC_MODE:
             st.warning(f"Symulacja zrzuci rynek o **{shock_drop*100:.0f}%** w {shock_year}. roku.")
 
     # MAIN CONTENT FOR MONTE CARLO
-    st.title("⚖️ Barbell Strategy - Monte Carlo")
+    st.markdown(module_header(
+        title="Symulator Monte Carlo",
+        subtitle="Analiza teoretyczna Barbell Strategy za pomocą stochastycznych ścieżek cenowych. Porównuj warianty alokacji i optymalizuj ryzyko tail-risk.",
+        icon="⚖️",
+        badge="Wariant Teoretyczny"
+    ), unsafe_allow_html=True)
     
-    if st.button("🚀 Symuluj Wyniki", type="primary", key="mc_run"):
+    if st.button("🚀 Symuluj Wyniki (Ctrl+Enter)", type="primary", key="mc_run"):
         # Prepare arguments for execution
         sim_args = {
             "n_years": years,
@@ -400,12 +405,14 @@ if mode == MC_MODE:
                     st.plotly_chart(fig_comp, use_container_width=True)
                     st.dataframe(pd.DataFrame(rows_comp), use_container_width=True, hide_index=True)
 
-        display_chart_guide("Kluczowe Wskaźniki (KPI)", """
-        *   **Średni Kapitał**: Oczekiwana wartość końcowa (średnia arytmetyczna ze wszystkich symulacji).
-        *   **CAGR**: Średnioroczna stopa zwrotu (procent składany).
-        *   **Mediana CAGR**: Bardziej "realistyczny" zwrot (połowa scenariuszy jest lepsza, połowa gorsza).
-        *   **Szansa Straty**: Prawdopodobieństwo, że po X latach będziesz miał mniej pieniędzy niż na początku.
-        """)
+        exp_mode = should_show_explainer()
+        with st.expander("📖 Kluczowe Wskaźniki (KPI)", expanded=exp_mode):
+            st.markdown("""
+            *   **Średni Kapitał**: Oczekiwana wartość końcowa (średnia arytmetyczna ze wszystkich symulacji).
+            *   **CAGR**: Średnioroczna stopa zwrotu (procent składany).
+            *   **Mediana CAGR**: Bardziej "realistyczny" zwrot (połowa scenariuszy jest lepsza, połowa gorsza).
+            *   **Szansa Straty**: Prawdopodobieństwo, że po X latach będziesz miał mniej pieniędzy niż na początku.
+            """)
 
         days = np.arange(wealth_paths.shape[1])
         percentiles = np.percentile(wealth_paths, [5, 50, 95], axis=0)
@@ -1016,9 +1023,13 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         
         # --- Benchmarks ---
         show_benchmarks = st.checkbox("Pokaż benchmarki (S&P500, 60/40)", value=True, key="ai_show_bench")
+        show_crisis = st.checkbox("🏛️ Pokaż Historyczne Kryzysy", value=False, key="ai_show_crisis", help="Zaznacza na wykresie okresy takie jak COVID-19 czy bessa z 2022.")
+        
         if show_benchmarks and res.get('bench_spy') is not None:
             fig.add_trace(go.Scattergl(x=res['results'].index, y=res['bench_spy'], mode='lines', name='S&P 500 (100% Akcje)', line=dict(color='#ff4444', width=1, dash='dash')))
             fig.add_trace(go.Scattergl(x=res['results'].index, y=res['bench_6040'], mode='lines', name='Klasyczne 60/40', line=dict(color='#3498db', width=1, dash='dash')))
+
+        add_crisis_annotations(fig, show_crisis)
 
         risky_series = res.get('risky_mean', pd.Series())
         regimes_arr = res.get('regimes', [])
@@ -1057,6 +1068,7 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
             yaxis=dict(tickformat=".1%"),
             hovermode="x unified"
         )
+        add_crisis_annotations(fig_underwater, show_crisis)
         fig_underwater.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
         fig_underwater.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
         st.plotly_chart(fig_underwater, use_container_width=True, key="chart_underwater_plot")

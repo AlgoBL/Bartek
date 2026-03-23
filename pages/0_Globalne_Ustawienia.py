@@ -160,6 +160,23 @@ with tab_portfolio:
         )
 
         st.markdown("---")
+        
+        # ── Tryb Interfejsu (Expert / Educational) ─────────────────────────────
+        st.markdown("### 🎓 Tryb Interfejsu")
+        st.caption("Wybierz poziom zaawansowania dla wyświetlania objaśnień (Math Explainers).")
+        ui_mode_opts = ["Expert (Kompaktowy)", "Educational (Szczegółowy)"]
+        ui_mode_idx = 0 if gs.ui_mode == "expert" else 1
+        ui_mode_sel = st.radio(
+            "Tryb",
+            ui_mode_opts,
+            index=ui_mode_idx,
+            key="gs_ui_mode",
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        new_ui_mode = "expert" if ui_mode_sel == ui_mode_opts[0] else "educational"
+
+        st.markdown("---")
 
         # ── Podział portfela ──────────────────────────────────────────────────
         st.markdown(t("gs_alloc_header"))
@@ -345,6 +362,7 @@ with tab_portfolio:
                 bg_refresh_interval_minutes=bg_interval,
                 language=new_language,
                 visible_modules=new_visible_modules,
+                ui_mode=new_ui_mode,
                 profile_name=profile_name_input,
             )
             ok = save_global_settings(new_gs)
@@ -372,6 +390,8 @@ with tab_portfolio:
                 bg_refresh_enabled=bg_enabled,
                 bg_refresh_interval_minutes=bg_interval,
                 language=new_language,
+                visible_modules=new_visible_modules,
+                ui_mode=new_ui_mode,
                 profile_name=profile_name_input,
             )
             set_gs(new_gs)
@@ -430,6 +450,7 @@ with tab_profiles:
                         initial_capital=preset_data.get("initial_capital", gs.initial_capital),
                         language=gs.language,
                         visible_modules=gs.visible_modules,
+                        ui_mode=gs.ui_mode,
                         profile_name=preset_data["profile_name"],
                     )
                     set_gs(preset_gs)

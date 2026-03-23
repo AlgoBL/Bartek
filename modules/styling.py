@@ -115,32 +115,68 @@ def inject_command_palette_js():
             overflow: "hidden", display: "flex", flexDirection: "column"
         });
 
+        var inputWrapper = doc.createElement("div");
+        Object.assign(inputWrapper.style, {
+            display: "flex", alignItems: "center", borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
+            padding: "0 20px"
+        });
+        
+        var searchIcon = doc.createElement("span");
+        searchIcon.innerHTML = "⚡";
+        Object.assign(searchIcon.style, { fontSize: "20px", marginRight: "10px", opacity: "0.8" });
+
         var input = doc.createElement("input");
         input.type = "text";
-        input.placeholder = "🔍 Szukaj modułu... (np. Symulator, Factor, Day Trading)";
+        input.placeholder = "Wpisz nazwę modułu... (np. Skaner, Symulator)";
         Object.assign(input.style, {
-            width: "100%", padding: "20px", fontSize: "18px", backgroundColor: "transparent",
-            border: "none", color: "#e2e4f0", outline: "none",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.05)"
+            width: "100%", padding: "20px 0", fontSize: "18px", backgroundColor: "transparent",
+            border: "none", color: "#e2e4f0", outline: "none"
         });
+        
+        inputWrapper.appendChild(searchIcon);
+        inputWrapper.appendChild(input);
 
         var listWrapper = doc.createElement("div");
-        Object.assign(listWrapper.style, { maxHeight: "400px", overflowY: "auto" });
+        Object.assign(listWrapper.style, { maxHeight: "400px", overflowY: "auto", paddingBottom: "10px" });
 
-        modal.appendChild(input);
+        modal.appendChild(inputWrapper);
         modal.appendChild(listWrapper);
         overlay.appendChild(modal);
         doc.body.appendChild(overlay);
 
         var links = [];
         var activeIndex = 0;
+        var flatList = []; // Flattened list for keyboard navigation
+        
+        // ── MRU (Most Recently Used) Logic ──
+        function getMRU() {
+            try {
+                return JSON.parse(localStorage.getItem('barbell_mru_v1')) || [];
+            } catch (e) { return []; }
+        }
+        function saveMRU(text) {
+            var mru = getMRU();
+            mru = mru.filter(function(item) { return item !== text; });
+            mru.unshift(text);
+            if (mru.length > 5) mru = mru.slice(0, 5); // Keep up to 5
+            localStorage.setItem('barbell_mru_v1', JSON.stringify(mru));
+        }
+
+        // ── Group Categories ──
+        function getCategory(text) {
+            var t = text.toLowerCase();
+            if (t.includes('skaner') || t.includes('factor') || t.includes('day trading') || t.includes('cykliczność')) return '📊 Analiza Rynkowa';
+            if (t.includes('symulator') || t.includes('stress test') || t.includes('health') || t.includes('emerytura')) return '🛡️ Portfel i Ochrona';
+            if (t.includes('life os')) return '🧬 Osobiste';
+            if (t.includes('ustawienia') || t.includes('dashboard')) return '⚙️ System';
+            return '📁 Inne';
+        }
 
         function getNavLinks() {
             var items = doc.querySelectorAll('[data-testid="stSidebarNavLink"]');
             var result = [];
             items.forEach(function(item) {
                 var rawText = item.textContent || item.innerText;
-                // remove redundant spaces or emoji if unwanted, but we keep it here
                 result.push({ element: item, text: rawText.trim() });
             });
             return result;
@@ -148,30 +184,90 @@ def inject_command_palette_js():
 
         function renderList(query) {
             listWrapper.innerHTML = "";
-            var q = query.toLowerCase();
+            var q = query.trim().toLowerCase();
             var filtered = links.filter(function(l) { return l.text.toLowerCase().includes(q); });
-
-            if (activeIndex >= filtered.length) activeIndex = 0;
-            if (filtered.length === 0) {
-                listWrapper.innerHTML = "<div style='padding:15px 20px;color:#666;font-family:sans-serif;'>Brak wyników...</div>";
+            
+            flatList = []; // reset
+            var isSearch = q.length > 0;
+            
+            var groups = {};
+            var mru = getMRU();
+            
+            if (isSearch) {
+                // If searching, group by category
+                filtered.forEach(function(l) {
+                    var cat = getCategory(l.text);
+                    if (!groups[cat]) groups[cat] = [];
+                    groups[cat].push(l);
+                });
+            } else {
+                // If empty search, show MRU and default grouping
+                if (mru.length > 0) {
+                    groups['🕒 Ostatnio używane'] = [];
+                    mru.forEach(function(mText) {
+                        var found = links.find(function(l) { return l.text === mText; });
+                        if (found) groups['🕒 Ostatnio używane'].push(found);
+                    });
+                }
+                groups['⭐ Wszystkie Moduły'] = links; // show all
+            }
+            
+            var groupNames = Object.keys(groups);
+            if (groupNames.length === 0 || (groupNames.length === 1 && groups[groupNames[0]].length === 0)) {
+                listWrapper.innerHTML = "<div style='padding:15px 20px;color:#666;font-family:sans-serif;'>Brak modułu pasującego do wyszukiwania...</div>";
                 return;
             }
-
-            filtered.forEach(function(l, i) {
-                var item = doc.createElement("div");
-                item.textContent = l.text;
-                Object.assign(item.style, {
-                    padding: "15px 20px", cursor: "pointer", fontFamily: "sans-serif",
-                    color: i === activeIndex ? "#00e676" : "#e2e4f0",
-                    backgroundColor: i === activeIndex ? "rgba(0, 230, 118, 0.1)" : "transparent",
-                    borderLeft: i === activeIndex ? "3px solid #00e676" : "3px solid transparent",
-                    transition: "all 0.1s ease"
+            
+            groupNames.forEach(function(groupName) {
+                var items = groups[groupName];
+                if (items.length === 0) return;
+                
+                var header = doc.createElement("div");
+                header.textContent = groupName;
+                Object.assign(header.style, {
+                    padding: "10px 20px 5px", fontSize: "12px", color: "#888",
+                    textTransform: "uppercase", letterSpacing: "1px", fontWeight: "bold"
                 });
+                listWrapper.appendChild(header);
+                
+                items.forEach(function(l) {
+                    // Avoid duplicating MRU items in the "All" list if empty search
+                    if (!isSearch && groupName === '⭐ Wszystkie Moduły' && mru.includes(l.text)) return;
+                    
+                    var indexInFlat = flatList.length;
+                    flatList.push(l);
+                    
+                    var item = doc.createElement("div");
+                    item.textContent = l.text;
+                    
+                    var isActive = (indexInFlat === activeIndex);
+                    
+                    Object.assign(item.style, {
+                        padding: "12px 20px", cursor: "pointer", fontFamily: "sans-serif",
+                        color: isActive ? "#00e676" : "#e2e4f0",
+                        backgroundColor: isActive ? "rgba(0, 230, 118, 0.1)" : "transparent",
+                        borderLeft: isActive ? "3px solid #00e676" : "3px solid transparent",
+                        transition: "all 0.1s ease",
+                        margin: "2px 8px", borderRadius: "4px"
+                    });
 
-                item.onmouseenter = function() { activeIndex = i; renderList(query); };
-                item.onclick = function() { closeModal(); l.element.click(); };
-                listWrapper.appendChild(item);
+                    item.onmouseenter = function() { activeIndex = indexInFlat; renderList(query); };
+                    item.onclick = function() { saveMRU(l.text); closeModal(); l.element.click(); };
+                    listWrapper.appendChild(item);
+                });
             });
+            
+            // Adjust bounds
+            if (flatList.length > 0) {
+                if (activeIndex < 0) activeIndex = 0;
+                if (activeIndex >= flatList.length) activeIndex = flatList.length - 1;
+            }
+            
+            // Auto scroll to active element
+            var activeEl = listWrapper.children[activeIndex + groupNames.length]; // rough approx for scroll
+            if (activeEl && activeEl.scrollIntoView) {
+                activeEl.scrollIntoView({ block: "nearest" });
+            }
         }
 
         function openModal() {
@@ -204,12 +300,9 @@ def inject_command_palette_js():
         });
 
         input.addEventListener("keydown", function(e) {
-            var q = input.value.toLowerCase();
-            var filtered = links.filter(function(l) { return l.text.toLowerCase().includes(q); });
-
             if (e.key === "ArrowDown") {
                 e.preventDefault();
-                if (activeIndex < filtered.length - 1) activeIndex++;
+                if (activeIndex < flatList.length - 1) activeIndex++;
                 renderList(input.value);
             } else if (e.key === "ArrowUp") {
                 e.preventDefault();
@@ -217,9 +310,10 @@ def inject_command_palette_js():
                 renderList(input.value);
             } else if (e.key === "Enter") {
                 e.preventDefault();
-                if (filtered.length > 0) {
+                if (flatList.length > 0) {
+                    saveMRU(flatList[activeIndex].text);
                     closeModal();
-                    filtered[activeIndex].element.click();
+                    flatList[activeIndex].element.click();
                 }
             }
         });
@@ -231,6 +325,83 @@ def inject_command_palette_js():
     </script>
     """
     components.html(js_code, height=0, width=0)
+
+
+def inject_keyboard_shortcuts_js():
+    """Wstrzykuje JavaScript skrótów klawiszowych oraz overlay '?'."""
+    import streamlit.components.v1 as components
+    js_code = """
+    <script>
+    (function() {
+        var doc = window.parent.document;
+        if (doc.getElementById('kb-shortcuts-overlay')) return;
+
+        var overlay = doc.createElement('div');
+        overlay.id = 'kb-shortcuts-overlay';
+        Object.assign(overlay.style, {
+            position: 'fixed', top: '0', left: '0',
+            width: '100vw', height: '100vh',
+            backgroundColor: 'rgba(5,6,13,0.75)',
+            backdropFilter: 'blur(6px)',
+            zIndex: '999998',
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center'
+        });
+
+        var modal = doc.createElement('div');
+        Object.assign(modal.style, {
+            background: '#0f111a',
+            border: '1px solid rgba(0,204,255,0.3)',
+            borderRadius: '14px',
+            padding: '28px 32px',
+            minWidth: '380px',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.6)'
+        });
+
+        var rowStyle = 'display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;color:#9ca3af;font-family:Inter,sans-serif;';
+        var keyStyle = 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:2px 8px;font-family:monospace;color:#e2e4f0;font-size:12px;';
+
+        modal.innerHTML =
+            '<h3 style="color:#00ccff;font-size:15px;margin:0 0 18px 0;letter-spacing:1px;font-family:Inter,sans-serif;">⌨️ SKRÓTY KLAWISZOWE</h3>' +
+            '<div style="' + rowStyle + '"><span>Wyszukaj moduł</span><span style="' + keyStyle + '">Ctrl + K</span></div>' +
+            '<div style="' + rowStyle + '"><span>Uruchom symulację</span><span style="' + keyStyle + '">Ctrl + Enter</span></div>' +
+            '<div style="' + rowStyle + '"><span>Ten dialog (Pomoc)</span><span style="' + keyStyle + '">?</span></div>' +
+            '<div style="' + rowStyle + '"><span>Zamknij overlay</span><span style="' + keyStyle + '">Esc</span></div>' +
+            '<div style="' + rowStyle.replace('border-bottom:1px solid rgba(255,255,255,0.05);','') + '"><span>Nawigacja + Wybierz</span><span style="' + keyStyle + '">↑↓ + Enter</span></div>' +
+            '<p style="margin:18px 0 0 0;font-size:10px;color:#4a4e6a;font-family:Inter,sans-serif;">Barbell Strategy Dashboard v9.5+</p>';
+
+        overlay.appendChild(modal);
+        doc.body.appendChild(overlay);
+
+        function openKb() { overlay.style.display = 'flex'; }
+        function closeKb() { overlay.style.display = 'none'; }
+
+        doc.addEventListener('keydown', function(e) {
+            var tag = ((doc.activeElement || {}).tagName || '').toUpperCase();
+            var isInput = ['INPUT','TEXTAREA','SELECT'].indexOf(tag) >= 0;
+            if (e.key === '?' && !isInput && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                overlay.style.display === 'none' ? openKb() : closeKb();
+            }
+            if (e.key === 'Escape' && overlay.style.display !== 'none') {
+                e.preventDefault(); closeKb();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                var btn = doc.querySelector('[data-testid="stAppViewContainer"] [data-testid="stButton"] button') ||
+                          doc.querySelector('[data-testid="stMainBlockContainer"] .stButton button');
+                if (btn) { e.preventDefault(); btn.click(); }
+            }
+        });
+
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) closeKb();
+        });
+    })();
+    </script>
+    """
+    components.html(js_code, height=0, width=0)
+
 
 def apply_styling() -> str:
     return """
@@ -686,6 +857,131 @@ def apply_styling() -> str:
         user-select: none;
     }
 
+    /* ═══════════════════════════════════════════════════════════════
+       MODULE HEADER — breadcrumb + title + subtitle
+    ═══════════════════════════════════════════════════════════════ */
+    .module-header {
+        padding: 0 0 16px 0;
+        border-bottom: 1px solid rgba(0,230,118,0.12);
+        margin-bottom: 18px;
+    }
+    .module-breadcrumb {
+        font-size: 11px;
+        color: var(--text-dim);
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+        opacity: 0.7;
+    }
+    .module-breadcrumb a {
+        color: var(--green);
+        text-decoration: none;
+    }
+    .module-title {
+        font-size: 1.8rem;
+        font-weight: 900;
+        background: linear-gradient(90deg, var(--green) 0%, var(--cyan) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1.2;
+        letter-spacing: -0.3px;
+    }
+    .module-subtitle {
+        font-size: 13px;
+        color: #6b7280;
+        margin-top: 6px;
+        line-height: 1.5;
+    }
+    .module-badge {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 3px 10px;
+        background: rgba(0,230,118,0.08);
+        border: 1px solid rgba(0,230,118,0.2);
+        border-radius: 20px;
+        font-size: 11px;
+        color: var(--green);
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       ACTION PANEL — Panel Akcji (Control Center)
+    ═══════════════════════════════════════════════════════════════ */
+    .action-panel {
+        background: linear-gradient(135deg, rgba(10,11,20,0.95), rgba(15,17,28,0.95));
+        border: 1px solid rgba(0,230,118,0.15);
+        border-left: 4px solid var(--green);
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-top: 8px;
+    }
+    .action-panel.alarm {
+        border-left-color: var(--red);
+        border-color: rgba(255,23,68,0.2);
+    }
+    .action-panel.warning {
+        border-left-color: var(--yellow);
+        border-color: rgba(255,234,0,0.15);
+    }
+    .action-rec-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+        font-size: 13px;
+        color: var(--text);
+    }
+    .action-rec-item:last-child { border-bottom: none; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       KEYBOARD SHORTCUTS OVERLAY
+    ═══════════════════════════════════════════════════════════════ */
+    #kb-shortcuts-overlay {
+        position: fixed; top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        background: rgba(5,6,13,0.75);
+        backdrop-filter: blur(6px);
+        z-index: 999998;
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+    #kb-shortcuts-modal {
+        background: #0f111a;
+        border: 1px solid rgba(0,204,255,0.3);
+        border-radius: 14px;
+        padding: 28px 32px;
+        min-width: 380px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 30px rgba(0,204,255,0.08);
+    }
+    #kb-shortcuts-modal h3 {
+        color: #00ccff;
+        font-size: 15px;
+        margin: 0 0 18px 0;
+        letter-spacing: 1px;
+    }
+    .kb-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 7px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        font-size: 13px;
+        color: #9ca3af;
+    }
+    .kb-row:last-child { border-bottom: none; }
+    .kb-key {
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 5px;
+        padding: 2px 8px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        color: #e2e4f0;
+    }
+
     </style>
 
     """
@@ -750,3 +1046,59 @@ def ticker_bar_html(items: list[dict]) -> str:
         <div class='ticker-inner'>{content}</div>
     </div>
     """
+
+
+def module_header(title: str, subtitle: str = "", icon: str = "", badge: str = "") -> str:
+    """
+    Zwraca HTML nagłówka modułu z breadcrumb, tytułem i opisem.
+    Użycie: st.markdown(module_header(...), unsafe_allow_html=True)
+    """
+    badge_html = f"<span class='module-badge'>{badge}</span>" if badge else ""
+    subtitle_html = f"<div class='module-subtitle'>{subtitle}</div>" if subtitle else ""
+    icon_prefix = f"{icon} " if icon else ""
+    return f"""
+    <div class='module-header fade-up'>
+        <div class='module-breadcrumb'>🏠 Dashboard → {title}</div>
+        <div class='module-title'>{icon_prefix}{title}</div>
+        {subtitle_html}
+        {badge_html}
+    </div>
+    """
+
+
+# Słownik historycznych kryzysów finansowych dla adnotacji na wykresach
+CRISIS_EVENTS: dict = {
+    "COVID-19 Crash": ("2020-02-19", "2020-03-23", "#ff1744"),
+    "Bear Market 2022": ("2022-01-03", "2022-10-13", "#f39c12"),
+    "SVB Crisis": ("2023-03-08", "2023-03-17", "#a855f7"),
+    "GFC 2008–09": ("2008-09-15", "2009-03-09", "#ff1744"),
+    "Flash Crash 2010": ("2010-05-06", "2010-05-10", "#00ccff"),
+}
+
+
+def add_crisis_annotations(fig, show: bool = True, opacity: float = 0.10) -> None:
+    """
+    Nakłada kolorowe prostokąty i etykiety historycznych kryzysów na wykres Plotly.
+
+    Parameters
+    ----------
+    fig      : go.Figure — wykres do modyfikacji (in-place)
+    show     : bool — czy rysować adnotacje
+    opacity  : float — przezroczystość wypełnienia (domyślnie 0.10)
+    """
+    if not show:
+        return
+    for name, (start, end, color) in CRISIS_EVENTS.items():
+        fig.add_vrect(
+            x0=start, x1=end,
+            fillcolor=color,
+            opacity=opacity,
+            layer="below",
+            line_width=0,
+            annotation_text=name,
+            annotation_position="top left",
+            annotation=dict(
+                font=dict(size=9, color=color, family="Inter"),
+                opacity=0.85,
+            ),
+        )

@@ -164,7 +164,7 @@ async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, floa
         if not data.empty:
             # yfinance shape handle  
             if isinstance(data.columns, pd.MultiIndex):
-                series = data[ticker]["Close"].dropna()
+                series = data["Close"][ticker].dropna()
             else:
                 series = data["Close"].dropna()
                 
