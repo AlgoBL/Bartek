@@ -566,9 +566,514 @@ st.plotly_chart(fig_ob, use_container_width=True)
 
 
 st.markdown("---")
+st.markdown("## ⚖️ Sekcja 8 — Kelly Criterion: Optymalny Rozmiar Pozycji")
+st.markdown("<p style='color:#bbb;font-size:14px'>Ile dokładnie kapitału powinieneś zaryzykować mając określoną przewagę (edge)? Kelly Criterion oblicza optymalną frakcję kapitału, która maksymalizuje długoterminowy wzrost, chroniąc przed ryzykiem ruiny.</p>", unsafe_allow_html=True)
+
+col_k1, col_k2 = st.columns([1, 1])
+
+with col_k1:
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <div style='{H3}'>Zmienne Kelly'ego</div>
+    <ul style='color:#bbb;font-size:14px'>
+    <li><b>W (Win Rate):</b> Prawdopodobieństwo wygranej</li>
+    <li><b>R (Risk:Reward):</b> Ile zarabiasz względem ryzyka</li>
+    <li><b>f* (Kelly %):</b> Optymalny % kapitału do zaryzykowania: <br><br>
+    <b style="color:#00e676;font-size:18px;">f* = W - ((1 - W) / R)</b></li>
+    </ul>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    k_wr = st.slider("Kelly Win Rate (%)", 10, 90, 40, key="kelly_wr") / 100
+    k_rr = st.slider("Kelly Risk:Reward (1:X)", 0.5, 5.0, 2.0, 0.1, key="kelly_rr")
+    
+    kelly_f = k_wr - ((1 - k_wr) / k_rr)
+    kelly_pct = kelly_f * 100
+    
+    # Fractional Kelly
+    frac_kelly_slider = st.slider("Mnożnik Kelly'ego (Fractional Kelly)", 0.1, 2.0, 0.5, 0.1, help="Wielu profesjonalistów używa Half-Kelly (0.5), aby drastycznie zmniejszyć zmienność kapitału przy zachowaniu dużej części zysku.")
+    applied_kelly = kelly_pct * frac_kelly_slider
+    
+    if kelly_pct <= 0:
+        st.error("System nie ma przewagi! Według kryterium Kelly'ego optymalna wielkość transakcji wynosi 0 lub mniej. Nie graj tego.")
+    else:
+        st.markdown(f"""
+        <div style='border-left: 3px solid #00e676; padding-left: 10px; margin-top: 15px;'>
+            <div style='color:#ccc; font-size: 13px;'>Full Kelly (Maksymalny agresywny wzrost):</div>
+            <div style='color:#00e676; font-size: 20px; font-weight: 700;'>{kelly_pct:.2f}% kapitału</div>
+        </div>
+        <div style='border-left: 3px solid #3498db; padding-left: 10px; margin-top: 10px;'>
+            <div style='color:#ccc; font-size: 13px;'>Aplikowany Kelly ({frac_kelly_slider}x):</div>
+            <div style='color:#3498db; font-size: 20px; font-weight: 700;'>{applied_kelly:.2f}% kapitału</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+with col_k2:
+    # Symulacja Kelly vs Overbetting
+    bet_mults = np.linspace(0.1, 2.5, 50)
+    growth_rates = []
+    
+    for mult in bet_mults:
+        f = kelly_f * mult
+        if f >= 1.0 or f <= 0:
+            growth_rates.append(np.nan)
+        else:
+            g = k_wr * np.log(1 + f * k_rr) + (1 - k_wr) * np.log(1 - f)
+            growth_rates.append(g)
+            
+    fig_kelly = go.Figure()
+    fig_kelly.add_trace(go.Scatter(x=bet_mults, y=growth_rates, mode="lines", line=dict(color="#3498db", width=3), name="Krzywa Wzrostu"))
+    
+    if kelly_pct > 0 and kelly_f < 1.0:
+        fig_kelly.add_trace(go.Scatter(x=[1], y=[k_wr * np.log(1 + kelly_f * k_rr) + (1 - k_wr) * np.log(1 - kelly_f)],
+                         mode="markers", marker=dict(size=12, color="#00e676"), name="Full Kelly (Max Wzrost)"))
+        
+    if frac_kelly_slider > 0 and (kelly_f * frac_kelly_slider) < 1.0 and applied_kelly > 0:
+         fig_kelly.add_trace(go.Scatter(x=[frac_kelly_slider], y=[k_wr * np.log(1 + (kelly_f*frac_kelly_slider) * k_rr) + (1 - k_wr) * np.log(1 - (kelly_f*frac_kelly_slider))],
+                         mode="markers", marker=dict(size=12, color="#f39c12"), name=f"{frac_kelly_slider}x Kelly"))
+    
+    fig_kelly.add_vrect(x0=2.0, x1=2.5, fillcolor="rgba(255,23,68,0.2)", layer="below", line_width=0, annotation_text="KAPITAŁ PŁONIE (Ryzyko Ruiny)", annotation_position="top left")
+    
+    fig_kelly.update_layout(
+        title="Spadek zysków z chciwości (Over-betting)", height=350,
+        xaxis=dict(title="Mnożnik Kelly'ego (1.0 = Max, >2.0 = Gwarantowana Strata)", gridcolor="#1c1c2e"),
+        yaxis=dict(title="Geometryczna Stopa Wzrostu", gridcolor="#1c1c2e", showticklabels=False),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_kelly, use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 9 — PROSPECT THEORY
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🧠 Sekcja 9 — Prospect Theory: Psychologia Strat (Kahneman & Tversky)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Asymetria odczuwania bólu straty względem radości zysku powoduje Disposition Effect (awersja do zamykania strat i zbyt szybkie realizowanie zysków).</p>", unsafe_allow_html=True)
+
+col_pt1, col_pt2 = st.columns([1, 1])
+
+with col_pt1:
+    lambda_loss = st.slider("Współczynnik awersji do straty (λ)", 1.0, 5.0, 2.25, 0.05, help="Daniel Kahneman odkrył, że średnio ludzie odczuwają startę 2.25 raza mocniej niż równo warty zysk.")
+    alpha_gain = st.slider("Krzywizna użyteczności zysków (α)", 0.2, 1.0, 0.88, 0.02)
+    
+    x_pt = np.linspace(-100, 100, 1000)
+    y_pt = np.where(x_pt >= 0, x_pt**alpha_gain, -lambda_loss * (-x_pt)**alpha_gain)
+    
+    fig_pt = go.Figure()
+    fig_pt.add_trace(go.Scatter(x=x_pt, y=y_pt, mode="lines", line=dict(color="#a855f7", width=3)))
+    fig_pt.add_trace(go.Scatter(x=[50, -50], y=[50**alpha_gain, -lambda_loss * (50)**alpha_gain], mode="markers+text", 
+                     marker=dict(size=10, color=["#00e676", "#ff1744"]),
+                     text=["Radość z +50 PLN", "Ból z -50 PLN"], textposition="top center"))
+    
+    fig_pt.update_layout(
+        title="Krzywa Wartości (Prospect Theory)", height=350,
+        xaxis=dict(title="Rzeczywisty Wynik Transakcji (Zysk/Strata)", gridcolor="#1c1c2e", zerolinecolor="#ffffff"),
+        yaxis=dict(title="Odczuwana 'Wartość' (Emocje)", gridcolor="#1c1c2e", zerolinecolor="#ffffff", showticklabels=False),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_pt, use_container_width=True)
+
+with col_pt2:
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <div style='{H3}'>Disposition Effect w liczbach</div>
+    <p style='{NOTE}'>
+    Ponieważ ból ze straty skaluje się przez wielokrotność <b>{lambda_loss}x</b>, mózg oszukuje Cię: <br>
+    <ul>
+    <li>Kiedy masz stratę: "jeszcze odbije" (szukasz ryzyka by uniknąć pewnej straty) -> <b>Risk-seeking in losses</b></li>
+    <li>Kiedy masz zysk: "lepiej zrealizować, bo zabiorą" (boisz się stracić to co masz) -> <b>Risk-averse in gains</b></li>
+    </ul>
+    To niszczy każdy matematyczny edge, zmieniając Twój system w <i>High Win Rate / Negative RR</i>.
+    </p></div>
+    """, unsafe_allow_html=True)
+    st.info("Zarządzanie ryzykiem to tak naprawdę zarządzanie emocjami. Trading mechaniczny (algorytmy) wyłącza Prospect Theory.")
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 10 — REGIME DETECTION
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🌤️ Sekcja 10 — Regime Detection: Modele Markowa (Markov Switching)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Rynek nie ma jednego stanu. Przełącza się (często gwałtownie) między różnymi reżimami (Trend a Szum/Konsolidacja).</p>", unsafe_allow_html=True)
+
+col_rd1, col_rd2 = st.columns([1, 1])
+
+with col_rd1:
+    p_trend_to_trend = st.slider("Prawdopodobieństwo pozostania w Trendzie", 0.1, 0.99, 0.95, 0.01)
+    p_chop_to_chop = st.slider("Prawdopodobieństwo pozostania w Konsolidacji", 0.1, 0.99, 0.90, 0.01)
+    
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <div style='{H3}'>Macierz Przejścia (Transition Matrix)</div>
+    <ul>
+    <li>P(Trend | Trend) = {p_trend_to_trend:.2f}</li>
+    <li>P(Chop | Trend) = {1 - p_trend_to_trend:.2f}</li>
+    <li>P(Chop | Chop) = {p_chop_to_chop:.2f}</li>
+    <li>P(Trend | Chop) = {1 - p_chop_to_chop:.2f}</li>
+    </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_rd2:
+    np.random.seed(42)
+    n_days = 200
+    states = np.zeros(n_days, dtype=int)
+    states[0] = 0
+    for i in range(1, n_days):
+        if states[i-1] == 0:
+            states[i] = 0 if np.random.rand() < p_trend_to_trend else 1
+        else:
+            states[i] = 1 if np.random.rand() < p_chop_to_chop else 0
+            
+    returns = np.zeros(n_days)
+    for i in range(n_days):
+        if states[i] == 0:
+            returns[i] = np.random.normal(loc=0.002, scale=0.01) # Trend
+        else:
+            returns[i] = np.random.normal(loc=-0.001, scale=0.03) # Chop/Crash
+            
+    price = np.cumsum(returns)
+    
+    fig_hmm = go.Figure()
+    
+    change_idx = np.where(states[:-1] != states[1:])[0]
+    start_idx = 0
+    for idx in list(change_idx) + [n_days-1]:
+        s = states[start_idx]
+        color = "rgba(0, 230, 118, 0.2)" if s == 0 else "rgba(255, 23, 68, 0.2)"
+        fig_hmm.add_vrect(x0=start_idx, x1=idx, fillcolor=color, layer="below", line_width=0, opacity=0.5)
+        start_idx = idx + 1
+        
+    fig_hmm.add_trace(go.Scatter(y=price, mode="lines", line=dict(color="#ffffff", width=2), name="Cena Skumulowana"))
+    
+    fig_hmm.update_layout(
+        title="Symulacja Przełączeń Reżimowych (Hidden Markov Model)", height=350,
+        xaxis=dict(title="Czas", gridcolor="#1c1c2e"),
+        yaxis=dict(title="Cena", gridcolor="#1c1c2e"),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20),
+        showlegend=False
+    )
+    st.plotly_chart(fig_hmm, use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 11 — STATYSTYCZNA ISTOTNOŚĆ (MARCOS LOPEZ DE PRADO)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 📊 Sekcja 11 — Statystyczna Istotność: Czy Twój Edge jest prawdziwy?")
+st.markdown("<p style='color:#bbb;font-size:14px'>Większość traderów przerywa testowanie strategii gdy tylko zobaczą zysk na małej próbce. Statystyka mówi: potrzebujesz dowodu. Według Lopeza de Prado, Sharpe ratio wymaga weryfikacji przez t-statistic przy użyciu odpowiedniej liczby prób.</p>", unsafe_allow_html=True)
+
+col_ss1, col_ss2 = st.columns([1, 1])
+
+with col_ss1:
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <div style='{H3}'>Test Hipotezy Edge'u</div>
+    <p style='{NOTE}'>Wpisz wyniki swojego historycznego backtestu lub journala, żeby sprawdzić, czy zysk mógł być czystym przypadkiem (p-value).</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    n_trades = st.number_input("Ilość zagrań w historii (N)", min_value=10, max_value=5000, value=50, step=10)
+    sharpe_est = st.slider("Szacowane Sharpe Ratio Strategii (na pojedynczy trejd)", 0.0, 3.0, 0.5, 0.1)
+    
+    # Simple t-stat for positive mean return (assuming SR = mean / std)
+    # t = SR * sqrt(N)
+    t_stat = sharpe_est * np.sqrt(n_trades)
+    
+    # p-value na 1 tail
+    from scipy.stats import t
+    p_val = 1 - t.cdf(t_stat, df=n_trades-1)
+    
+    # Required N for significance (np. t=3.0) -> N_req = (3.0 / SR)^2
+    if sharpe_est > 0:
+        req_n = (3.0 / sharpe_est)**2
+    else:
+        req_n = float('inf')
+
+    if t_stat > 3.0:
+        st.success(f"**T-Statistic: {t_stat:.2f}** | P-Value: {p_val:.5f} \n\n✅ MOCNY DOWÓD! Wyniki są wysoce statystycznie istotne. Bardzo mała szansa, że ten wynik to dzieło przypadku.")
+    elif t_stat > 2.0:
+        st.info(f"**T-Statistic: {t_stat:.2f}** | P-Value: {p_val:.4f} \n\n⚠️ OBIECUJĄCE. Przekroczono próg ufności 95%, ale dla tradingu sugerowany jest próg (t > 3) ze względu na grube ogony (fat tails). Zrób więcej trejdów.")
+    else:
+        st.error(f"**T-Statistic: {t_stat:.2f}** | P-Value: {p_val:.3f} \n\n❌ Za mało danych! Wynik nie jest istotny statystycznie. Równie dobrze mógł to być rzut monetą. Osiągnięcie ufności wymagałoby historii {int(req_n) if req_n != float('inf') else '∞'} zagrań przy tym SR.")
+
+with col_ss2:
+    # Bootstrap Simulator representation
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <div style='{H3}'>Krzywa Istotności (Significance t-stat > 3)</div>
+    <p style='{NOTE}'>Zielona strefa to strefa 'Prawdziwego Edge'u'. Wszystko poniżej mogło być wygenerowane przez małpę rzucającą lotkami.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    n_range = np.linspace(10, max(200, n_trades*2), 100)
+    t_curve = sharpe_est * np.sqrt(n_range)
+    
+    fig_ss = go.Figure()
+    fig_ss.add_trace(go.Scatter(x=n_range, y=t_curve, mode="lines", line=dict(color="#3498db", width=3), name="Twój t-statistic"))
+    
+    # Point
+    fig_ss.add_trace(go.Scatter(x=[n_trades], y=[t_stat], mode="markers", marker=dict(size=14, color="#ff1744" if t_stat < 3 else "#00e676", line=dict(color="white",width=2)), name="Twój wynik"))
+    
+    # Threshold line
+    fig_ss.add_hrect(y0=3.0, y1=max(5.0, t_stat+1), fillcolor="rgba(0,230,118,0.1)", line_width=0)
+    fig_ss.add_hline(y=3.0, line_dash="dash", line_color="#00e676", annotation_text="t=3.0 (Złoty Standard)")
+    
+    fig_ss.update_layout(
+        title="Przyrastanie Statystycznej Pewności Czasem", height=300,
+        xaxis=dict(title="Ilość Zagrań w Historii", gridcolor="#1c1c2e"),
+        yaxis=dict(title="Statystyka t (t-stat)", gridcolor="#1c1c2e"),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_ss, use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 12 — ZMIENNOŚĆ (GARCH & OPCJE)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🌪️ Sekcja 12 — Zmienność jako Zasób: Modele GARCH i Klastering")
+st.markdown("<p style='color:#bbb;font-size:14px'>Wielkie ruchy podążają za wielkimi ruchami, a cisza przepowiada ciszę. Zrozumienie Modelu GARCH (Robert Engle, Nobel 2003) i grupowania zmienności jest kluczem do przetrwania na rynku.</p>", unsafe_allow_html=True)
+
+col_g1, col_g2 = st.columns([1, 1])
+
+with col_g1:
+    alpha_g = st.slider("Szok rynkowy - α (Reakcja na nowe wydarzenia)", 0.01, 0.40, 0.15, 0.01, help="Jak mocno 'news' wpływa na dzisiejszą zmienność")
+    beta_g = st.slider("Pamięć rynkowa - β (Długotrwałość zmienności)", 0.50, 0.95, 0.80, 0.01, help="Jak długo rynek 'pamięta' wczorajszą zmienność (wysokie β oznacza długie okresy burz lub spokoju)")
+    
+    if alpha_g + beta_g >= 1.0:
+        st.error("Model jest niestabilny (α + β >= 1). Zmienność eksploduje w nieskończoność matematyczną!")
+    else:
+        # GARCH(1,1) Simulation
+        np.random.seed(42)
+        n_sim = 250
+        omega = 0.0001
+        
+        returns_g = np.zeros(n_sim)
+        sigma2 = np.zeros(n_sim)
+        
+        sigma2[0] = omega / (1 - alpha_g - beta_g)
+        returns_g[0] = np.random.normal(0, np.sqrt(sigma2[0]))
+        
+        for t_step in range(1, n_sim):
+            sigma2[t_step] = omega + alpha_g * (returns_g[t_step-1]**2) + beta_g * sigma2[t_step-1]
+            returns_g[t_step] = np.random.normal(0, np.sqrt(sigma2[t_step]))
+            
+        fig_garch1 = go.Figure()
+        fig_garch1.add_trace(go.Bar(x=np.arange(n_sim), y=returns_g, marker_color="#3498db", name="Zwroty Cena"))
+        fig_garch1.add_trace(go.Scatter(x=np.arange(n_sim), y=1.96*np.sqrt(sigma2), mode="lines", line=dict(color="#ff1744", width=2), name="Górne Pasmo Vol"))
+        fig_garch1.add_trace(go.Scatter(x=np.arange(n_sim), y=-1.96*np.sqrt(sigma2), mode="lines", line=dict(color="#ff1744", width=2), name="Dolne Pasmo Vol"))
+        
+        fig_garch1.update_layout(
+            title="Symulacja Volatility Clustering (GARCH 1,1)", height=300,
+            xaxis=dict(title="Czas (Dni)", gridcolor="#1c1c2e"),
+            yaxis=dict(title="Zwroty (%)", gridcolor="#1c1c2e"),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20),
+            showlegend=False
+        )
+        st.plotly_chart(fig_garch1, use_container_width=True)
+
+with col_g2:
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <div style='{H3}'>Volatility Risk Premium</div>
+    <p style='{NOTE}'>
+    Implikowana Zmienność (IV — podyktowana przez opcje, np. VIX) jest zazwyczaj wyższa niż Zrealizowana Zmienność (RV — faktyczne ruchy ceny). Dlaczego? Traderzy płacą "premię ubezpieczeniową" za zabezpieczenie od krachu.<br><br>
+    <b>Wniosek rynkowy:</b> Zamiast kupować, sprzedawanie opcji ma statystycznie pozytywną Wartość Oczekiwaną, ale charakteryzuje się ogromnym ryzykiem ruiny podczas tzw. <i>Black Swans</i>.
+    </p></div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<b>Wiedza Opcji (The Greeks):</b>", unsafe_allow_html=True)
+    c_g1, c_g2 = st.columns(2)
+    with c_g1:
+        st.markdown("<span style='color:#a855f7'><b>Δ Delta:</b></span> Kierunek ceny", unsafe_allow_html=True)
+        st.markdown("<span style='color:#3498db'><b>Γ Gamma:</b></span> Prędkość przyspieszenia", unsafe_allow_html=True)
+    with c_g2:
+        st.markdown("<span style='color:#ff1744'><b>Θ Theta:</b></span> Wypalanie czasu (złodziej kwantowy)", unsafe_allow_html=True)
+        st.markdown("<span style='color:#00e676'><b>ν Vega:</b></span> Czułość na zmienność", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 13 — WFO (WALK-FORWARD ANALYSIS)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## ⏱️ Sekcja 13 — Backtest Bias i Walk-Forward Analysis")
+st.markdown("<p style='color:#bbb;font-size:14px'>Największe kłamstwo quantów: Backtest zawsze wygląda wspaniale, na którym traci się pieniądze w realnym świecie. Dopasowanie modelu do przeszłości (Overfitting) prowadzi do katastrofy The Reality Check (White 2000).</p>", unsafe_allow_html=True)
+
+col_wf1, col_wf2 = st.columns([7, 5])
+
+with col_wf1:
+    fig_wfo = go.Figure()
+
+    # Rysowanie okien Walk-Forward (wizualizacja)
+    windows = 5
+    colors_is = "rgba(52, 152, 219, 0.3)"
+    colors_oos = "rgba(255, 23, 68, 0.4)"
+    
+    y_pos = np.arange(windows, 0, -1)
+    
+    for i in range(windows):
+        # In-sample window
+        start_is = i * 20
+        end_is = start_is + 50
+        # Out-of-sample window
+        start_oos = end_is
+        end_oos = start_oos + 15
+        
+        # Rect for IS
+        fig_wfo.add_shape(type="rect", x0=start_is, y0=y_pos[i]-0.3, x1=end_is, y1=y_pos[i]+0.3, fillcolor=colors_is, line=dict(color="#3498db", width=2))
+        fig_wfo.add_annotation(x=(start_is+end_is)/2, y=y_pos[i], text="In-Sample (Train)", showarrow=False, font=dict(color="white"))
+        
+        # Rect for OOS
+        fig_wfo.add_shape(type="rect", x0=start_oos, y0=y_pos[i]-0.3, x1=end_oos, y1=y_pos[i]+0.3, fillcolor=colors_oos, line=dict(color="#ff1744", width=2))
+        fig_wfo.add_annotation(x=(start_oos+end_oos)/2, y=y_pos[i], text="OOS", showarrow=False, font=dict(color="white"))
+        
+    fig_wfo.update_layout(
+        title="Walk-Forward Optimization (WFO) Matrix", height=350,
+        xaxis=dict(title="Czas / Dane Historyczne", showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(title="Rozkład Modeli (Walks)", showgrid=False, zeroline=False, showticklabels=False, range=[0, windows+1]),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_wfo, use_container_width=True)
+
+with col_wf2:
+    st.markdown(f"""
+    <div style='background:#1a1c28;border-left:4px solid #f39c12;padding:12px;margin-bottom:12px'>
+    <b>Deflation Factor</b><br>
+    Zaawansowane modele (ML, Quant) po przetestowaniu tysięcy kombinacji parametrów zawyżają rzeczywiste osiągi (Sharpe). Lopez de Prado zaleca stosowanie "Deflated Sharpe Ratio (DSR)", który redukuje wynik w zależności od liczby przeprowadzonych prób (Multiple Testing Framework).
+    </div>
+    """, unsafe_allow_html=True)
+    
+    ins_sharpe = st.number_input("In-Sample Sharpe Ratio (na danych testowych)", 0.5, 5.0, 2.0, 0.1)
+    decay_pct = st.slider("Zakładany Decay na nowych danych (%)", 10, 80, 40, 5)
+    oos_sharpe = ins_sharpe * (1 - decay_pct/100)
+    
+    st.markdown(f"""
+    Sharpe po rygorystycznym WFO i urealnieniu kosztów: 
+    <b style="color:{'#00e676' if oos_sharpe > 1.0 else '#ff1744'};font-size:24px;">{oos_sharpe:.2f}</b>
+    """)
+    if oos_sharpe < 1.0:
+        st.error("System prawdopodobnie zapadnie się pod sobą (wpadnie w stratę) z powodu ukrytego szumu na rynku po wyjściu z backtestu.")
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 14 — GRA SKOŃCZONA VS NIESKOŃCZONA
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## ♾️ Sekcja 14 — Psychologia: Gra Skończona vs Nieskończona (Nassim Taleb)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Wybuchy furii, overtrading i 'mieszanie' w algorytmach wynikają z grania w Grę Skończoną (chcę zrobić +1000 PLN dzisiaj). Profesjonaliści grają w Grę Nieskończoną (chcę tu być za 10 lat). Przetrwanie nadrzędne nad zyskiem czasowym (Ergodyczność).</p>", unsafe_allow_html=True)
+
+col_ig1, col_ig2 = st.columns([1, 1])
+
+with col_ig1:
+    hr_time = st.slider("Horyzont czasowy (Twoje Dni na Rynku)", 100, 2500, 500, 100)
+    profit_per_day = st.slider("Średni zysk dzienny (Edge mierzony w długim terminie)", 1.0, 50.0, 5.0, 1.0)
+    ruin_prob = st.slider("Szansa na wyzerowanie konta / Rezygnację per miesiąc (%)", 0.1, 5.0, 1.0, 0.1)
+    
+    # Symulacja przetrwania (Survival function)
+    # P_survive(t) = (1 - ruin_prob_daily)^t
+    ruin_daily = (ruin_prob / 100) / 20 # ok. 20 dni w mies
+    t_days = np.arange(1, hr_time+1)
+    p_survival = (1 - ruin_daily)**t_days
+    
+    # Expected Value considering survival (EV = value * P(survival))
+    base_value = t_days * profit_per_day
+    ergodic_value = base_value * p_survival
+    
+    fig_ig = go.Figure()
+    fig_ig.add_trace(go.Scatter(x=t_days, y=base_value, mode="lines", line=dict(color="#3498db", width=2, dash="dash"), name="Teoretyczny Zysk (Bez Ryzyka)"))
+    fig_ig.add_trace(go.Scatter(x=t_days, y=ergodic_value, mode="lines", line=dict(color="#00e676", width=3), name="Zysk Urealniony o Szansę Przetrwania"))
+    
+    fig_ig.update_layout(
+        title="Ergodyczność: Dlaczego Przetrwanie Przewyższa Strategię", height=300,
+        xaxis=dict(title="Dni na rynku (Czas)", gridcolor="#1c1c2e"),
+        yaxis=dict(title="Wartość Kapitału", gridcolor="#1c1c2e"),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", y=1.1, x=0)
+    )
+    st.plotly_chart(fig_ig, use_container_width=True)
+
+with col_ig2:
+    st.markdown(f"""
+    <div style='background:#1a1c28;border-left:4px solid #a855f7;padding:12px;margin-bottom:12px'>
+    <b>Paradoks Ryzyka (Russian Roulette)</b><br>
+    Nawet jeśli statystyczna przewaga na trejd nakazuje grać agresywnie, każda strata zwiększa szansę na ostateczne psychiczne "rozbicie". Gra w nieskończoność oznacza akceptację faktu, że jeśli będziesz na rynku wystarczająco długo, w końcu zdarzy się zdarzenie o prawdopodobieństwie 1-do-miliarda.<br><br>
+    Twój urealniony zysk na koniec testu (z uwzględnieniem szans na wyzerowanie): <b>{ergodic_value[-1]:.1f} PLN</b> (zamiast teoretycznych {base_value[-1]:.1f} PLN).
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.info("Pytanie dnia: Skupiasz się na tym ile dziś wyciągniesz z rynku, czy na tym jak nie wypaść z rynku w razie nieprzewidzianej sytuacji?")
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 15 — RYZYKO PORTFELOWE (HRP)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🌐 Sekcja 15 — Portfel Day Tradera (Dywersyfikacja i HRP)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Granie na jednym aktywie to nie trading, to obstawianie. Różne strategie (np. Long BTC, Short NQ, Mean-Reversion EURUSD) stanowią portfel tradera. Zrozumienie korelacji miedzy nimi obniża ryzyko i poprawia Sharpe całkowity.</p>", unsafe_allow_html=True)
+
+col_hrp1, col_hrp2 = st.columns([1, 1])
+
+with col_hrp1:
+    s1_s2_corr = st.slider("Korelacja: Strategia 1 vs Strategia 2 (Trend_A vs Breakout)", -1.0, 1.0, 0.7, 0.1)
+    s1_s3_corr = st.slider("Korelacja: Strategia 1 vs Strategia 3 (Trend_A vs Mean-Reverse)", -1.0, 1.0, -0.4, 0.1)
+    
+    # Heatmapa zbudowana z wartości
+    corr_matrix = np.array([
+        [1.0, s1_s2_corr, s1_s3_corr],
+        [s1_s2_corr, 1.0, -0.2],
+        [s1_s3_corr, -0.2, 1.0]
+    ])
+    
+    fig_corr = go.Figure(data=go.Heatmap(
+        z=corr_matrix,
+        x=["S1 (Trend)", "S2 (Breakout)", "S3 (Mean-Reverse)"],
+        y=["S1 (Trend)", "S2 (Breakout)", "S3 (Mean-Reverse)"],
+        colorscale="RdBu", zmin=-1, zmax=1,
+        text=[[f"{v:.2f}" for v in row] for row in corr_matrix],
+        texttemplate="%{text}", textfont={"color": "black" if s1_s2_corr > 0.5 else "white"}
+    ))
+    
+    fig_corr.update_layout(
+         title="Macierz Korelacji Strategii Day Tradingowych", height=300,
+         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig_corr, use_container_width=True)
+
+with col_hrp2:
+    st.markdown(f"""
+    <div style='{CARD}'>
+    <div style='{H3}'>Efekt Markowitza: Redukcja Osuń Kapitału (Drawdowns)</div>
+    <p style='{NOTE}'>Dodawanie strategii mocno skorelowanej (powyżej 0.70) to po prostu zlewarowanie pierwszej strategii (Double Risk). Złotym Graalem HFT i Trading Firm (np. Renaissance Tech) jest szukanie setek ortogonalnych strategii o <b>korelacji zerowej</b> lub <b>negatywnej</b>.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Simplified Sharpe formulation for portfolio
+    # P_vol = sqrt( w1^2*s1^2 + w2^2*s2^2 + 2*w1*w2*s1*s2*corr )
+    # Assuming equal vol and weights
+    s_vol = 0.15
+    w = 1/3
+    port_var = w**2 * s_vol**2 * 3 + 2*w**2*pow(s_vol, 2)*(s1_s2_corr + s1_s3_corr - 0.2)
+    port_vol = np.sqrt(max(0.0001, port_var)) # prevent neg if math gets weird
+    standalone_vol = s_vol
+    
+    st.markdown(f"""
+    <div style='border-left: 3px solid #ffea00; padding-left: 10px; margin-top: 15px;'>
+        <div style='color:#ccc; font-size: 13px;'>Zmienność pojedycznej strategii (Ryzyko):</div>
+        <div style='color:#ff1744; font-size: 20px; font-weight: 700;'>{standalone_vol*100:.1f}%</div>
+    </div>
+    <div style='border-left: 3px solid #00e676; padding-left: 10px; margin-top: 10px;'>
+        <div style='color:#ccc; font-size: 13px;'>Zmienność Portfela (Zdywersyfikowane ukryte ryzyko):</div>
+        <div style='color:#00e676; font-size: 20px; font-weight: 700;'>{port_vol*100:.1f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if port_vol < standalone_vol:
+        st.success(f"Dywersyfikacja działa! Zmniejszyłeś własne ryzyko o {((standalone_vol-port_vol)/standalone_vol)*100:.1f}% bez obniżania średniego zysku (Wielka Magia Finansów).")
+    else:
+        st.warning("Brak efektu dywersyfikacji. Twoje strategie są w praktyce jednym zmaskowanym zakładem.")
+
+# ═══════════════════════════════════════════════════════════
+# FOOTER
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
 st.markdown(f"""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:12px'>
-Day Trading OS v2.0 · Quant Platform Ecosystem · Algorytmy Oparte Na:<br>
-Statystyka Rynków Losowych, Twierdzenie Bernoulliego, Modele Monte Carlo, <br>
-Risk-of-Ruin Math, Friction Analysis, Ekonofizyka (Rough Volatility / FBM), <br>
-Liquidity Mapping & Limit Order Book Heatmaps.
+Day Trading OS v3.0 · ZAAWANSOWANA WERSJA · The Quant Platform Ecosystem<br>
+<b>Moduły zintegrowane:</b> Monte Carlo, Risk-of-Ruin, FBM Ekonofizyka, Order Book Microstructure, <br>
+Kelly Criterion (Optymalizacja R:R), Prospect Theory (Psychologia strat), <br>
+Hidden Markov Models (Regime Detection), Statystyczna Istotność (T-Tests by Prado), <br>
+GARCH/Volatility Clusters, WFO (Deflated Sharpe), Ergodyczność Taleba, Dywersyfikacja Portfelowa (HRP).
 </div>""", unsafe_allow_html=True)
