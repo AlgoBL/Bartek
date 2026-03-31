@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import scipy.stats as stats
-from modules.styling import apply_styling
+from modules.styling import apply_styling, scicard
 from modules.i18n import t
 
 st.set_page_config(page_title="Day Trading — Matematyka", page_icon="📈", layout="wide")
@@ -1065,6 +1065,99 @@ with col_hrp2:
         st.success(f"Dywersyfikacja działa! Zmniejszyłeś własne ryzyko o {((standalone_vol-port_vol)/standalone_vol)*100:.1f}% bez obniżania średniego zysku (Wielka Magia Finansów).")
     else:
         st.warning("Brak efektu dywersyfikacji. Twoje strategie są w praktyce jednym zmaskowanym zakładem.")
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 16 — OPTYMALNE WYKONYWANIE ZLECEŃ (ALMGREN-CHRISS)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## ⚡ Sekcja 16 — Optimal Execution & Market Impact")
+st.markdown("<p style='color:#bbb;font-size:14px'>Ile naprawdę kosztuje wejście w pozycję rynkiem? Model Almgren-Chriss pokazuje kompromis między ryzykiem opóźnienia a kosztem uderzenia w płynność.</p>", unsafe_allow_html=True)
+
+col_ac1, col_ac2 = st.columns([1,2])
+with col_ac1:
+    trade_size = st.slider("Wielkość zlecenia (X)", 100, 10000, 2000, 100, key="ac_trade_size")
+    vol_ac = st.slider("Zmienność zlecenia (σ)", 0.01, 0.1, 0.05, 0.01, key="ac_vol")
+    risk_aversion = st.slider("Awersja do ryzyka (γ)", 0.0, 1.0, 0.5, 0.1, key="ac_risk_av")
+
+with col_ac2:
+    t_steps = np.linspace(0.1, 10, 50)
+    impact_cost = (50 * (trade_size / 5000)**2) / t_steps 
+    risk_cost = 0.5 * risk_aversion * (vol_ac**2) * trade_size**2 * t_steps
+    
+    total_cost = impact_cost + risk_cost
+    opt_t = t_steps[np.argmin(total_cost)]
+    
+    fig_ac = go.Figure()
+    fig_ac.add_trace(go.Scatter(x=t_steps, y=impact_cost, name="Market Impact Cost", line=dict(dash='dash', color='#ff4444')))
+    fig_ac.add_trace(go.Scatter(x=t_steps, y=risk_cost, name="Risk Cost (Zmienność)", line=dict(dash='dash', color='#f39c12')))
+    fig_ac.add_trace(go.Scatter(x=t_steps, y=total_cost, name="Total Expected Cost", line=dict(color='#00e676', width=3)))
+    
+    fig_ac.add_vline(x=opt_t, line_dash="dot", line_color="white", annotation_text=f"TWAP Optymalny T*={opt_t:.1f}")
+    
+    fig_ac.update_layout(
+        template="plotly_dark", height=350,
+        margin=dict(l=20, r=20, t=30, b=20),
+        xaxis_title="Czas realizacji zlecenia (T)",
+        yaxis_title="Koszt całkowity",
+        legend=dict(orientation="h", y=1.1)
+    )
+    
+    def render_ac_chart():
+        st.plotly_chart(fig_ac, use_container_width=True)
+
+    scicard(
+        title="Almgren-Chriss Optimal Execution",
+        icon="📉",
+        level0_html=f"Optymalny czas realizacji (T*): <span class='neon-cyan'>{opt_t:.1f} jedn.</span>",
+        chart_fn=render_ac_chart,
+        explanation_md="Wykonasz zlecenie **zbyt szybko** (duży poślizg / square-root law). Wykonasz **zbyt wolno** (cena odjedzie, rośnie wariancja). Model wylicza **The Efficient Frontier of Execution**.",
+        formula_code="TC(X, T) = ½·γ·σ²·T + (η/T)·X²",
+        reference="Almgren & Chriss (2000) 'Optimal Execution of Portfolio Transactions'",
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 17 — FUNDAMENTAL LAW Z GRINOLD-KAHN
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🧠 Sekcja 17 — Fundamental Law of Trading (IR Decomposition)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Dlaczego lepsze rezultaty osiągają fundusze statystycznego arbitrażu (dużo małych betów) niż skoncentrowani inwestorzy (mało dużych betów)?</p>", unsafe_allow_html=True)
+
+col_fl1, col_fl2 = st.columns([1,2])
+with col_fl1:
+    ic = st.slider("Information Coefficient (IC) - trafność predykcji", 0.0, 0.20, 0.05, 0.01, key="fl_ic")
+    br = st.slider("Breadth (Ilość niezależnych trade'ów w roku)", 10, 5000, 1000, 50, key="fl_br")
+
+with col_fl2:
+    ir = ic * np.sqrt(br)
+    
+    br_range = np.linspace(10, 5000, 200)
+    ir_sim = ic * np.sqrt(br_range)
+    
+    fig_fl = go.Figure()
+    fig_fl.add_trace(go.Scatter(x=br_range, y=ir_sim, name=f"IR dla IC={ic:.2f}", fill='tozeroy', line=dict(color='#a855f7')))
+    fig_fl.add_scatter(x=[br], y=[ir], mode='markers', marker=dict(color='#00e676', size=12), name="Twój system")
+    
+    fig_fl.update_layout(
+        template="plotly_dark", height=320,
+        xaxis_title="Breadth (Trade'y per Rok)",
+        yaxis_title="Information Ratio (IR)",
+        margin=dict(l=20, r=20, t=30, b=20)
+    )
+
+    def render_fl_chart():
+        st.plotly_chart(fig_fl, use_container_width=True)
+
+    scicard(
+        title="Information Ratio Decomposition",
+        icon="⚖️",
+        level0_html=f"Twoje oczekiwane Information Ratio (IR): <span class='neon-purple'>{ir:.2f}</span>",
+        chart_fn=render_fl_chart,
+        explanation_md="Zarządzający Funduszami starają się uzyskać maksymalne IR (> 2.0). Mając strategię z rynkowym **IC (Trafność modelu np. 53% = IC 0.06)**, wystarczy zwiększyć liczbę transakcji (Breadth), by drastycznie poprawić zwrot skorygowany o ryzyko.",
+        formula_code="IR = IC · √BR",
+        reference="Grinold & Kahn (1999) 'Active Portfolio Management'"
+    )
+
 
 # ═══════════════════════════════════════════════════════════
 # FOOTER

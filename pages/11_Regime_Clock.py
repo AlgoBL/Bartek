@@ -254,35 +254,212 @@ with st.expander("▶️ Uruchom Analizę Spektralną (Głębokie Analizy S&P 50
             end_date = datetime.date.today()
             start_date = end_date - datetime.timedelta(days=365*25) # 25 years
             df = load_data(["^GSPC"], start_date=start_date.strftime("%Y-%m-%d"))
-            
+
             if not df.empty and "^GSPC" in df.columns:
                 prices = df["^GSPC"].values
                 dates = df.index
-                
-                # Fourier
+
                 f_periods, f_pxx = compute_fourier_spectrum(prices)
                 fig_fourier = plot_fourier_spectrum(f_periods, f_pxx)
-                
-                # Wavelet
                 w_widths, w_power = compute_wavelet_transform(prices)
                 fig_wavelet = plot_wavelet_transform(w_widths, w_power, dates)
-                
-                # Render
+
                 st.plotly_chart(fig_fourier, use_container_width=True)
-                
                 st.markdown("""
                 **Interpretacja Fouriera:** Szczyty (pik-i) na powyższym wykresie oznaczają najsilniejsze cykliczności w historii rynku.
                 Historycznie, rynki finansowe operują w oparciu o naturalne cykle koniunkturalne: *Kitchina* (zapasy) ok. 4 lat oraz *Juglara* (inwestycje stałe) ok. 9 lat.
                 """)
-                
                 st.plotly_chart(fig_wavelet, use_container_width=True)
-                
                 st.markdown("""
-                **Interpretacja Wavelet (Falki Morleta):** 
-                W przeciwieństwie do Fouriera, transformata falowa pokazuje **kiedy** dany cykl był najsilniejszy. 
+                **Interpretacja Wavelet (Falki Morleta):**
+                W przeciwieństwie do Fouriera, transformata falowa pokazuje **kiedy** dany cykl był najsilniejszy.
                 Jaśniejsze kolory (żółty/biały) = reżim silnej cykliczności w danym paśmie częstotliwości.
-                Widać wyraźnie jak cykl 8-letni dominował w pewnych dekadach (kropki/smużki na wysokości ~8 lat), 
-                a następnie tracił na znaczeniu na rzez cykli krótszych.
                 """)
             else:
                 st.error("Błąd pobierania danych dla analizy.")
+
+# ═══════════════════════════════════════════════════════════════════════
+#  NOWY PANEL — ENTROPY-BASED REGIME DETECTION (A.3)
+#  Ref: Bandt & Pompe (2002) PRL; Dong & Gao (2024) IJFE
+# ═══════════════════════════════════════════════════════════════════════
+st.divider()
+st.markdown("### 🌀 Entropia Permutacyjna — Chaos vs Porządek Rynkowy")
+st.markdown(
+    "*Information-theoretic wykrywanie reżimów rynkowych bez założeń rozkładu. "
+    "Ref: Bandt & Pompe (2002) PRL 88:174102 · Dong & Gao (2024) IJFE*"
+)
+
+try:
+    from modules.entropy_regime import (
+        compute_entropy_regime, plot_entropy_regime,
+        plot_entropy_distribution, demo_entropy, permutation_entropy
+    )
+    from modules.styling import scicard
+
+    # ── Kontrolki sidebara dla entropii ────────────────────────────────
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 🌀 Entropia — Parametry")
+        ent_window  = st.slider("Okno PermEn (dni)", 20, 120, 60, 5, key="ent_win")
+        ent_m       = st.selectbox("Wymiar osadzenia m", [3, 4, 5], index=0, key="ent_m")
+        ent_bull_th = st.slider("Próg Trending (<)", 0.20, 0.60, 0.40, 0.05, key="ent_bull")
+        ent_bear_th = st.slider("Próg Chaotic (>)", 0.60, 0.95, 0.75, 0.05, key="ent_bear")
+        ent_ticker  = st.text_input("Ticker (puste = demo)", "", key="ent_tick")
+
+    # ── Dane: pobierz lub demo ──────────────────────────────────────────
+    price_series = None
+    returns      = None
+
+    if ent_ticker.strip():
+        with st.spinner(f"Pobieranie danych {ent_ticker.strip()}..."):
+            try:
+                df_ent = load_data(
+                    [ent_ticker.strip()],
+                    start_date=(datetime.date.today() - datetime.timedelta(days=365*3)).strftime("%Y-%m-%d")
+                )
+                col_name = ent_ticker.strip()
+                if not df_ent.empty and col_name in df_ent.columns:
+                    price_series = df_ent[col_name].dropna()
+                    returns      = price_series.pct_change().dropna()
+                else:
+                    st.warning(f"Brak danych dla {col_name}. Używam demo.")
+            except Exception as e:
+                st.warning(f"Błąd pobierania: {e}. Używam demo.")
+
+    if returns is None:
+        demo = demo_entropy(n=600)
+        returns      = demo["returns"]
+        price_series = (1 + returns).cumprod() * 100.0
+        price_series.name = "Syntetic Index (demo)"
+
+    # ── Oblicz entropię ─────────────────────────────────────────────────
+    with st.spinner("Obliczanie Permutation Entropy..."):
+        ent_df = compute_entropy_regime(
+            returns,
+            window=ent_window,
+            m=ent_m,
+            bear_threshold=ent_bear_th,
+            bull_threshold=ent_bull_th,
+        )
+
+    # ── Metryki: bieżąca entropia ────────────────────────────────────────
+    current_pe = float(ent_df["PermEn"].dropna().iloc[-1]) if len(ent_df) > 0 else 0.0
+    current_regime = ent_df["Regime"].dropna().iloc[-1] if len(ent_df) > 0 else "Unknown"
+    regime_color = {"Trending": "#00e676", "Neutral": "#ffea00",
+                    "Chaotic": "#ff1744"}.get(current_regime, "#888")
+    regime_icon  = {"Trending": "📈", "Neutral": "⚡", "Chaotic": "🌪️"}.get(current_regime, "❓")
+
+    # ── SciCard Level 0 header ───────────────────────────────────────────
+    level0 = f"""
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:10px;color:#6b7280;letter-spacing:1px;">OBECNA ENTROPIA (PermEn)</div>
+        <div style="font-size:32px;font-weight:800;color:{regime_color};
+                    font-variant-numeric:tabular-nums;">{current_pe:.3f}</div>
+      </div>
+      <div style="border-left:1px solid #2a2a3a;padding-left:20px;">
+        <div style="font-size:10px;color:#6b7280;letter-spacing:1px;">REŻIM</div>
+        <div style="font-size:20px;font-weight:700;color:{regime_color};">
+          {regime_icon} {current_regime}
+        </div>
+        <div style="font-size:10px;color:#6b7280;margin-top:2px;">
+          Próg Trending &lt;{ent_bull_th:.2f} | Chaotic &gt;{ent_bear_th:.2f}
+        </div>
+      </div>
+      <div style="border-left:1px solid #2a2a3a;padding-left:20px;">
+        <div style="font-size:10px;color:#6b7280;letter-spacing:1px;">ROZKŁAD REŻIMÓW</div>
+        {"".join(
+            f"<div style='font-size:11px;color:{c};margin-top:2px;'>{r}: {n} dni "
+            f"({n/len(ent_df)*100:.0f}%)</div>"
+            for r, n, c in zip(
+                ent_df["Regime"].value_counts().index,
+                ent_df["Regime"].value_counts().values,
+                [{"Trending":"#00e676","Neutral":"#ffea00","Chaotic":"#ff1744"}.get(r,"#888")
+                 for r in ent_df["Regime"].value_counts().index],
+            )
+        )}
+      </div>
+    </div>
+    """
+
+    # ── Main charts ──────────────────────────────────────────────────────
+    def _entropy_charts():
+        fig_ent = plot_entropy_regime(ent_df, price_series=price_series)
+        st.plotly_chart(fig_ent, use_container_width=True)
+
+        col_dist1, col_dist2 = st.columns([1, 1])
+        with col_dist1:
+            fig_vio = plot_entropy_distribution(ent_df)
+            st.plotly_chart(fig_vio, use_container_width=True)
+        with col_dist2:
+            # Macierz przejść reżimów
+            regimes_seq = ent_df["Regime"].values
+            trans = {"Trending": {"Trending": 0, "Neutral": 0, "Chaotic": 0},
+                     "Neutral":  {"Trending": 0, "Neutral": 0, "Chaotic": 0},
+                     "Chaotic":  {"Trending": 0, "Neutral": 0, "Chaotic": 0}}
+            for i in range(len(regimes_seq) - 1):
+                frm = regimes_seq[i]
+                to  = regimes_seq[i + 1]
+                if frm in trans and to in trans[frm]:
+                    trans[frm][to] += 1
+
+            cats = ["Trending", "Neutral", "Chaotic"]
+            z = []
+            for frm in cats:
+                row_total = sum(trans[frm].values()) or 1
+                z.append([trans[frm].get(to, 0) / row_total for to in cats])
+
+            import plotly.graph_objects as _go
+            fig_tm2 = _go.Figure(data=_go.Heatmap(
+                z=z, x=cats, y=cats,
+                colorscale=[[0,"#1c1c2e"],[0.5,"#00ccff"],[1,"#00e676"]],
+                zmin=0, zmax=1,
+                text=[[f"{v:.1%}" for v in row] for row in z],
+                texttemplate="%{text}",
+            ))
+            fig_tm2.update_layout(
+                title="Macierz Przejść Reżimów Entropii",
+                height=280,
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="white", family="Inter"),
+                xaxis=dict(title="Następny Reżim", gridcolor="#1c1c2e"),
+                yaxis=dict(title="Obecny Reżim", gridcolor="#1c1c2e", autorange="reversed"),
+                margin=dict(l=70, r=20, t=40, b=50),
+            )
+            st.plotly_chart(fig_tm2, use_container_width=True)
+
+    scicard(
+        title="Permutation Entropy — Detekcja Reżimów",
+        icon="🌀",
+        level0_html=level0,
+        chart_fn=_entropy_charts,
+        explanation_md="""
+**Permutation Entropy (PermEn)** mierzy stopień nieprzewidywalności wzorców szeregu czasowego.
+
+| Wartość PermEn | Reżim | Interpretacja |
+|---------------|-------|--------------|
+| < {bull:.2f} | 📈 Trending | Rynek uporządkowany, silny trend — strategie momentum działają |
+| {bull:.2f} – {bear:.2f} | ⚡ Neutral | Mieszany szum i struktura — brak dominującej strategii |
+| > {bear:.2f} | 🌪️ Chaotic | Wysoka entropia = chaos rynkowy — sygnał przed krachem lub odbiciem |
+
+**Praktyczne zastosowanie:** Gdy PermEn rośnie gwałtownie przy jednoczesnym
+spadku cen → historycznie sygnał krótkoterminowego dna lub wzrostu zmienności.
+        """.format(bull=ent_bull_th, bear=ent_bear_th),
+        formula_code=(
+            "PermEn(m, τ) = −Σ p(π) · log₂ p(π)<br>"
+            "gdzie: π = wzorzec rzędowy okna długości m<br>"
+            "       p(π) = częstość wzorca π w serii<br>"
+            "Znormalizowane: PermEn ← PermEn / log₂(m!)"
+        ),
+        reference=(
+            "Bandt &amp; Pompe (2002) Phys. Rev. Lett. 88:174102 · "
+            "Dong &amp; Gao (2024) IJFE — 'Entropy-Based Market Regime Identification'"
+        ),
+        accent_color="#00ccff",
+        key_prefix="regime_clock",
+    )
+
+except ImportError as _e:
+    st.warning(f"Moduł entropy_regime niedostępny: {_e}. Sprawdź instalację.")
+except Exception as _e:
+    st.error(f"Błąd panelu entropii: {_e}")

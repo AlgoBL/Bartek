@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from modules.styling import apply_styling
 from modules.ai.data_loader import load_data
-from modules.walk_forward import generate_strategy_matrix, cpcv_pbo, plot_cpcv_results
+from modules.walk_forward import generate_strategy_matrix, cpcv_pbo, plot_cpcv_results, adversarial_validation_auc
 from modules.i18n import t
 
 st.set_page_config(page_title="PBO Scorecard", page_icon="🔬", layout="wide")
@@ -82,4 +82,58 @@ if st.button("🚀 Przeprowadź Test CPCV (Probability of Backtest Overfitting)"
             - Tworzy wszystkie unikalne podziały na zbiory uczące (In-Sample) złożone z **N/2** bloków. (Dla N=6 test wykonuje się 15 razy).
             - Na każdym wariancie szuka optymalnej alokacji ze zbioru M strategii, i testuje ją na wyciętych blokach testowych (OOS).
             - Odkłada rangę wyniku OOS (w rozkładzie wszystkich wyników). Histogram obok pokazuje zlogarytmowane dystrybucje tych rang (Logit). PBO to pole powierzchni pod medianą wyliczonych logitów rang!
+            """)
+
+        # --- ADVERSARIAL VALIDATION SECTION ---
+        st.markdown("---")
+        st.markdown("### 🕵️ Adversarial Validation (Wykrywanie Leakage)")
+        
+        # Prepare 1D data for the classifier (using returns from risky asset)
+        train_len = len(r_risky) // 2
+        train_rets = r_risky.values[:train_len].reshape(-1, 1)
+        test_rets = r_risky.values[train_len:].reshape(-1, 1)
+        
+        auc_val = adversarial_validation_auc(train_rets, test_rets)
+        
+        ac1, ac2 = st.columns([1.2, 1])
+        with ac1:
+            import numpy as np
+            import plotly.graph_objects as go
+            
+            # Simple gauge for AUC
+            fig_auc = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = auc_val,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': "AUC: Podobieństwo zbiorów Train vs Test", 'font': {'size': 18}},
+                gauge = {
+                    'axis': {'range': [0.4, 1.0], 'tickwidth': 1, 'tickcolor': "white"},
+                    'bar': {'color': "#00ff88" if auc_val < 0.6 else "#ffea00" if auc_val < 0.75 else "#ff1744"},
+                    'steps': [
+                        {'range': [0.4, 0.6], 'color': 'rgba(0, 255, 136, 0.1)'},
+                        {'range': [0.6, 0.75], 'color': 'rgba(255, 234, 0, 0.1)'},
+                        {'range': [0.75, 1.0], 'color': 'rgba(255, 23, 68, 0.1)'}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': 0.70
+                    }
+                }
+            ))
+            fig_auc.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={'color': "white", 'family': "Inter"}, height=300)
+            st.plotly_chart(fig_auc, use_container_width=True)
+            
+        with ac2:
+            st.markdown("#### Interpretacja AUC Klasyfikatora")
+            if auc_val < 0.6:
+                st.success("✅ **Niskie AUC:** Klasyfikator nie potrafi rozróżnić Train od Test. Dane są statystycznie spójne (brak istotnego dryfu).")
+            elif auc_val < 0.75:
+                 st.warning("⚠️ **Podwyższone AUC:** Wystąpił dryf danych lub zmiana reżimu. Twoja strategia może działać inaczej w przyszłości niż w przeszłości.")
+            else:
+                 st.error("🚨 **Wysokie AUC:** Dane testowe radykalnie różnią się od treningowych. Prawdopodobny wyciek danych (Data Leakage) lub ekstremalny Regime Shift.")
+            
+            st.info("""
+            **Adversarial Validation** to metoda, w której trenujemy model AI (np. Regresję Logistyczną), by odgadł, czy dany wiersz pochodzi z przeszłości czy z przyszłości.
+            Jeśli model zgaduje to bezbłędnie (AUC -> 1.0), oznacza to, że przeszłość NIE jest reprezentatywna dla przyszłości.
             """)

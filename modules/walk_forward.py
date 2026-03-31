@@ -644,3 +644,31 @@ def plot_cpcv_results(rankits: np.ndarray, pbo: float):
     )
     
     return fig
+def adversarial_validation_auc(train_data: np.ndarray, test_data: np.ndarray) -> float:
+    """
+    Adversarial Validation — Lopez de Prado (2018).
+    Trenuje klasyfikator (LogisticRegression) aby odróżnić zbiór treningowy od testowego.
+    
+    Wyniki:
+        AUC ≈ 0.50 -> Dane są jednorodne (dobrze).
+        AUC > 0.70 -> Dane testowe są inne niż treningowe (Regime Shift) 
+                      lub istnieje wyciek danych (Leakage).
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import train_test_split
+
+    # Przygotowanie danych (X, y)
+    X = np.vstack([train_data, test_data])
+    y = np.hstack([np.zeros(len(train_data)), np.ones(len(test_data))])
+    
+    # Shuffle i Split dla wewnętrznej walidacji klasyfikatora
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(X_train, y_train)
+    
+    probs = clf.predict_proba(X_val)[:, 1]
+    auc = roc_auc_score(y_val, probs)
+    
+    return float(auc)

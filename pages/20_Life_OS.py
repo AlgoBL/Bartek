@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
-from modules.styling import apply_styling
+from modules.styling import apply_styling, scicard
 from modules.i18n import t
 
 st.set_page_config(page_title="Life OS — Algorytm Łowcy", page_icon="🎯", layout="wide")
@@ -2215,15 +2215,161 @@ Użyte: <b style='color:{c_168}'>{total_h}h</b> / 168h | Pozostałe: <b style='c
 
 
 # ═══════════════════════════════════════════════════════════
+# SEKCJA 30 — ACTIVE INFERENCE (KARL FRISTON)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🧠 Sekcja 30 — Active Inference (Wnioskowanie Aktywne)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Jak mózg minimalizuje 'Free Energy' (zaskoczenie)? Zunifikowana teoria percepcji i działania autorstwa prof. Karla Fristona.</p>", unsafe_allow_html=True)
+
+col_ai1, col_ai2 = st.columns([1,2])
+with col_ai1:
+    prior_belief = st.slider("Przekonanie a priori (pewność %)", 10, 90, 50, 5, key="ai_prior") / 100.0
+    evidence_strength = st.slider("Siła nowego dowodu (wiarygodność %)", 10, 90, 70, 5, key="ai_evid") / 100.0
+    action_cost = st.slider("Koszt podjęcia działania", 0.0, 1.0, 0.3, 0.1, key="ai_action")
+
+with col_ai2:
+    # Bayesian Update (Perception)
+    posterior_belief = (prior_belief * evidence_strength) / ((prior_belief * evidence_strength) + ((1 - prior_belief) * (1 - evidence_strength)))
+    
+    # Free Energy calculation (Surprise)
+    # Zaskoczenie to rozbieżność między oczekiwaniami a danymi (Kullback-Leibler divergence w mechanice P)
+    surprise_no_action = -np.log(posterior_belief + 1e-9) if posterior_belief < 0.5 else -np.log((1 - posterior_belief) + 1e-9)
+    surprise_with_action = 0.1 # Działanie zmienia stan świata by pasował do oczekiwań
+    free_energy_gap = surprise_no_action - (surprise_with_action + action_cost)
+     
+    st.markdown(f"**Zaktualizowane Przekonanie (Po percepcji):** <span class='neon-cyan'>{posterior_belief:.1%}</span>", unsafe_allow_html=True)
+    if free_energy_gap > 0:
+        st.markdown(f"**Rekomendacja Systemu:** <span class='neon-green'>Podłącz Akcję!</span> (Free Energy Gap: {free_energy_gap:.2f})", unsafe_allow_html=True)
+        st.caption("Dowód za bardzo odbiega od oczekiwań. Oszacowałeś, że taniej jest **zmienić otoczenie (akcja)**, niż drastycznie modernizować swój wewnętrzny model świata i znosić niespodzianki.")
+    else:
+        st.markdown(f"**Rekomendacja Systemu:** <span class='neon-purple'>Brak Akcji / Zmiana Przekonania</span> (Free Energy Gap: {free_energy_gap:.2f})", unsafe_allow_html=True)
+        st.caption("Koszt działania jest zbyt duży lub dowód jest spójny. Mózg woli zaktualizować model świata (uczyć się) zamiast wchodzić w interakcje.")
+
+    scicard(
+        title="Active Inference (Friston's Free Energy Principle)",
+        icon="🧠",
+        level0_html="<b style='color:#00e676;font-size:16px'>Mózg to maszyna statystyczna</b>",
+        chart_fn=None,
+        explanation_md="Teoria wykraczająca poza Prospect Theory: twierdzi, że wszelkie ożywione systemy robią jedną rzecz: minimalizują własne zaskoczenie (Free Energy). Mają dwie drogi:\n1. **Percepcja**: zmiana modelu mózgu, by pasował do zmysłów (Bayesian update).\n2. **Działanie (Action)**: zmiana świata, by upewnić zmysły, że pierwotny model był jednak słuszny.\nTrade-off między eksploracją (nauka/surprise) a eksploatacją.",
+        formula_code="F = E_q[log q(s)] - E_q[log p(o, s)]\nWolna energia = Zaskoczenie + Złożoność",
+        reference="Karl Friston (2022) 'Active Inference: The Free Energy Principle'"
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 31 — NETWORK NEUROSCIENCE (DMN VS TPN)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🧠 Sekcja 31 — DMN vs TPN: Strategia vs Egzekucja")
+
+def plot_dmn_tpn():
+    import plotly.graph_objects as go
+    categories = ['Focus', 'Creativity', 'Calculation', 'Introspection', 'Execution', 'Planning']
+    
+    # Activation levels for Trading (TPN dominant) vs Strategic Planning (DMN dominant)
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=[80, 20, 90, 10, 95, 30],
+        theta=categories,
+        fill='toself',
+        name='TPN (Task Positive - Trading Mode)',
+        line_color='#00e676'
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=[15, 90, 20, 95, 10, 85],
+        theta=categories,
+        fill='toself',
+        name='DMN (Default Mode - Strategic Mode)',
+        line_color='#00ccff'
+    ))
+    fig.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor='#2a2a3a'), bgcolor='rgba(0,0,0,0)'),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='white', size=10),
+        margin=dict(l=40, r=40, t=20, b=20),
+        height=350,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+c31_1, c31_2 = st.columns([3, 2])
+with c31_1:
+    plot_dmn_tpn()
+
+with c31_2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>📡 DMN vs TPN Architecture</div>
+    <p style='{NOTE}'>
+    Mózg posiada dwie główne, antagonistyczne sieci:<br><br>
+    1. <b>DMN (Default Mode Network)</b>: aktywna przy introspekcji, planowaniu dalekosiężnym i kreatywności. 'Bujanie w obłokach' jest niezbędne do strategii.<br><br>
+    2. <b>TPN (Task Positive Network)</b>: aktywna przy intensywnym skupieniu na zadaniu (np. day trading).<br><br>
+    Stałe przebywanie w TPN (hiper-focus) osłabia zdolność do strategicznej korekty kursu i szerokiego spojrzenia na portfel.<br><br>
+    <b style='color:#00ccff'>Wzór:</b> Signal_Balance = Correlation(DMN, TPN) < 0<br><br>
+    <b style='color:#6b7280'>Ref:</b> Buckner et al. (2008); Immordino-Yang et al. (2024)
+    </p></div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# SEKCJA 32 — POLYVAGAL THEORY & HRV
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 💓 Sekcja 32 — Polyvagal Protocol: Biologia Decyzji")
+
+def plot_polyvagal():
+    import plotly.graph_objects as go
+    states = ['Dorsal Vagal (Freeze)', 'Sympathetic (Fight/Flight)', 'Ventral Vagal (Safe)']
+    hrv_levels = [10, 40, 90]
+    colors = ['#ff1744', '#ffea00', '#00e676']
+    
+    fig = go.Figure(go.Bar(
+        x=hrv_levels,
+        y=states,
+        orientation='h',
+        marker=dict(color=colors, line=dict(color='white', width=1)),
+        text=[f"Low HRV ({v})" for v in [10, 40, "High 90"]],
+        textposition='auto',
+    ))
+    fig.update_layout(
+        title="The Vagal Ladder (HRV Scale)",
+        xaxis=dict(title="Estimated Vagal Tone (HRV Index)", gridcolor='#2a2a3a'),
+        yaxis=dict(title="ANS State"),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='white'),
+        height=300,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+c32_1, c32_2 = st.columns([3, 2])
+with c32_1:
+    plot_polyvagal()
+
+with c32_2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>⚡ Vagal Tone & Decision Quality</div>
+    <p style='{NOTE}'>
+    Teoria Poliwagalna opisuje 3 stany autonomicznego układu nerwowego:<br><br>
+    1. <b>Ventral Vagal</b>: Bezpieczeństwo, jasność myślenia, optymalne decyzje.<br><br>
+    2. <b>Sympathetic</b>: Walka/Ucieczka — tunelowe widzenie, popędliwość, hazardowe ciągoty.<br><br>
+    3. <b>Dorsal Vagal</b>: Zamrożenie, rezygnacja, apatia.<br><br>
+    Monitoring HRV pozwala wykryć moment, w którym biologia przejmuje kontrolę nad logiką tradera.<br><br>
+    <b style='color:#ffea00'>Zależność:</b> Vagal_Tone ∝ High_Frequency_HRV<br><br>
+    <b style='color:#6b7280'>Ref:</b> Stephen Porges (2011) 'Polyvagal Theory'
+    </p></div>""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
 # ZAKTUALIZOWANY FOOTER
 # ═══════════════════════════════════════════════════════════
 st.markdown("---")
 st.markdown("""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:16px'>
-Life OS v4.0 · Advanced Quant Platform Ecosystem · 29 Sekcji Naukowych<br>
+Life OS v4.5 · Advanced Quant Platform Ecosystem · 32 Sekcje Naukowe<br>
 Ergodicity (Peters) · RPE (Schultz) · Network Centrality (Burt) · Barbell &amp; Extremistan (Taleb) · Kelly Criterion<br>
 Chronobiology (Panda) · Flow 3D (Csíkszentmihályi) · Fogg Behavior Model · Nudges (Kahneman/Thaler)<br>
 Mechanism Design · IPD (Axelrod/Nowak) · Multi-Armed Bandit · Costly Signaling · Hawkes Processes<br>
-<b>NEW v4.0:</b> Stoic Dichotomy (Epictetus) · Social Hierarchy Biology (Sapolsky) · Shannon/Bayes/Friston<br>
-SOC &amp; Edge of Chaos (Per Bak/SFI) · AI Cognitive Surrender (Wharton 2025) · Noise (Kahneman 2021)<br>
-Oxytocin &amp; Dunbar Circles (Zak/Dunbar) · Optimal Transport Life (Villani/Kantorovich)
+<b>NEW v4.5:</b> Stoic Dichotomy (Epictetus) · Social Hierarchy Biology (Sapolsky) · Shannon/Bayes/Friston<br>
+SOC &amp; Edge of Chaos (Per Bak/SFI) · AI Cognitive Surrender (Wharton 2025) · Active Inference (Friston 2022)<br>
+Network Neuroscience (DMN/TPN) · Polyvagal Theory (Porges) · Noise (Kahneman 2021)
 </div>""", unsafe_allow_html=True)

@@ -263,6 +263,116 @@ def generate_archimedean_copula_shocks(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# HAWKES-GARCH HYBRID MODEL (A.5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import numba as nb
+
+@nb.njit(cache=True)
+def simulate_hawkes_garch_path(
+    n_days: int, 
+    omega: float, 
+    alpha: float, 
+    beta: float, 
+    shocks: np.ndarray,
+    hawkes_lambda0: float = 0.01,
+    hawkes_alpha: float = 0.5,
+    hawkes_beta: float = 0.9
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Hybryda procesów (A.5):
+    1. GARCH(1,1): bazowa ewolucja zmienności.
+    2. Hawkes Process: autooksytacja zmienności związana z ekstremalnymi szokami (szoki rodzą szoki - klastrowanie zmienności z opóźnieniem).
+    
+    Zwraca: (var_path, hawkes_intensity)
+    """
+    assert len(shocks) == n_days
+    
+    var_path = np.zeros(n_days)
+    hawkes_intensity = np.zeros(n_days)
+    
+    # Warunki początkowe
+    var_path[0] = omega / max(1.0 - alpha - beta, 0.01)
+    hawkes_intensity[0] = hawkes_lambda0
+    
+    for t in range(1, n_days):
+        # 1. Update GARCH
+        # Zależność od poprzedniej wariancji i szoku
+        garch_update = omega + alpha * (var_path[t-1] * shocks[t-1]**2) + beta * var_path[t-1]
+        
+        # 2. Update Hawkes (Excitation from extreme shocks > 2 std dev)
+        is_extreme = 1.0 if abs(shocks[t-1]) > 2.0 else 0.0
+        hawkes_intensity[t] = hawkes_lambda0 + hawkes_beta * (hawkes_intensity[t-1] - hawkes_lambda0) + hawkes_alpha * is_extreme
+        
+        # 3. Hybrid: GARCH variance is multiplied/elevated by Hawkes jump intensity
+        var_path[t] = garch_update * (1.0 + hawkes_intensity[t])
+        
+    return var_path, hawkes_intensity
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NEURAL SDE (LATENT STOCHASTIC DIFFERENTIAL EQUATIONS - A.6)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def simulate_neural_sde_paths(
+    n_sims: int, 
+    n_days: int, 
+    initial_vol: float = 0.20,
+    dt: float = 1/252,
+    seed: int = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Ekspresyjna alternatywa do Rough Bergomi oparta na koncepcji Neural SDEs (Kidger et al. 2022).
+    Zamiast sztywnego Równania Różniczkowego, Drift i Dyfuzja modyfikowane są przez 
+    uproszczone warstwy nieliniowe (symulacja parametryzacji sieciowej na bieżąco).
+    
+    W pełnej wersji (np. TorchSDE) wagi są trenowane za pomocą Neural CDE.
+    Tu wdrażamy nieliniowy drift z elementem pamięci (tanh).
+    
+    Returns
+    -------
+    vol_paths : (n_sims, n_days)
+    spot_shocks : (n_sims, n_days)
+    """
+    if seed is not None:
+         np.random.seed(seed)
+         
+    vol_paths = np.zeros((n_sims, n_days))
+    spot_shocks = np.random.standard_normal((n_sims, n_days))
+    brownian_vol = np.random.standard_normal((n_sims, n_days))
+    
+    vol_paths[:, 0] = initial_vol
+    
+    # "Zwykły" wektor pamięci latent_h (hidden state) startujący od zera
+    latent_h = np.zeros(n_sims)
+    
+    # Przykładowe uogólnione wagi pseudo "warstwy sieci"
+    w1, w2, w3 = 0.5, -0.3, 0.1
+    b1 = 0.05
+    
+    for t in range(1, n_days):
+        v_prev = vol_paths[:, t-1]
+        
+        # 1. Obliczenie driftu (μ) przez prosty MLP z poprzedniego vol i latent_h
+        # Zamiast liniowego powrotu do średniej: drift = tanh(W*h + U*v + B)
+        drift_out = np.tanh(w1 * latent_h + w2 * (v_prev - 0.20) + b1)
+        
+        # 2. Obliczenie dyfuzji (σ)
+        diff_out  = 0.10 + 0.15 * np.abs(np.tanh(w3 * latent_h))
+        
+        # SDE Euler-Maruyama Update: V(t) = V(t-1) + μ(t)*dt + σ(t)*dW
+        v_new = v_prev + drift_out * dt + diff_out * np.sqrt(dt) * brownian_vol[:, t]
+        
+        # Sigmoid do utrzymania volatility w ryzach (>0, stabilne)
+        vol_paths[:, t] = np.clip(v_new, 0.01, 1.5)
+        
+        # Update hidden latent state H (np. leaky integrator)
+        latent_h = 0.9 * latent_h + 0.1 * v_prev
+        
+    return vol_paths, spot_shocks
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ROUGH HAWKES-HESTON MODEL (El Euch et al. 2024)  [NEW]
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -560,10 +670,12 @@ def simulate_barbell_strategy(
     # ==== SREDNI PRIORYTET ====
     use_alpha_stable: bool = False,    # Lévy-Stable Process vs t-Student
     alpha_stable_alpha: float = 1.7,   # Tail index for Lévy-Stable
+    # ==== NISKI PRIORYTET ====
+    use_neural_sde: bool = False,      # Neural SDEs (Kidger 2022)
 ):
     """
     Monte Carlo Simulation z:
-    - GARCH(1,1) / Rough Bergomi / fBM
+    - GARCH(1,1) / Rough Bergomi / fBM / Neural SDE
     - Kopuła t-Studenta / Archimedejska (Clayton/Gumbel/Frank)
     - Prawdopodobieństwo Lévy-Stable (Heavy Tails)
     - Merton Jump-Diffusion
@@ -596,7 +708,14 @@ def simulate_barbell_strategy(
             logger.warning(f"Auto-Fit (MLE) config failed: {e}")
             copula_family, copula_theta = "clayton", 2.0
 
-    if use_fft_fbm:
+    if use_neural_sde:
+        vol_paths, spot_shocks_2d = simulate_neural_sde_paths(
+            n_sims=n_simulations, n_days=total_days,
+            initial_vol=risky_vol, dt=dt, seed=None
+        )
+        standardized_shocks = spot_shocks_2d
+        rough_daily_vols = vol_paths
+    elif use_fft_fbm:
         # Davies-Harte FFT: O(N log N) — najbardziej wydajna metoda
         vol_paths, spot_shocks_2d = simulate_rough_bergomi_vol_fft(
             n_sims=n_simulations, n_days=total_days,
@@ -668,9 +787,9 @@ def simulate_barbell_strategy(
         jump_returns = jump_occurrences * jump_sizes
 
 
-    # ─── GARCH(1,1) / Rough Bergomi Volatility ──────────────────────────────
-    if use_rough_vol and rough_daily_vols is not None:
-        # Rough Bergomi: spot_shocks already correlated with vol
+    # ─── GARCH(1,1) / Rough Bergomi / Neural SDE Volatility ──────────────────────────────
+    if (use_rough_vol or use_fft_fbm or use_neural_sde) and rough_daily_vols is not None:
+        # Volatility models generating stochastic vol arrays
         jump_var_annual = jump_lambda * (jump_mean**2 + jump_std**2) if use_jump_diffusion else 0
         jump_mean_annual = jump_lambda * (np.exp(jump_mean + 0.5*jump_std**2) - 1) if use_jump_diffusion else 0
         diff_mean = risky_mean - jump_mean_annual

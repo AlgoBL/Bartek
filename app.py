@@ -18,6 +18,8 @@ st.set_page_config(
 # Wstrzykuje JavaScript kontrolera accordion
 inject_accordion_js()
 inject_command_palette_js()
+from modules.styling import inject_aos_js
+inject_aos_js()
 
 from modules.background_updater import bg_engine, CACHE_FILE
 import json
@@ -724,101 +726,286 @@ def home():
 
     st.divider()
 
-    # ─── ROW 2: 5-PILLAR GRID ─────────────────────────────────────────────────
-    PILLAR_STYLE = "text-align:center;font-size:13px;font-weight:700;letter-spacing:1px;margin-bottom:4px;padding:4px 0;border-radius:6px;"
-    p1, p2, p3, p4, p5 = st.columns(5)
-    _pillar1 = t("p1_stress")
-    _pillar2 = t("p2_macro")
-    _pillar3 = t("p3_real")
-    _pillar4 = t("p4_sent")
-    _pillar5 = t("p5_credit")
+    # ─── ROW 2: 5-PILLAR GRID — SMALL MULTIPLES (V.7) ────────────────────────
+    # Ref: Tufte (2001) "Small Multiples" + Hullman et al. (2023)
+    # Small multiples są 30-60% szybciej przetwarzane niż sekwencyjne gaugi.
+    # Jeden duży gauge (REGIME SCORE) + 15 kompaktowych kart spark.
+    # ─────────────────────────────────────────────────────────────────────────
+    from modules.styling import metric_spark_html, metric_spark_row
 
-    # ── PILLAR 1: STRESS & VOL ──
-    with p1:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#ff1744;background:rgba(255,23,68,0.08);'>{_pillar1}</h4>", unsafe_allow_html=True)
+    PILLAR_STYLE = "text-align:center;font-size:11px;font-weight:700;letter-spacing:1px;margin:8px 0 4px 0;padding:3px 0;border-radius:4px;"
 
-        bv = macro.get("Bond_Vol_Proxy")
-        if bv is not None:
-            show_gauge("Bond Vol (MOVE Proxy)", draw_advanced_gauge("Bond Vol", bv, 3, 35, invert=False, suffix="%"), get_help_bond_vol(bv))
+    # ── Pillar Headers ─────────────────────────────────────────────────────────
+    p1_lbl, p2_lbl, p3_lbl, p4_lbl, p5_lbl = (
+        t("p1_stress"), t("p2_macro"), t("p3_real"),
+        t("p4_sent"), t("p5_credit"),
+    )
+    pillar_cols = st.columns([1, 1, 1, 1, 1])
+    for pc_col, pc_label, pc_color in zip(
+        pillar_cols,
+        [p1_lbl, p2_lbl, p3_lbl, p4_lbl, p5_lbl],
+        ["#ff1744", "#3498db", "#2ecc71", "#f1c40f", "#a855f7"],
+    ):
+        with pc_col:
+            st.markdown(
+                f"<h4 style='{PILLAR_STYLE}color:{pc_color};"
+                f"background:rgba(128,128,128,0.06);'>{pc_label}</h4>",
+                unsafe_allow_html=True,
+            )
 
-        vix1 = macro.get("VIX_1M")
-        if vix1 is not None:
-            show_gauge("VIX 1M (Implied Vol)", draw_advanced_gauge("VIX 1M", vix1, 10, 50, invert=False), get_help_vix(vix1))
+    # ── Buduj listę kart per filar ────────────────────────────────────────────
+    bv     = macro.get("Bond_Vol_Proxy")
+    vix1   = macro.get("VIX_1M")
+    ted    = macro.get("FRED_TED_Spread")
+    fci    = macro.get("FRED_Financial_Stress_Index")
+    yc     = macro.get("Yield_Curve_Spread", 0)
+    ry     = macro.get("FRED_Real_Yield_10Y")
+    bdry   = macro.get("Baltic_Dry")
+    cu     = macro.get("Copper")
+    cu_au  = macro.get("CuAu_Ratio")
+    sent   = geo_report.get("compound_sentiment", 0)
+    bread  = macro.get("Breadth_Momentum")
+    fng    = macro.get("Crypto_FearGreed")
+    gex    = macro.get("total_gex_billions")
+    hy     = macro.get("FRED_HY_Spread")
+    m2     = macro.get("FRED_M2_YoY_Growth")
+    cs_baa = macro.get("FRED_Credit_Spread_BAA_AAA")
 
-        ted = macro.get("FRED_TED_Spread")
-        if ted is not None:
-            show_gauge("TED Spread", draw_advanced_gauge("TED Spread", ted, 0, 1.5, invert=False), get_help_ted(ted))
+    # Helper: wartość do str formatowania
+    def _fmt(v, decimals=1, prefix="", suffix=""):
+        if v is None:
+            return "N/A", ""
+        return f"{prefix}{v:.{decimals}f}", suffix
 
-    # ── PILLAR 2: MACRO & POLICY ──
-    with p2:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#3498db;background:rgba(52,152,219,0.08);'>{_pillar2}</h4>", unsafe_allow_html=True)
+    # Helper: kolor na podstawie wartości i reguly kierunkowej
+    def _color(v, threshold_green, threshold_red, invert=False):
+        if v is None:
+            return "#888"
+        if invert:
+            # wyższe = lepsze
+            if v >= threshold_green: return "#00e676"
+            if v <= threshold_red:   return "#ff1744"
+            return "#ffea00"
+        else:
+            # niższe = lepsze
+            if v <= threshold_green: return "#00e676"
+            if v >= threshold_red:   return "#ff1744"
+            return "#ffea00"
 
-        fci = macro.get("FRED_Financial_Stress_Index")
-        if fci is not None:
-            show_gauge("Financial Stress (STLFSI)", draw_advanced_gauge("STLFSI", fci, -2.5, 6, invert=False), get_help_fci(fci))
+    pillar_cards = {
+        "p1": [
+            {
+                "label": "Bond Vol (MOVE)",
+                "value": f"{bv:.1f}" if bv else "N/A",
+                "suffix": "%",
+                "accent_color": _color(bv, 8, 20),
+                "delta": f"{bv:.1f}%" if bv else "",
+                "delta_positive": bv is not None and bv < 15,
+                "help_text": get_help_bond_vol(bv),
+            },
+            {
+                "label": "VIX 1M",
+                "value": f"{vix1:.1f}" if vix1 else "N/A",
+                "suffix": "",
+                "accent_color": _color(vix1, 15, 30),
+                "delta": f"{vix1:.1f}" if vix1 else "",
+                "delta_positive": vix1 is not None and vix1 < 25,
+                "help_text": get_help_vix(vix1),
+            },
+            {
+                "label": "TED Spread",
+                "value": f"{ted:.2f}" if ted else "N/A",
+                "suffix": "%",
+                "accent_color": _color(ted, 0.2, 0.5),
+                "delta": f"{ted:.2f}%" if ted else "",
+                "delta_positive": ted is not None and ted < 0.4,
+                "help_text": get_help_ted(ted),
+            },
+        ],
+        "p2": [
+            {
+                "label": "STLFSI",
+                "value": f"{fci:.2f}" if fci else "N/A",
+                "suffix": "",
+                "accent_color": _color(fci, 0, 2.0),
+                "delta": f"{fci:+.2f}" if fci else "",
+                "delta_positive": fci is not None and fci < 0,
+                "help_text": get_help_fci(fci),
+            },
+            {
+                "label": "Yield Curve",
+                "value": f"{yc:+.2f}" if yc else "N/A",
+                "suffix": "%",
+                "accent_color": _color(yc, 0.5, -0.5, invert=True),
+                "delta": f"{yc:+.2f}%" if yc else "",
+                "delta_positive": yc is not None and yc > 0,
+                "help_text": get_help_yield_curve(yc),
+            },
+            {
+                "label": "Real 10Y Yield",
+                "value": f"{ry:.2f}" if ry else "N/A",
+                "suffix": "%",
+                "accent_color": _color(ry, 0, 2.5),
+                "delta": f"{ry:.2f}%" if ry else "",
+                "delta_positive": ry is not None and ry < 1.5,
+                "help_text": get_help_real_yield(ry),
+            },
+        ],
+        "p3": [
+            {
+                "label": "Baltic Dry",
+                "value": f"{bdry:.0f}" if bdry else "N/A",
+                "suffix": "",
+                "accent_color": _color(bdry, 2000, 1000, invert=True),
+                "delta": f"{bdry:.0f}" if bdry else "",
+                "delta_positive": bdry is not None and bdry > 1500,
+                "help_text": get_help_baltic(bdry),
+            },
+            {
+                "label": "Dr. Copper",
+                "value": f"{cu:.2f}" if cu else "N/A",
+                "suffix": "$/lb",
+                "accent_color": _color(cu, 4.0, 3.0, invert=True),
+                "delta": f"${cu:.2f}" if cu else "",
+                "delta_positive": cu is not None and cu > 3.5,
+                "help_text": get_help_copper(cu),
+            },
+            {
+                "label": "Cu/Au Ratio ×10⁴",
+                "value": f"{cu_au*10000:.2f}" if cu_au else "N/A",
+                "suffix": "",
+                "accent_color": _color(cu_au, 0.00035, 0.0002, invert=True) if cu_au else "#888",
+                "delta": f"{cu_au*10000:.2f}" if cu_au else "",
+                "delta_positive": cu_au is not None and cu_au * 10000 > 2.5,
+                "help_text": get_help_cuau(cu_au),
+            },
+        ],
+        "p4": [
+            {
+                "label": "NLP Sentiment",
+                "value": f"{sent:+.2f}",
+                "suffix": "",
+                "accent_color": _color(sent, 0.1, -0.15, invert=True),
+                "delta": f"{sent:+.2f}",
+                "delta_positive": sent >= 0,
+                "help_text": get_help_sentiment(sent),
+            },
+            {
+                "label": "Breadth (bp)",
+                "value": f"{bread*10000:.0f}" if bread else "N/A",
+                "suffix": "bp",
+                "accent_color": _color(bread, 0.005, -0.015, invert=True) if bread else "#888",
+                "delta": f"{bread*10000:.0f}bp" if bread else "",
+                "delta_positive": bread is not None and bread > 0,
+                "help_text": get_help_breadth(bread),
+            },
+            {
+                "label": "Crypto F&G",
+                "value": f"{fng:.0f}" if fng else "N/A",
+                "suffix": "/100",
+                "accent_color": _color(fng, 60, 30, invert=True) if fng else "#888",
+                "delta": f"{fng:.0f}/100" if fng else "",
+                "delta_positive": fng is not None and fng > 50,
+                "help_text": get_help_fng(fng),
+            },
+        ],
+        "p5": [
+            {
+                "label": "GEX (Dark Pool)",
+                "value": f"{gex:.1f}" if gex else "N/A",
+                "suffix": "B",
+                "accent_color": _color(gex, 0, -5, invert=True) if gex else "#888",
+                "delta": f"{gex:+.1f}B" if gex else "",
+                "delta_positive": gex is not None and gex > 0,
+                "help_text": get_help_gex(gex),
+            },
+            {
+                "label": "HY Spread",
+                "value": f"{hy:.0f}" if hy else "N/A",
+                "suffix": "bps",
+                "accent_color": _color(hy, 350, 600),
+                "delta": f"{hy:.0f}bps" if hy else "",
+                "delta_positive": hy is not None and hy < 450,
+                "help_text": get_help_hy(hy),
+            },
+            {
+                "label": "M2 YoY",
+                "value": f"{m2:.1f}" if m2 else "N/A",
+                "suffix": "%",
+                "accent_color": _color(m2, 6, -2, invert=True) if m2 else "#888",
+                "delta": f"{m2:+.1f}%" if m2 else "",
+                "delta_positive": m2 is not None and 0 < m2 < 10,
+                "help_text": get_help_m2(m2),
+            },
+        ],
+    }
 
-        yc = macro.get("Yield_Curve_Spread", 0)
-        show_gauge("Yield Curve 10Y - 3M", draw_advanced_gauge("Yield Curve", yc, -1.5, 3.5, invert=True, suffix="%"), get_help_yield_curve(yc))
+    # ── Renderuj Small Multiples w 5 kolumnach ────────────────────────────────
+    render_cols = st.columns(5)
+    for col_idx, (pillar_key, pillar_col) in enumerate(
+        zip(["p1", "p2", "p3", "p4", "p5"], render_cols)
+    ):
+        with pillar_col:
+            for card_data in pillar_cards[pillar_key]:
+                st.markdown(
+                    metric_spark_html(
+                        label          = card_data["label"],
+                        value          = card_data["value"],
+                        suffix         = card_data.get("suffix", ""),
+                        delta          = card_data.get("delta", ""),
+                        delta_positive = card_data.get("delta_positive", True),
+                        history        = card_data.get("history"),
+                        accent_color   = card_data.get("accent_color", "#00e676"),
+                        help_text      = card_data.get("help_text", ""),
+                    ),
+                    unsafe_allow_html=True,
+                )
+                st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-        ry = macro.get("FRED_Real_Yield_10Y")
-        if ry is not None:
-            show_gauge("Real 10Y Yield (TIPS)", draw_advanced_gauge("Real Yield", ry, -1.0, 4.0, invert=False, suffix="%"), get_help_real_yield(ry))
+    # Credit Spread jako dodatkowa karta (filar 5)
+    with render_cols[4]:
+        if cs_baa is not None:
+            st.markdown(
+                metric_spark_html(
+                    label         = "Credit Spread (BAA)",
+                    value         = f"{cs_baa:.2f}",
+                    suffix        = "%",
+                    delta         = f"{cs_baa:.2f}%",
+                    delta_positive = cs_baa < 2.5,
+                    accent_color  = _color(cs_baa, 2.5, 3.5),
+                    help_text     = get_help_credit_spread(cs_baa),
+                ),
+                unsafe_allow_html=True,
+            )
 
-    # ── PILLAR 3: REAL ECONOMY ──
-    with p3:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#2ecc71;background:rgba(46,204,113,0.08);'>{_pillar3}</h4>", unsafe_allow_html=True)
-
-        bdry = macro.get("Baltic_Dry")
-        if bdry is not None:
-            show_gauge("Baltic Dry Index", draw_advanced_gauge("Baltic Dry", bdry, 500, 5000, invert=True), get_help_baltic(bdry))
-
-        cu = macro.get("Copper")
-        if cu is not None:
-            show_gauge("Dr. Copper ($/lb)", draw_advanced_gauge("Dr. Copper", cu, 2.0, 6.5, invert=True, prefix="$"), get_help_copper(cu))
-
-        cu_au = macro.get("CuAu_Ratio")
-        if cu_au is not None:
-            show_gauge("Cu/Au Ratio ×10⁴", draw_advanced_gauge("Cu/Au Ratio", cu_au * 10000, 1.0, 5.0, invert=True), get_help_cuau(cu_au))
-
-    # ── PILLAR 4: SENTIMENT & BREADTH ──
-    with p4:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#f1c40f;background:rgba(241,196,15,0.08);'>{_pillar4}</h4>", unsafe_allow_html=True)
-
-        sent = geo_report.get("compound_sentiment", 0)
-        show_gauge("News NLP Sentiment", draw_advanced_gauge("NLP Sentiment", sent, -1.0, 1.0, invert=True), get_help_sentiment(sent))
-
-        breadth = macro.get("Breadth_Momentum")
-        if breadth is not None:
-            show_gauge("Market Breadth (bp)", draw_advanced_gauge("Breadth", breadth * 10000, -300, 300, invert=True), get_help_breadth(breadth))
-
-        fng = macro.get("Crypto_FearGreed")
-        if fng is not None:
-            show_gauge("Crypto Fear & Greed", draw_advanced_gauge("Fear & Greed", fng, 0, 100, invert=True), get_help_fng(fng))
-
-    # ── PILLAR 5: CREDIT & LIQUIDITY ──
-    with p5:
-        st.markdown(f"<h4 style='{PILLAR_STYLE}color:#a855f7;background:rgba(168,85,247,0.08);'>{_pillar5}</h4>", unsafe_allow_html=True)
-
-        gex = macro.get("total_gex_billions")
-        if gex is not None:
-            show_gauge("Dark Pool GEX", draw_advanced_gauge("GEX", gex, -15, 15, invert=True, suffix="B"), get_help_gex(gex))
-
-        hy = macro.get("FRED_HY_Spread")
-        if hy is not None:
-            show_gauge("HY Spread (OAS)", draw_advanced_gauge("HY Spread", hy, 200, 1200, invert=False, suffix=" bps"), get_help_hy(hy))
-
-        m2 = macro.get("FRED_M2_YoY_Growth")
-        if m2 is not None:
-            show_gauge("M2 Money Supply YoY", draw_advanced_gauge("M2 YoY", m2, -5, 15, invert=True, suffix="%"), get_help_m2(m2))
-
-        cs_baa = macro.get("FRED_Credit_Spread_BAA_AAA")
-        if cs_baa is not None or hy is not None:
-            cs_fig = draw_credit_spread_chart(hy, cs_baa)
-            if cs_fig.data:
-                help_text = ""
-                if hy is not None: help_text += get_help_hy(hy) + "\n\n"
-                if cs_baa is not None: help_text += get_help_credit_spread(cs_baa)
-                show_gauge("Credit & HY Spread", cs_fig, help_text.strip(), overlap_margin="0px")
+    # Legacy accordionowe wykresy — zachované ale w ekspanderze
+    with st.expander("📊 Szczegółowe Wykresy Gauge (widok klasyczny)", expanded=False):
+        p1, p2, p3, p4, p5 = st.columns(5)
+        with p1:
+            st.markdown(f"<h4 style='{PILLAR_STYLE}color:#ff1744;'>{p1_lbl}</h4>", unsafe_allow_html=True)
+            if bv:  show_gauge("Bond Vol", draw_advanced_gauge("Bond Vol", bv, 3, 35, suffix="%"), get_help_bond_vol(bv))
+            if vix1: show_gauge("VIX 1M", draw_advanced_gauge("VIX 1M", vix1, 10, 50), get_help_vix(vix1))
+            if ted:  show_gauge("TED Spread", draw_advanced_gauge("TED", ted, 0, 1.5), get_help_ted(ted))
+        with p2:
+            st.markdown(f"<h4 style='{PILLAR_STYLE}color:#3498db;'>{p2_lbl}</h4>", unsafe_allow_html=True)
+            if fci:  show_gauge("STLFSI", draw_advanced_gauge("STLFSI", fci, -2.5, 6), get_help_fci(fci))
+            show_gauge("Yield Curve", draw_advanced_gauge("YC", yc, -1.5, 3.5, invert=True, suffix="%"), get_help_yield_curve(yc))
+            if ry:   show_gauge("Real Yield", draw_advanced_gauge("Real Yield", ry, -1, 4, suffix="%"), get_help_real_yield(ry))
+        with p3:
+            st.markdown(f"<h4 style='{PILLAR_STYLE}color:#2ecc71;'>{p3_lbl}</h4>", unsafe_allow_html=True)
+            if bdry: show_gauge("Baltic Dry", draw_advanced_gauge("BDI", bdry, 500, 5000, invert=True), get_help_baltic(bdry))
+            if cu:   show_gauge("Copper", draw_advanced_gauge("Cu", cu, 2, 6.5, invert=True, prefix="$"), get_help_copper(cu))
+            if cu_au: show_gauge("Cu/Au ×10⁴", draw_advanced_gauge("Cu/Au", cu_au*10000, 1, 5, invert=True), get_help_cuau(cu_au))
+        with p4:
+            st.markdown(f"<h4 style='{PILLAR_STYLE}color:#f1c40f;'>{p4_lbl}</h4>", unsafe_allow_html=True)
+            show_gauge("NLP Sentiment", draw_advanced_gauge("Sent", sent, -1, 1, invert=True), get_help_sentiment(sent))
+            if bread: show_gauge("Breadth", draw_advanced_gauge("Breadth", bread*10000, -300, 300, invert=True), get_help_breadth(bread))
+            if fng:  show_gauge("Fear & Greed", draw_advanced_gauge("F&G", fng, 0, 100, invert=True), get_help_fng(fng))
+        with p5:
+            st.markdown(f"<h4 style='{PILLAR_STYLE}color:#a855f7;'>{p5_lbl}</h4>", unsafe_allow_html=True)
+            if gex:  show_gauge("GEX", draw_advanced_gauge("GEX", gex, -15, 15, invert=True, suffix="B"), get_help_gex(gex))
+            if hy:   show_gauge("HY Spread", draw_advanced_gauge("HY", hy, 200, 1200, suffix=" bps"), get_help_hy(hy))
+            if m2:   show_gauge("M2 YoY", draw_advanced_gauge("M2", m2, -5, 15, invert=True, suffix="%"), get_help_m2(m2))
 
     st.divider()
 

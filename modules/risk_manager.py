@@ -845,3 +845,47 @@ class RiskManager:
             "base_xi":          xi0,
             "base_sigma":       sigma0,
         }
+    # ─── 13. Realised Kernels & Jump Decomposition (NEW 2024) ────────────────
+    
+    def decompose_variance_hf(self, returns: pd.Series) -> dict:
+        """
+        Decompozycja wariancji na składnik ciągły i skokowy (Jump-Diffusion).
+        RV = BV + J (Realised Variance = Bipower Variation + Jumps)
+        
+        Referencja: Barndorff-Nielsen & Shephard (2004, 2006).
+        'Econometrics of testing for jumps in financial economics'.
+        
+        Metodologia:
+          1. RV (Realised Variance) = sum(r^2)
+          2. BV (Bipower Variation) = (pi/2) * (n/(n-1)) * sum(|r_i| * |r_{i-1}|)
+          3. J (Jump Component) = max(0, RV - BV)
+        """
+        r = returns.dropna().values
+        n = len(r)
+        
+        if n < 20:
+            return {"error": "Za mało danych do dekompozycji (min 20)."}
+        
+        # 1. Realised Variance (Total)
+        rv = np.sum(r**2)
+        
+        # 2. Bipower Variation (Continuous component proxy)
+        # pi/2 constant
+        c_bv = np.pi / 2.0
+        bv_sum = np.sum(np.abs(r[1:]) * np.abs(r[:-1]))
+        bv = c_bv * (n / (n - 1)) * bv_sum
+        
+        # 3. Jump Component
+        j = max(0, rv - bv)
+        
+        # Annualization (assuming daily returns)
+        ann_factor = 252.0
+        
+        return {
+            "rv_ann": float(np.sqrt(rv * ann_factor)),
+            "bv_ann": float(np.sqrt(bv * ann_factor)),
+            "j_ann":  float(np.sqrt(j * ann_factor)),
+            "jump_contribution_pct": float(j / rv if rv > 0 else 0),
+            "is_jumpy": bool(j / rv > 0.15), # Empirical threshold
+            "n_obs": int(n)
+        }

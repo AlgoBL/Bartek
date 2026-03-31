@@ -197,6 +197,61 @@ with col_mef:
             "Embrechts, Klüppelberg & Mikosch (1997)",
         ), unsafe_allow_html=True)
 
+# ─── ROW 2.5: VARIANCE DECOMPOSITION (NEW 2024) ───────────────────────────
+st.markdown("---")
+st.markdown("#### ⚡ Volatility Decomposition: Continuous vs Jump (BV vs RV)")
+
+decomp = rm.decompose_variance_hf(returns)
+
+if "error" not in decomp:
+    dc1, dc2, dc3 = st.columns(3)
+    with dc1:
+        st.markdown(f"""<div class='metric-card'>
+            <div class='metric-label'>Realised Vol (Total)</div>
+            <div class='metric-value'>{decomp['rv_ann']*100:.2f}%</div>
+            <div style='font-size:10px;color:#6b7280;'>Łączna zmienność roczna</div>
+        </div>""", unsafe_allow_html=True)
+    with dc2:
+        st.markdown(f"""<div class='metric-card'>
+            <div class='metric-label'>Continuous Vol (Bipower)</div>
+            <div class='metric-value' style='color:#00ccff'>{decomp['bv_ann']*100:.2f}%</div>
+            <div style='font-size:10px;color:#6b7280;'>Składnik ciągły (dyfuzja)</div>
+        </div>""", unsafe_allow_html=True)
+    with dc3:
+        j_col = "#ff1744" if decomp['is_jumpy'] else "#ffea00"
+        st.markdown(f"""<div class='metric-card'>
+            <div class='metric-label'>Jump Component (Skoki)</div>
+            <div class='metric-value' style='color:{j_col}'>{decomp['j_ann']*100:.2f}%</div>
+            <div style='font-size:10px;color:#6b7280;'>Składnik nieciągły (skoki/ceny)</div>
+        </div>""", unsafe_allow_html=True)
+
+    # Simple pie chart for jump contribution
+    fig_pie = go.Figure(data=[go.Pie(
+        labels=['Ciągły (BV)', 'Skokowy (J)'],
+        values=[1.0 - decomp['jump_contribution_pct'], decomp['jump_contribution_pct']],
+        hole=.6,
+        marker_colors=['#00ccff', '#ff1744'] if decomp['is_jumpy'] else ['#00ccff', '#ffea00'],
+        textinfo='label+percent'
+    )])
+    fig_pie.update_layout(
+        template="plotly_dark", height=250, 
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=0, r=0, t=30, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+    )
+    
+    col_p1, col_p2 = st.columns([1, 1.5])
+    with col_p1:
+        st.plotly_chart(fig_pie, use_container_width=True)
+    with col_p2:
+        st.markdown(f"""
+        **Analiza Struktury Ryzyka:**
+        - **BV (Bipower Variation):** Estymator warunkowej wariancji komponentu dyfuzyjnego (Brownian motion). Jest odporny na skoki cen.
+        - **Jump (RV - BV):** Kwadratowa wariancja skokowa. Wysoki udział skoków ({decomp['jump_contribution_pct']*100:.1f}%) sugeruje, że ryzyko pochodzi z 'czarnych łabędzi' i niespodziewanych luk cenowych, a nie ze płynnych zmian trendu.
+        
+        *Referencja: Barndorff-Nielsen & Shephard (2004) — Econometrica.*
+        """)
+
 st.divider()
 
 # ─── ROW 3: VaR / CVaR COMPARISON TABLE ────────────────────────────────────

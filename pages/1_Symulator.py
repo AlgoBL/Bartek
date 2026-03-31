@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from modules.styling import apply_styling, module_header, add_crisis_annotations
+from modules.styling import apply_styling, module_header
+from modules.chart_annotations import add_market_annotations
 from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
 from modules.metrics import (
     calculate_trade_stats, calculate_omega, calculate_ulcer_index,
@@ -160,6 +161,12 @@ if mode == MC_MODE:
         on_change=_save, args=("mc_use_jump",),
         help="Symuluje nagłe luki cenowe (Czarne Łabędzie) poprzez proces Poissona. Merton (1976)."
     )
+    use_neural_sde = st.sidebar.checkbox(
+        "Neural SDEs (Latent Dynamics)",
+        value=_saved("mc_use_neural_sde", False), key="mc_use_neural_sde",
+        on_change=_save, args=("mc_use_neural_sde",),
+        help="Modeluje zmienność za pomocą dynamicznych wag pseudo-sieci uderzając drift i latents. Kidger et al (2022)."
+    )
     use_alpha_stable = st.sidebar.checkbox(
         "Lévy-Stable Processes (Heavy Tails)",
         value=_saved("mc_use_alpha_stable", False), key="mc_use_alpha_stable",
@@ -251,7 +258,8 @@ if mode == MC_MODE:
             "use_alpha_stable": use_alpha_stable,
             "alpha_stable_alpha": alpha_stable_alpha,
             "copula_family": copula_family_opt,
-            "copula_theta": copula_theta_val
+            "copula_theta": copula_theta_val,
+            "use_neural_sde": use_neural_sde
         }
         
         # Submit to process pool
@@ -1029,7 +1037,8 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
             fig.add_trace(go.Scattergl(x=res['results'].index, y=res['bench_spy'], mode='lines', name='S&P 500 (100% Akcje)', line=dict(color='#ff4444', width=1, dash='dash')))
             fig.add_trace(go.Scattergl(x=res['results'].index, y=res['bench_6040'], mode='lines', name='Klasyczne 60/40', line=dict(color='#3498db', width=1, dash='dash')))
 
-        add_crisis_annotations(fig, show_crisis)
+        if show_crisis:
+            add_market_annotations(fig, res['results'].index.min(), res['results'].index.max())
 
         risky_series = res.get('risky_mean', pd.Series())
         regimes_arr = res.get('regimes', [])
@@ -1068,7 +1077,8 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
             yaxis=dict(tickformat=".1%"),
             hovermode="x unified"
         )
-        add_crisis_annotations(fig_underwater, show_crisis)
+        if show_crisis:
+            add_market_annotations(fig_underwater, drawdowns.index.min(), drawdowns.index.max())
         fig_underwater.update_xaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
         fig_underwater.update_yaxes(showspikes=True, spikecolor="white", spikethickness=1, spikedash="dot", spikemode="across")
         st.plotly_chart(fig_underwater, use_container_width=True, key="chart_underwater_plot")

@@ -31,6 +31,16 @@
   "initial_capital": 1000000.0,
   "bg_refresh_enabled": true,
   "bg_refresh_interval_minutes": 4,
+  "language": "pl",
+  "visible_modules": [
+    "Stress Test",
+    "Symulator Barbell",
+    "Skaner Rynku",
+    "Emerytura / FIRE",
+    "Life OS — Łowca",
+    "Day Trading"
+  ],
+  "ui_mode": "educational",
   "profile_name": "Domyślny",
-  "last_updated": "2026-03-16T16:10:36"
+  "last_updated": "2026-03-31T11:24:59"
 }

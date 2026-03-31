@@ -90,6 +90,38 @@ def inject_accordion_js():
     """
     components.html(js_code, height=0, width=0)
 
+def inject_aos_js():
+    """
+    Wstrzykuje bibliotekę AOS (Animate On Scroll)
+    Pozwala m.in. na data-aos="fade-up" wewnątrz wstrzykiwanych HTML.
+    """
+    import streamlit.components.v1 as components
+    js_code = """
+    <script>
+    (function() {
+        var doc = window.parent.document;
+        if (doc.getElementById("aos-css-injected")) return;
+        
+        var aosLink = doc.createElement("link");
+        aosLink.id = "aos-css-injected";
+        aosLink.rel = "stylesheet";
+        aosLink.href = "https://unpkg.com/aos@2.3.1/dist/aos.css";
+        doc.head.appendChild(aosLink);
+        
+        var aosScript = doc.createElement("script");
+        aosScript.src = "https://unpkg.com/aos@2.3.1/dist/aos.js";
+        aosScript.onload = function() {
+            var initScript = doc.createElement("script");
+            initScript.innerHTML = "AOS.init({duration: 800, once: true});";
+            doc.body.appendChild(initScript);
+        };
+        doc.head.appendChild(aosScript);
+    })();
+    </script>
+    """
+    components.html(js_code, height=0, width=0)
+
+
 def inject_command_palette_js():
     import streamlit.components.v1 as components
     js_code = """
@@ -406,10 +438,10 @@ def inject_keyboard_shortcuts_js():
 def apply_styling() -> str:
     return """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:wght@400;700&display=swap');
 
     /* ═══════════════════════════════════════════════════════════════
-       ROOT VARIABLES — Premium Cyberpunk Palette
+       ROOT VARIABLES — Premium Cyberpunk Palette (OKLCH V.1)
     ═══════════════════════════════════════════════════════════════ */
     :root {
         --bg-deep:     #05060d;
@@ -418,14 +450,21 @@ def apply_styling() -> str:
         --bg-card:     rgba(15, 17, 28, 0.85);
         --border:      rgba(255,255,255,0.06);
         --border-glow: rgba(0, 230, 118, 0.25);
-        --green:       #00e676;
-        --green-dim:   rgba(0,230,118,0.08);
-        --cyan:        #00ccff;
-        --yellow:      #ffea00;
-        --red:         #ff1744;
-        --purple:      #a855f7;
+        
+        /* Modern OKLCH color system — perceptually uniform (V.1) */
+        --green:       oklch(85% 0.25 142);
+        --green-dim:   rgba(0, 230, 118, 0.08); /* fallback hex: #00e676 */
+        --cyan:        oklch(82% 0.14 220);     /* original: #00ccff */
+        --yellow:      oklch(85% 0.18 95);      /* original: #ffea00 */
+        --red:         oklch(58% 0.24 25);      /* original: #ff1744 */
+        --purple:      oklch(65% 0.20 303);     /* original: #a855f7 */
+        
         --text:        #e2e4f0;
-        --text-dim:    #6b7280;
+        /* WCAG/APCA Contrast fixes (V.9) */
+        --text-dim:    #8b95a5;
+        --text-note:   #9da8b8;
+        --text-caption:#7a839a;
+        
         --font:        'Inter', sans-serif;
         --mono:        'JetBrains Mono', monospace;
     }
@@ -476,7 +515,7 @@ def apply_styling() -> str:
     h4 { margin-bottom: 4px !important; margin-top: 4px !important; }
 
     /* ═══════════════════════════════════════════════════════════════
-       HEADINGS — gradient text
+       HEADINGS — gradient text & variable fonts (V.2)
     ═══════════════════════════════════════════════════════════════ */
     h1 {
         background: linear-gradient(90deg, var(--green) 0%, var(--cyan) 100%);
@@ -485,6 +524,7 @@ def apply_styling() -> str:
         background-clip: text;
         font-size: 2.6rem !important;
         font-weight: 900 !important;
+        font-optical-sizing: auto;
         letter-spacing: -0.5px;
         padding-bottom: 0.3rem;
     }
@@ -982,6 +1022,24 @@ def apply_styling() -> str:
         color: #e2e4f0;
     }
 
+    /* ═══════════════════════════════════════════════════════════════
+       TYPOGRAFIA — Tabular Nums (V.2)
+    ═══════════════════════════════════════════════════════════════ */
+    .stMetric label { color: var(--text-dim) !important; }
+    .stMetric [data-testid="stMetricValue"] {
+        color: var(--green) !important;
+        font-family: var(--mono);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 0 10px var(--green-dim);
+    }
+    .stMetric [data-testid="stMetricDelta"] svg { fill: var(--green) !important; }
+    .stMetric [data-testid="stMetricDelta"] div { color: var(--green) !important; }
+
+    .gauge-number, .tabular-nums, .st-emotional-cache-1wivap2 {
+        font-variant-numeric: tabular-nums;
+    }
+
     </style>
 
     """
@@ -1102,3 +1160,267 @@ def add_crisis_annotations(fig, show: bool = True, opacity: float = 0.10) -> Non
                 opacity=0.85,
             ),
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  V.3 — UJEDNOLICONY PLOTLY THEME (Grammar of Graphics, Wilkinson 2005/2024)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CHART_AXIS_BASE = dict(
+    gridcolor="#1c1c2e", gridwidth=0.5,
+    zerolinecolor="#2a2a3a", zerolinewidth=1,
+    tickfont=dict(size=10, color="#9ca3af"),
+    linecolor="#2a2a3a", linewidth=1,
+)
+
+_CHART_BASE_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="Inter, sans-serif", color="#e2e4f0", size=12),
+    legend=dict(
+        bgcolor="rgba(0,0,0,0)", borderwidth=0,
+        font=dict(size=10, color="#9ca3af"),
+        orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1.0,
+    ),
+    margin=dict(l=50, r=20, t=48, b=40),
+    colorway=["#00e676", "#00ccff", "#a855f7", "#f39c12", "#ff1744",
+              "#3498db", "#2ecc71", "#e67e22"],
+    hoverlabel=dict(
+        bgcolor="#0f111a", bordercolor="#2a2a3a",
+        font=dict(family="Inter, monospace", size=11, color="#e2e4f0"),
+    ),
+)
+
+
+def plotly_theme(height: int = 380, title: str = "", show_legend: bool = True) -> dict:
+    """
+    Zwraca dict gotowy do fig.update_layout(**plotly_theme(...)).
+    Jeden standard ciemnego designu dla WSZYSTKICH wykresów projektu.
+    Ref: Wilkinson (2005) "Grammar of Graphics" — spójny system stylu.
+
+    Użycie:
+        fig.update_layout(**plotly_theme(height=350, title="Mój wykres"))
+    """
+    layout = dict(**_CHART_BASE_LAYOUT)
+    layout["height"]     = height
+    layout["showlegend"] = show_legend
+    if title:
+        layout["title"] = dict(
+            text=title,
+            font=dict(size=13, color="#e2e4f0", family="Inter"),
+            x=0.0, xanchor="left",
+        )
+    return layout
+
+
+def apply_chart_theme(fig, height: int = 380, title: str = "") -> None:
+    """
+    Stosuje ujednolicony ciemny motyw do istniejącego go.Figure (in-place).
+    Aktualizuje wszystkie osie (w tym subploty).
+
+    Użycie:
+        apply_chart_theme(fig, height=320, title="Volatility Clustering")
+    """
+    fig.update_layout(**plotly_theme(height=height, title=title))
+    fig.update_xaxes(**_CHART_AXIS_BASE)
+    fig.update_yaxes(**_CHART_AXIS_BASE)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  V.5 — PROGRESSIVE DISCLOSURE — SciCard
+#  Ref: Miller (1956) Magical Number 7; Sweller (2011) Cognitive Load Theory
+# ─────────────────────────────────────────────────────────────────────────────
+
+def scicard(
+    title: str,
+    icon: str,
+    level0_html: str,
+    chart_fn=None,
+    explanation_md: str = "",
+    formula_code: str = "",
+    reference: str = "",
+    accent_color: str = "#00e676",
+    key_prefix: str = "",
+) -> None:
+    """
+    Renderuje 3-poziomową kartę naukową z Progressive Disclosure.
+
+    Poziom 0 (zawsze)   : kluczowa metryka / wynik (level0_html)
+    Poziom 1 (expander) : wykres + wyjaśnienie
+    Poziom 2 (expander) : wzory matematyczne + referencje naukowe
+
+    Użycie:
+        scicard(
+            title="Permutation Entropy",
+            icon="🌀",
+            level0_html="<b style='color:#00e676;font-size:24px'>0.42</b>",
+            chart_fn=lambda: st.plotly_chart(fig, use_container_width=True),
+            explanation_md="**Entropia permutacyjna** mierzy...",
+            formula_code="PermEn(m,τ) = -Σ p(π) · log₂ p(π)",
+            reference="Bandt & Pompe (2002), PRL 88:174102",
+        )
+    """
+    import streamlit as _st
+
+    c = accent_color.lstrip("#")
+    try:
+        r_c, g_c, b_c = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+        border_col = f"rgba({r_c},{g_c},{b_c},0.25)"
+        bg_col     = f"rgba({r_c},{g_c},{b_c},0.04)"
+    except ValueError:
+        border_col = "rgba(0,230,118,0.25)"
+        bg_col     = "rgba(0,230,118,0.04)"
+
+    _st.markdown(f"""
+    <div data-aos="fade-up" style="background:{bg_col};border:1px solid {border_col};
+                border-left:3px solid {accent_color};border-radius:10px;
+                padding:12px 16px;margin-bottom:4px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <span style="font-size:20px">{icon}</span>
+        <span style="font-size:13px;font-weight:700;color:#e2e4f0;
+               letter-spacing:0.5px">{title}</span>
+      </div>
+      {level0_html}
+    </div>
+    """, unsafe_allow_html=True)
+
+    if chart_fn is not None or explanation_md:
+        with _st.expander("📊 Rozwiń — wykres i opis", expanded=False):
+            if chart_fn is not None:
+                chart_fn()
+            if explanation_md:
+                _st.markdown(explanation_md)
+
+    if formula_code or reference:
+        with _st.expander("🧮 Matematyka i Źródło Naukowe"):
+            if formula_code:
+                _st.markdown(
+                    f"<div style=\"font-family:'JetBrains Mono',monospace;"
+                    f"font-size:13px;color:#00ccff;background:rgba(0,204,255,0.06);"
+                    f"border-left:3px solid #00ccff;padding:10px 14px;"
+                    f"border-radius:0 6px 6px 0;margin-bottom:8px;\">"
+                    f"{formula_code}</div>",
+                    unsafe_allow_html=True,
+                )
+            if reference:
+                _st.caption(f"📚 Źródło: {reference}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  V.6 — METRIC SPARK CARDS (Few 2024 "Show Me the Numbers")
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _spark_svg(history: list, color: str = "#00e676",
+               width: int = 80, height: int = 28) -> str:
+    """Generuje miniaturowy sparkline SVG."""
+    if not history or len(history) < 2:
+        return ""
+    h   = history[-20:] if len(history) > 20 else history
+    n   = len(h)
+    mn, mx = min(h), max(h)
+    rng = mx - mn if mx != mn else 1e-9
+    pad = 3
+    pts = []
+    for i, v in enumerate(h):
+        x = pad + (i / (n - 1)) * (width - 2 * pad)
+        y = (height - pad) - ((v - mn) / rng) * (height - 2 * pad)
+        pts.append(f"{x:.1f},{y:.1f}")
+    poly = " ".join(pts)
+    return (f'<svg width="{width}" height="{height}" style="display:block">'
+            f'<polyline points="{poly}" fill="none" stroke="{color}" '
+            f'stroke-width="1.8" stroke-linecap="round" '
+            f'stroke-linejoin="round" opacity="0.85"/></svg>')
+
+
+def metric_spark_html(
+    label: str,
+    value: str,
+    suffix: str = "",
+    delta: str = "",
+    delta_positive: bool = True,
+    history: list = None,
+    accent_color: str = "#00e676",
+    help_text: str = "",
+    width: str = "100%",
+) -> str:
+    """
+    Zwraca HTML premium karty metrykowej ze sparkline i deltą.
+    Ref: Few, S. (2024) "Show Me the Numbers" — spark charts +
+         contextual coloring for rapid data comprehension.
+
+    Użycie:
+        st.markdown(metric_spark_html(
+            "VIX 1M", "23.4", suffix="", delta="+1.2",
+            delta_positive=False, history=[18,19,21,22,23.4],
+            accent_color="#ff1744",
+        ), unsafe_allow_html=True)
+    """
+    spark = ""
+    if history:
+        scol = accent_color if delta_positive else "#ff1744"
+        spark = f"<div style='margin-top:4px;opacity:0.8'>{_spark_svg(history, scol)}</div>"
+
+    d_color = "#00e676" if delta_positive else "#ff1744"
+    d_arrow = "▲" if delta_positive else "▼"
+    d_html  = (
+        f"<div style='font-size:10px;color:{d_color};font-weight:600;margin-top:2px;'>"
+        f"{d_arrow} {delta}</div>"
+    ) if delta else ""
+
+    safe_help = help_text.replace('"', "'").replace("\n", " ")
+
+    return (
+        f'<div title="{safe_help}" style="'
+        f'background:linear-gradient(135deg,rgba(15,17,26,0.95),rgba(20,22,35,0.9));'
+        f'border:1px solid rgba(255,255,255,0.06);border-top:2px solid {accent_color};'
+        f'border-radius:10px;padding:10px 12px 8px 12px;width:{width};min-width:90px;'
+        f'cursor:default;transition:border-color 0.2s ease,box-shadow 0.2s ease;" '
+        f'onmouseover="this.style.borderColor=\'{accent_color}\';" '
+        f'onmouseout="this.style.borderColor=\'rgba(255,255,255,0.06)\';">'
+        f'<div style="font-size:9px;color:#6b7280;letter-spacing:0.8px;'
+        f'text-transform:uppercase;font-weight:600;margin-bottom:4px;">{label}</div>'
+        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;'
+        f'font-weight:700;color:{accent_color};font-variant-numeric:tabular-nums;'
+        f'line-height:1.1;">{value}'
+        f'<span style="font-size:11px;color:#9ca3af;font-weight:400;margin-left:2px;">'
+        f'{suffix}</span></div>'
+        f'{d_html}{spark}'
+        f'</div>'
+    )
+
+
+def metric_spark_row(cards: list, columns: int = 5) -> None:
+    """
+    Renderuje rząd kart sparkline w kolumnach Streamlit.
+
+    Parameters
+    ----------
+    cards   : lista dict z kluczami: label, value, suffix, delta,
+                delta_positive, history, accent_color, help_text
+    columns : liczba kolumn layoutu
+
+    Użycie:
+        metric_spark_row([
+            {"label": "VIX 1M", "value": "23.4", "delta": "+1.2",
+             "delta_positive": False, "history": [18,19,21,22,23.4],
+             "accent_color": "#ff1744"},
+            ...
+        ], columns=5)
+    """
+    import streamlit as _st
+    cols = _st.columns(columns)
+    for i, card in enumerate(cards):
+        with cols[i % columns]:
+            _st.markdown(
+                metric_spark_html(
+                    label          = card.get("label", ""),
+                    value          = str(card.get("value", "—")),
+                    suffix         = card.get("suffix", ""),
+                    delta          = card.get("delta", ""),
+                    delta_positive = card.get("delta_positive", True),
+                    history        = card.get("history"),
+                    accent_color   = card.get("accent_color", "#00e676"),
+                    help_text      = card.get("help_text", ""),
+                ),
+                unsafe_allow_html=True,
+            )
