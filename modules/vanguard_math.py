@@ -126,71 +126,52 @@ def compute_tail_dependence_matrix(returns_df: pd.DataFrame, q: float = 0.10) ->
 # 3. FRACTIONAL BROWNIAN MOTION (fBM) - FRACTAL MONTE CARLO
 # =====================================================================
 
-def construct_fgn_covariance_matrix(H: float, n: int) -> np.ndarray:
-    """ 
-    Buduje macierz kowariancji dla ułamkowego szumu stochastycznego (fGn).
-    Wymagane do wygenerowania pamięci długoterminowej.
-    H = Hurst Exponent
-    """
-    gamma = np.zeros(n)
-    for k in range(n):
-        if k == 0:
-            gamma[k] = 1.0
-        else:
-            gamma[k] = 0.5 * ((k+1)**(2*H) - 2*k**(2*H) + abs(k-1)**(2*H))
-            
-    # Macierz Toeplitza
-    Sigma = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            Sigma[i, j] = gamma[abs(i - j)]
-            
-    return Sigma
-
 def generate_fbm_paths(H: float, n_paths: int, n_steps: int) -> np.ndarray:
     """
-    Generuje ścieżki ułamkowego ruchu Browna używając Rozkładu Cholesky'ego.
-    Rynki Fraktalne - symulacje, które realnie odzwierciedlają grube ogony i trendowanie.
-    
-    Args:
-        H: Wykładnik Hursta (H > 0.5 to trendowanie, H < 0.5 mean-reversion, H = 0.5 to błądzenie losowe).
-        n_paths: Ilość symulowanych ścieżek Monte Carlo.
-        n_steps: Długość prognozy.
-        
-    Returns:
-        np.ndarray shape (n_paths, n_steps) z wygenerowanymi skumulowanymi ścieżkami (prices).
+    Generuje ścieżki ułamkowego ruchu Browna używając algorytmu Davies-Harte (FFT).
+    O(N log N) — drastycznie szybsze i bardziej pamięciowo wydajne niż Cholesky.
+    Pozwala na symulacje horyzontów 30-100 lat bez ryzyka wyczerpania RAM.
     """
-    # Zabezpieczenia numeryczne
-    H = np.clip(H, 0.05, 0.95) 
+    H = np.clip(H, 0.05, 0.95)
     
-    # Klasyczny ruch Browna (brak pamięci - szybko generujemy)
     if np.isclose(H, 0.5, atol=1e-3):
         fgn = np.random.randn(n_paths, n_steps)
-        fbm = np.cumsum(fgn, axis=1)
-        return fbm
+        return np.cumsum(fgn, axis=1)
 
-    # fGn Method (Rozkład Cholesky'ego macierzy autokowariancji)
-    # Metoda dokładna ale działa wolniej dla bardzo dużych n_steps (O(n^3)). 
-    # Dla typowych ~252 dni jest błyskawiczna.
-    try:
-        Sigma = construct_fgn_covariance_matrix(H, n_steps)
-        # Mała regularyzacja na przekątnej dla stabilności
-        Sigma += np.eye(n_steps) * 1e-8
-        L = np.linalg.cholesky(Sigma)
+    # ── Davies-Harte FFT method (Circulant Embedding) ────────────────────────
+    # 1. Autokowariancja fGn: gamma(k) = 0.5*(|k-1|^{2H} - 2|k|^{2H} + |k+1|^{2H})
+    k = np.arange(n_steps, dtype=np.float64)
+    def _cov(kk):
+        return 0.5 * (np.abs(kk - 1) ** (2 * H) - 2 * np.abs(kk) ** (2 * H) + np.abs(kk + 1) ** (2 * H))
+    
+    gamma = _cov(k)
+    gamma[0] = 1.0
+    
+    # 2. Cyrkulantowe osadzanie (rozmiar 2N-2)
+    embed_size = 2 * n_steps - 2
+    if n_steps <= 1:
+        return np.zeros((n_paths, n_steps))
         
-        # Z to niezależny szum gaussa
-        Z = np.random.randn(n_steps, n_paths)
-        
-        # X = L * Z to szum ułamkowy (fGn)
-        fgn = (L @ Z).T  # Daje shape (n_paths, n_steps)
-        
-        # Calkowanie (cumsum) by otrzymać Fractional Brownian Motion
-        fbm = np.cumsum(fgn, axis=1)
-        return fbm
-    except np.linalg.LinAlgError:
-        # Fallback do zwyklego Browna jesli macierz kowariancji ulegla uszkodzeniu
-        fgn_fallback = np.random.randn(n_paths, n_steps)
-        return np.cumsum(fgn_fallback, axis=1)
+    # row = [gamma(0), gamma(1), ..., gamma(N-1), gamma(N-2), ..., gamma(1)]
+    row = np.concatenate([gamma, gamma[-2:0:-1]])
+    
+    # 3. FFT eigenvalues
+    eigenvalues = np.real(np.fft.fft(row))
+    # Nienegatywność eigenvalues gwarantuje PSD (Wood & Chan 1994)
+    eigenvalues = np.maximum(eigenvalues, 0.0)
+    sqrt_eig = np.sqrt(eigenvalues / embed_size)
+    
+    # 4. Losowanie ścieżek
+    z_complex = (
+        np.random.standard_normal((n_paths, embed_size))
+        + 1j * np.random.standard_normal((n_paths, embed_size))
+    )
+    W_fft = np.fft.fft(sqrt_eig[np.newaxis, :] * z_complex, axis=1)
+    # Bierzemy część rzeczywistą i pierwsze n_steps
+    fgn = np.real(W_fft[:, :n_steps])
+    
+    # 5. fBM = cumsum(fGn)
+    return np.cumsum(fgn, axis=1)
 
 # =====================================================================
 # 4. VOLATILITY SURFACE & DARK POOLS (GEX)

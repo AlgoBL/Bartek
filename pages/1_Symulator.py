@@ -6,7 +6,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 from modules.styling import apply_styling, module_header
 from modules.chart_annotations import add_market_annotations
-from modules.simulation import simulate_barbell_strategy, calculate_metrics, run_ai_backtest, calculate_individual_metrics
+from modules.simulation import (
+    simulate_barbell_strategy, calculate_metrics, run_ai_backtest, 
+    calculate_individual_metrics, fit_best_copula
+)
 from modules.metrics import (
     calculate_trade_stats, calculate_omega, calculate_ulcer_index,
     calculate_pain_index, calculate_drawdown_analytics, calculate_max_drawdown
@@ -236,7 +239,77 @@ if mode == MC_MODE:
         badge="Wariant Teoretyczny"
     ), unsafe_allow_html=True)
     
+    @st.cache_data(ttl="1h", show_spinner="Pobieranie danych rynkowych dla Kopuły...")
+    def get_auto_copula_params():
+        import yfinance as yf
+        from scipy.stats import rankdata
+        try:
+            proxy_df = yf.download(["SPY", "TLT"], period="5y", progress=False)["Close"].pct_change().dropna()
+            if isinstance(proxy_df.columns, pd.MultiIndex):
+                proxy_df.columns = proxy_df.columns.get_level_values(0)
+            if not proxy_df.empty and "SPY" in proxy_df.columns and "TLT" in proxy_df.columns:
+                u = rankdata(proxy_df["SPY"]) / (len(proxy_df) + 1)
+                v = rankdata(proxy_df["TLT"]) / (len(proxy_df) + 1)
+                fit_res = fit_best_copula(u, v)
+                return fit_res["best_family"], fit_res["best_theta"]
+        except Exception as e:
+            st.sidebar.warning(f"Auto-Fit MLE failed: {e}")
+        return "clayton", 2.0
+
+    # ─── Sequential Fallback Execution ──────────────────────────────────────
+    if st.session_state.get('mc_sequential_retry', False):
+        st.session_state['mc_sequential_retry'] = False
+        with st.status("🏗️ Uruchamiam Symulację w trybie bezpiecznym (sekwencyjnym)...", expanded=True):
+            try:
+                # Resolve Auto-Fit in Main Process if needed
+                final_copula_family = copula_family_opt
+                final_copula_theta = copula_theta_val
+                if copula_family_opt == "Auto-Fit (MLE)":
+                    final_copula_family, final_copula_theta = get_auto_copula_params()
+
+                sim_args_retry = {
+                    "n_years": years,
+                    "n_simulations": 1000,
+                    "initial_captial": initial_capital,
+                    "safe_rate": safe_rate,
+                    "risky_mean": risky_mean,
+                    "risky_vol": risky_vol,
+                    "risky_kurtosis": risky_kurtosis,
+                    "alloc_safe": alloc_safe,
+                    "rebalance_strategy": rebalance_strategy.split(" ")[0],
+                    "threshold_percent": threshold_percent,
+                    "use_qmc": use_qmc,
+                    "use_garch": use_garch,
+                    "use_jump_diffusion": use_jump_diffusion,
+                    "custom_scenarios": custom_scenarios,
+                    "use_fbm": use_fbm,
+                    "fbm_hurst": fbm_hurst,
+                    "use_alpha_stable": use_alpha_stable,
+                    "alpha_stable_alpha": alpha_stable_alpha,
+                    "copula_family": final_copula_family,
+                    "copula_theta": final_copula_theta,
+                    "use_neural_sde": use_neural_sde
+                }
+                wealth_paths = simulate_barbell_strategy(**sim_args_retry)
+                metrics = calculate_metrics(wealth_paths, years)
+                st.session_state['mc_results'] = {
+                    "wealth_paths": wealth_paths,
+                    "metrics": metrics,
+                    "years": years
+                }
+                st.success("Symulacja zakończona sukcesem (Tryb Bezpieczny)!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Krytyczny błąd trybu bezpiecznego: {e}")
+
     if st.button("🚀 Symuluj Wyniki (Ctrl+Enter)", type="primary", key="mc_run"):
+        # 1. Resolve Auto-Fit (MLE) in Main Process if needed
+        final_copula_family = copula_family_opt
+        final_copula_theta = copula_theta_val
+        
+        if copula_family_opt == "Auto-Fit (MLE)":
+            final_copula_family, final_copula_theta = get_auto_copula_params()
+
         # Prepare arguments for execution
         sim_args = {
             "n_years": years,
@@ -257,20 +330,45 @@ if mode == MC_MODE:
             "fbm_hurst": fbm_hurst,
             "use_alpha_stable": use_alpha_stable,
             "alpha_stable_alpha": alpha_stable_alpha,
-            "copula_family": copula_family_opt,
-            "copula_theta": copula_theta_val,
+            "copula_family": final_copula_family,
+            "copula_theta": final_copula_theta,
             "use_neural_sde": use_neural_sde
         }
         
         # Submit to process pool
         from concurrent.futures import ProcessPoolExecutor
-        if 'mc_executor' not in st.session_state:
-            st.session_state['mc_executor'] = ProcessPoolExecutor(max_workers=2)
+        try:
+            from concurrent.futures.process import BrokenProcessPool
+        except ImportError:
+            # Fallback for versions where it might be structured differently
+            class BrokenProcessPool(RuntimeError): pass
         
-        future = st.session_state['mc_executor'].submit(simulate_barbell_strategy, **sim_args)
-        st.session_state['mc_future'] = future
-        st.session_state['mc_task_years'] = years
-        st.session_state.pop('mc_results', None) # Clear previous results
+        def get_executor():
+            if 'mc_executor' not in st.session_state:
+                st.session_state['mc_executor'] = ProcessPoolExecutor(max_workers=2)
+            return st.session_state['mc_executor']
+
+        try:
+            executor = get_executor()
+            future = executor.submit(simulate_barbell_strategy, **sim_args)
+            st.session_state['mc_future'] = future
+            st.session_state['mc_task_years'] = years
+            st.session_state.pop('mc_results', None) # Clear previous results
+        except (BrokenProcessPool, RuntimeError) as e:
+            st.warning(f"⚠️ Problem z basenem procesów: {e}. Przechodzę na tryb bezpieczny (sekwencyjny)...")
+            # Fallback: Run sequentially in main thread
+            try:
+                wealth_paths = simulate_barbell_strategy(**sim_args)
+                metrics = calculate_metrics(wealth_paths, years)
+                st.session_state['mc_results'] = {
+                    "wealth_paths": wealth_paths,
+                    "metrics": metrics,
+                    "years": years
+                }
+                st.success("Symulacja zakończona w trybie bezpiecznym!")
+                st.rerun()
+            except Exception as e2:
+                st.error(f"Krytyczny błąd symulacji: {e2}")
     
     # Async polling fragment
     if 'mc_future' in st.session_state and 'mc_results' not in st.session_state:
@@ -291,6 +389,15 @@ if mode == MC_MODE:
                     st.success("Symulacja zakończona!")
                     st.rerun()
                 except Exception as e:
+                    if "terminated abruptly" in str(e).lower() or "broken" in str(e).lower():
+                        st.warning("⚠️ Proces przerwał pracę. Ponawiam symulację w trybie bezpiecznym...")
+                        # Automatic retry in main thread
+                        try:
+                            # Re-fetch args from session if possible or just re-simulate if context allows
+                            # Here we assume sim_args is available or we use a fallback flag
+                            st.session_state['mc_sequential_retry'] = True
+                            st.rerun()
+                        except: pass
                     st.error(f"Błąd symulacji: {e}")
                     st.session_state.pop('mc_future', None)
             else:

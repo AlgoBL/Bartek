@@ -3,16 +3,17 @@ import numpy as np
 import pandas as pd
 from scipy.stats import t
 from scipy.stats.qmc import Sobol
+import sys
 try:
+    if sys.version_info >= (3, 14):
+        # Force fallback for Python 3.14+ due to Numba instability
+        raise ImportError("Numba disabled for Python 3.14+")
     from numba import jit
-except Exception:
-    # Numba nie obsługuje jeszcze Python 3.14+.
-    # Fallback: no-op dekorator — funkcje działają w trybie czystego NumPy,
-    # bez akceleracji JIT. Wydajność nieco niższa, ale app działa poprawnie.
+except (Exception, ImportError):
+    # Fallback: no-op dekorator — funkcje działają w trybie czystego NumPy
     def jit(*args, **kwargs):
         def decorator(fn):
             return fn
-        # Obsługa wywołania zarówno @jit jak i @jit(nopython=True, ...)
         if len(args) == 1 and callable(args[0]):
             return args[0]
         return decorator
@@ -26,7 +27,7 @@ from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-@jit(nopython=True, cache=True)
+@jit(nopython=True)
 def _compute_garch_variance(var_series, eps, omega_g, alpha_g, beta_g, total_days):
     for day in range(1, total_days):
         for s in range(var_series.shape[0]):
@@ -35,7 +36,7 @@ def _compute_garch_variance(var_series, eps, omega_g, alpha_g, beta_g, total_day
             var_series[s, day] = omega_g + alpha_g * (prev_eps * np.sqrt(prev_var)) ** 2 + beta_g * prev_var
     return var_series
 
-@jit(nopython=True, cache=True)
+@jit(nopython=True)
 def _compute_wealth_paths(val_safe, val_risky, wealth_paths, daily_safe_rate, risky_returns, alloc_safe, threshold_percent, total_days, days_per_year, rebalance_strategy_id):
     n_sims = val_safe.shape[0]
     for day in range(1, total_days + 1):
@@ -268,7 +269,7 @@ def generate_archimedean_copula_shocks(
 
 import numba as nb
 
-@nb.njit(cache=True)
+@nb.njit()
 def simulate_hawkes_garch_path(
     n_days: int, 
     omega: float, 
@@ -688,25 +689,10 @@ def simulate_barbell_strategy(
     df = max(2.1, risky_kurtosis)
     
     # ─── Random Shocks: Copula selection ────────────────────────────────────
+    # Note: 'Auto-Fit (MLE)' resolution was moved to the main process
+    # to avoid network/threading issues in workers.
     if copula_family == "Auto-Fit (MLE)":
-        import yfinance as yf
-        from scipy.stats import rankdata
-        try:
-            proxy_df = yf.download(["SPY", "TLT"], period="5y", progress=False)["Close"].pct_change().dropna()
-            # Depending on yfinance version, columns could be MultiIndex. We flatten or select explicitly.
-            if isinstance(proxy_df.columns, pd.MultiIndex):
-                proxy_df.columns = proxy_df.columns.get_level_values(0)
-            if not proxy_df.empty and "SPY" in proxy_df.columns and "TLT" in proxy_df.columns:
-                u = rankdata(proxy_df["SPY"]) / (len(proxy_df) + 1)
-                v = rankdata(proxy_df["TLT"]) / (len(proxy_df) + 1)
-                fit_res = fit_best_copula(u, v)
-                copula_family = fit_res["best_family"]
-                copula_theta = fit_res["best_theta"]
-            else:
-                copula_family, copula_theta = "clayton", 2.0
-        except Exception as e:
-            logger.warning(f"Auto-Fit (MLE) config failed: {e}")
-            copula_family, copula_theta = "clayton", 2.0
+        copula_family, copula_theta = "clayton", 2.0
 
     if use_neural_sde:
         vol_paths, spot_shocks_2d = simulate_neural_sde_paths(
