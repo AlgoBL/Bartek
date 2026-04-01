@@ -13,7 +13,6 @@ from modules.i18n import t
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
 
-st.set_page_config(page_title="Regime Adaptive Allocation", page_icon="🔀", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)

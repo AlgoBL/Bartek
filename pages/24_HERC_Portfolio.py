@@ -12,7 +12,6 @@ from modules.ai.data_loader import load_data
 from modules.herc_optimizer import compute_herc_weights
 from config import START_DATE
 
-st.set_page_config(page_title="HERC Portfolio Optimizer", page_icon="🧬", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 st.markdown(module_header(

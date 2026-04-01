@@ -12,7 +12,6 @@ from modules.wealth_protection_optimizer import (
 )
 from modules.i18n import t
 
-st.set_page_config(page_title="Wealth Protection Optimizer", page_icon="🏰", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 # Globalne ustawienia portfela

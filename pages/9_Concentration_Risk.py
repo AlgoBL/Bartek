@@ -12,7 +12,6 @@ from modules.concentration_risk_monitor import (
 )
 from modules.i18n import t
 
-st.set_page_config(page_title="Concentration Risk Monitor", page_icon="🎯", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)

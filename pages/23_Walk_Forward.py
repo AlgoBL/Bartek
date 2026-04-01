@@ -6,7 +6,6 @@ from modules.ai.data_loader import load_data
 from modules.walk_forward import generate_strategy_matrix, cpcv_pbo, plot_cpcv_results, adversarial_validation_auc
 from modules.i18n import t
 
-st.set_page_config(page_title="PBO Scorecard", page_icon="🔬", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 st.markdown("# 🔬 Walk-Forward & PBO Scorecard")

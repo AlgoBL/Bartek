@@ -20,11 +20,7 @@ from modules.global_settings import (
 from modules.i18n import t
 from config import GLOBAL_SETTINGS_PATH
 
-st.set_page_config(
-    page_title="Globalne Ustawienia | Barbell Strategy",
-    page_icon="🌐",
-    layout="wide",
-)
+
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 # ── Inicjalizacja (ładuj z dysku przy pierwszym odwiedzeniu) ───────────────────

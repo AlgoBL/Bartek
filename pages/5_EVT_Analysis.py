@@ -15,7 +15,6 @@ from modules.styling import apply_styling, math_explainer
 from modules.risk_manager import RiskManager
 from modules.i18n import t
 
-st.set_page_config(page_title="EVT Tail Risk", page_icon="📐", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 st.markdown("# 📐 EVT Tail Risk Analysis")

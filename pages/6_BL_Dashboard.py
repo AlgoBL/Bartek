@@ -16,7 +16,6 @@ from modules.styling import apply_styling, math_explainer
 from modules.black_litterman import BlackLittermanEngine
 from modules.i18n import t
 
-st.set_page_config(page_title="Black-Litterman Dashboard", page_icon="🎯", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 st.markdown("# 🎯 Black-Litterman AI Dashboard")

@@ -11,7 +11,6 @@ from modules.sentiment_flow_tracker import (
 )
 from modules.i18n import t
 
-st.set_page_config(page_title="Sentiment Flow Tracker", page_icon="🌊", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)

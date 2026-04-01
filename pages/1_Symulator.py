@@ -335,17 +335,12 @@ if mode == MC_MODE:
             "use_neural_sde": use_neural_sde
         }
         
-        # Submit to process pool
-        from concurrent.futures import ProcessPoolExecutor
-        try:
-            from concurrent.futures.process import BrokenProcessPool
-        except ImportError:
-            # Fallback for versions where it might be structured differently
-            class BrokenProcessPool(RuntimeError): pass
-        
+        # Submit to thread pool directly (avoids ProcessPool Windows/Streamlit conflicts causing BrokenProcessPool)
+        from concurrent.futures import ThreadPoolExecutor
+
         def get_executor():
             if 'mc_executor' not in st.session_state:
-                st.session_state['mc_executor'] = ProcessPoolExecutor(max_workers=2)
+                st.session_state['mc_executor'] = ThreadPoolExecutor(max_workers=2)
             return st.session_state['mc_executor']
 
         try:
@@ -354,8 +349,8 @@ if mode == MC_MODE:
             st.session_state['mc_future'] = future
             st.session_state['mc_task_years'] = years
             st.session_state.pop('mc_results', None) # Clear previous results
-        except (BrokenProcessPool, RuntimeError) as e:
-            st.warning(f"⚠️ Problem z basenem procesów: {e}. Przechodzę na tryb bezpieczny (sekwencyjny)...")
+        except RuntimeError as e:
+            st.warning(f"⚠️ Problem z pulą wątków: {e}. Przechodzę na tryb bezpieczny (sekwencyjny)...")
             # Fallback: Run sequentially in main thread
             try:
                 wealth_paths = simulate_barbell_strategy(**sim_args)

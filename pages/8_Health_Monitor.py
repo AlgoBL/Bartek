@@ -14,7 +14,6 @@ from modules.portfolio_health_monitor import (
 )
 from modules.i18n import t
 
-st.set_page_config(page_title="Portfolio Health Monitor", page_icon="🏥", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 

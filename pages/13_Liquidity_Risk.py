@@ -10,7 +10,6 @@ from modules.liquidity_risk_analyzer import (
 )
 from modules.i18n import t
 
-st.set_page_config(page_title="Liquidity Risk Analyzer", page_icon="💧", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)

@@ -10,7 +10,6 @@ from modules.smart_rebalancing_engine import (
 )
 from modules.i18n import t
 
-st.set_page_config(page_title="Smart Rebalancing", page_icon="⚖️", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)

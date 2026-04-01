@@ -10,7 +10,6 @@ from modules.tax_optimizer_pl import (
 )
 from modules.i18n import t
 
-st.set_page_config(page_title="Tax Optimizer PL", page_icon="💰", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 st.markdown("# 💰 Tax Optimizer PL")

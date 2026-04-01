@@ -7,7 +7,6 @@ import scipy.stats as stats
 from modules.styling import apply_styling, scicard
 from modules.i18n import t
 
-st.set_page_config(page_title="Day Trading — Matematyka", page_icon="📈", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 st.markdown("""

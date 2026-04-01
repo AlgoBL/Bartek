@@ -17,7 +17,6 @@ from modules.spectral_analysis import (
 from modules.ai.data_loader import load_data
 import datetime
 
-st.set_page_config(page_title="Macro Regime Clock", page_icon="🕐", layout="wide")
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
 st.markdown("# 🕐 Macro Regime Clock")
