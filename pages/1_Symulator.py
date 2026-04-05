@@ -1440,6 +1440,97 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
                  help="Omega > 1 = portfel generuje więcej zysku niż straty. Idealny dla Barbell.")
 
         # ─────────────────────────────────────────────────────────────────
+        # 🆕 ANTI-FRAGILITY SCORE (Taleb)
+        # ─────────────────────────────────────────────────────────────────
+        st.divider()
+        st.subheader("🛡️ Anti-Fragility Score (Odporność na Kryzysy) 🆕")
+        st.caption("Reference: Nassim Nicholas Taleb (2012) — 'Antifragile: Things That Gain from Disorder'")
+        
+        # Obliczenie AF Score - załóżmy, że aktywo ryzykowne (SPY/EQ) to nasz benchmark
+        try:
+            # Sprobuj pobrac benchmark. Jak nie ma, fallback = proxy benchmark
+            if 'backtest_risky_data' in st.session_state and not st.session_state['backtest_risky_data'].empty:
+                bench_series = st.session_state['backtest_risky_data'].iloc[:, 0]
+                bench_rets = bench_series.pct_change().dropna()
+            else:
+                bench_rets = pv_series.pct_change().dropna() # Fallback same returns
+
+            # Zrownywanie indeksow jesli trzeba byloby
+            min_len = min(len(port_returns_pct), len(bench_rets))
+            port_arr = port_returns_pct[-min_len:]
+            bench_arr = bench_rets.values[-min_len:]
+
+            from modules.metrics import calculate_antifragility_score
+            af_score = calculate_antifragility_score(port_arr, bench_arr, crisis_threshold_pct=-0.10)
+            
+            af_col1, af_col2 = st.columns([1, 2])
+            with af_col1:
+                st.metric("Anti-Fragility Score", f"{af_score:.2f}", help="Score > 0 oznacza że portfel ZYSKUJE podczas krachów. Score = -1.0 oznacza że podąża za rynkiem.")
+            with af_col2:
+                if af_score > 0:
+                    st.success("**Klasyfikacja: ANTY-KRUCHY (Antifragile)**. Twój portfel faktycznie zarabia gdy inni tracą. Gratulacje! Jesteś gotowy na Czarnego Łabędzia.")
+                elif af_score > -0.5:
+                    st.info("**Klasyfikacja: ODPORNY (Robust/Resilient)**. Twój portfel traci znacznie mniej niż rynek podczas krachów. Dobra ochrona kapitału.")
+                else:
+                    st.warning("**Klasyfikacja: KRUCHY (Fragile)**. Twój portfel silnie traci pod presją. Rozważ zakup opcji OTM (przy użyciu suwaka Tail Hedging) aby odwrócić asymetrię wypłaty.")
+                    
+        except Exception as e:
+            st.error(f"Nie udało się wyliczyć AF Score: {e}")
+
+        # ─────────────────────────────────────────────────────────────────
+        # 🆕 TAIL INSURANCE (Prawdziwy Barbell Taleba)
+        # ─────────────────────────────────────────────────────────────────
+        st.divider()
+        st.subheader("🛡️ Opcje OTM — Prawdziwy Barbell Taleba 🆕")
+        st.markdown("Barbell nie polega tylko na posiadaniu 85% w bezpiecznych aktywach. Najważniejszym elementem jest opcjonalność dla prawego ogona — regularne 'krwawienie' z małej składki, które eksploduje zyskiem przy Czarnym Łabędziu.")
+        
+        with st.expander("🦅 Symulator Tail Hedging (Kalkulator Premii Opcji)"):
+            st.markdown("Jak stałe wydawanie % kapitału na głęboko OTM (Out of The Money) opcje sprzedaży / kupna zachowa się w kryzysie?")
+            c_tail1, c_tail2 = st.columns(2)
+            
+            with c_tail1:
+                annual_premium = st.slider("Roczny budżet na opcje (% kapitału)", 0.0, 5.0, 2.0, 0.5) / 100.0
+                crash_prob = st.slider("Szansa na kryzys każdego roku (%)", 1.0, 30.0, 10.0, 1.0) / 100.0
+                
+            with c_tail2:
+                option_payout = st.slider("Wypłata z opcji przy krachu (Mnożnik)", 5, 50, 15)
+                sim_years_tail = st.slider("Lata symulacji opcjonalności", 5, 30, 15)
+                
+            if st.button("Uruchom Symulację Opcjonalności"):
+                paths_qty = 1000
+                rng_tail = np.random.default_rng(42)
+                crashes = rng_tail.binomial(1, crash_prob, size=(paths_qty, sim_years_tail))
+                
+                # Zwykly portfel SP500 uproszczony
+                port_normal = np.ones((paths_qty, sim_years_tail+1))
+                port_hedged = np.ones((paths_qty, sim_years_tail+1))
+                
+                for y in range(sim_years_tail):
+                    market_ret = rng_tail.normal(0.08, 0.15, size=paths_qty)
+                    # nadpisz zwrot w roku kryzysu
+                    is_crash = crashes[:, y] == 1
+                    market_ret[is_crash] = rng_tail.normal(-0.35, 0.10, size=np.sum(is_crash))
+                    
+                    # Portfel normalny rośnie/traci z rynkiem
+                    port_normal[:, y+1] = port_normal[:, y] * (1 + market_ret)
+                    
+                    # Portfel ze strata premii, ale z wypłatą przy crashu
+                    hedge_payout = np.zeros(paths_qty)
+                    hedge_payout[is_crash] = annual_premium * option_payout
+                    hedge_return = market_ret - annual_premium + hedge_payout
+                    
+                    port_hedged[:, y+1] = port_hedged[:, y] * (1 + hedge_return)
+                
+                fig_tail = go.Figure()
+                fig_tail.add_trace(go.Scatter(y=np.median(port_normal, axis=0), name="Zwykły Maklerski (Mediana)", line=dict(color="#ff1744")))
+                fig_tail.add_trace(go.Scatter(y=np.median(port_hedged, axis=0), name="Portfel z Tail Hedge (Mediana)", line=dict(color="#00e676", width=3)))
+                
+                fig_tail.update_layout(template="plotly_dark", height=300, title="Wpływ ubezpieczenia od ogona (Symulacja 1000 ścieżek)", yaxis_title="Wielokrotność Kapitału")
+                st.plotly_chart(fig_tail, use_container_width=True)
+                
+                st.info(f"Opcje kosztują Cię **{annual_premium*100}%** każdego roku. W scenariuszach bez kryzysu obniżają CAGR. Gdy jednak kryzys się zmaterializuje, zapewniają kapitał na zakupy w samym dołku.")
+
+        # ─────────────────────────────────────────────────────────────────
         # 🆕 EFFICIENT FRONTIER
         # ─────────────────────────────────────────────────────────────────
         st.divider()

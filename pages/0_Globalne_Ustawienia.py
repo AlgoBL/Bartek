@@ -140,6 +140,8 @@ with tab_portfolio:
             "Smart Rebalancing", "Sentiment & Flow", "Alt. Risk Premia", "Wealth Optimizer",
             # Life OS
             "Life OS — Łowca", "Day Trading", "Walk-Forward CPCV",
+            # Nowe (P1-P3)
+            "Systemic Risk & CoVaR", "Recession Nowcasting", "Decumulation / SWR"
         ]
         
         # Jeśli lista w gs jest pusta, załóżmy że domyślnie wszystko włączone

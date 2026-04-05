@@ -15,6 +15,7 @@ from modules.spectral_analysis import (
     compute_wavelet_transform, plot_wavelet_transform
 )
 from modules.ai.data_loader import load_data
+from modules.nss_model import get_simulated_yield_curve, fit_nss, nss_yield_curve
 import datetime
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -462,3 +463,99 @@ except ImportError as _e:
     st.warning(f"Moduł entropy_regime niedostępny: {_e}. Sprawdź instalację.")
 except Exception as _e:
     st.error(f"Błąd panelu entropii: {_e}")
+
+# ─────────────────────────────────────────────────────────────────
+# 🆕 KRZYWA DOCHODOWOŚCI (Nelson-Siegel-Svensson)
+# ─────────────────────────────────────────────────────────────────
+st.divider()
+st.subheader("📊 Modelowanie Krzywej Dochodowości NSS")
+st.markdown("Rentowności obligacji skarbowych to kluczowy element makroekonomiczny determinujący fazę *Zegara Inwestycyjnego* (Interest Rates Cycle). Krzywa Nelson-Siegel-Svensson (NSS) dekomponuje całą rentowność (od 3M do 30Y) na komponenty: **Level (Poziom), Slope (Nachylenie), Curvature (Zakrzywienie)**.")
+
+nss_col1, nss_col2 = st.columns([1, 2])
+
+with nss_col1:
+    st.info("Dane na żywo (FRED/Treasury) podlegają symulacji na wczesnym etapie. Model znajduje najlepiej dopasowaną krzywą.", icon="ℹ️")
+    yc_data = get_simulated_yield_curve()
+    st.dataframe(pd.DataFrame({"Zapadalność (Lata)": yc_data['maturities'], "Yield (%)": yc_data['yields'] * 100}).set_index("Zapadalność (Lata)"), use_container_width=True)
+
+with nss_col2:
+    nss_params = fit_nss(yc_data['maturities'], yc_data['yields'])
+    
+    if pd.isna(nss_params.get('error', np.nan)):
+        st.warning("Model nie przetworzył dopasowania krzywej.")
+    else:
+        # Plynna os czasu zeby nakreslic gladka krzywa
+        smooth_maturities = np.linspace(0.1, 30.0, 100)
+        smooth_yields = nss_yield_curve(smooth_maturities, nss_params['beta0'], nss_params['beta1'], nss_params['beta2'], nss_params['beta3'], nss_params['tau1'], nss_params['tau2'])
+        
+        fig_nss = go.Figure()
+        
+        # Punkty empiryczne
+        fig_nss.add_trace(go.Scatter(x=yc_data['maturities'], y=yc_data['yields'] * 100, mode='markers', name='Empiryczne Yieldy (Bieżące)', marker=dict(size=10, color="#ffea00")))
+        
+        # Krzywa NSS
+        fig_nss.add_trace(go.Scatter(x=smooth_maturities, y=smooth_yields * 100, mode='lines', name='Dopasowana Krzywa NSS', line=dict(color="#00ccff", width=3)))
+        
+        fig_nss.update_layout(
+             title=f"Krzywa Dochodowości Nelson-Siegel-Svensson (MSE: {nss_params['error']:.4f}%)",
+             xaxis_title="Zapadalność (Lata)", yaxis_title="Rentowność (%)",
+             template="plotly_dark", height=400,
+             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_nss, use_container_width=True)
+
+st.markdown("""
+<details><summary><b>Rozkodowanie skrótów NSS</b></summary>  
+<ul>
+<li><b>β0 (Level)</b>: Wieloletni trend inflacyjny (ok. 5%).</li>
+<li><b>β1 (Slope)</b>: Nachylenie. Ujemne β1 oznacza wyższe rentowności krótkoterminowe (inwersja).</li>
+<li><b>β2 / β3 (Curvature)</b>: Brzusiec krzywej (przechodzenie z luźnej w restrykcyjną politykę banku centralnego).</li>
+</ul>
+</details>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────
+# 🆕 P11: INFLATION REGIME ANALYZER
+# ─────────────────────────────────────────────────────────────────
+st.divider()
+st.subheader("🔥 Indeks Reżimu Inflacyjnego (Inflation Regime Analyzer) 🆕")
+st.markdown("Wykrywanie czy rynek 'price-uje' wyższą inflację w przyszłości poprzez analizę spreadów Breakeven (TIPS vs Nominalne). Pozwala to na optymalizację portfela w okresach reflacji lub stagflacji podpowiadając, kiedy Real Assets zyskają.")
+
+ir_col1, ir_col2 = st.columns([1, 2])
+
+with ir_col1:
+    tips_yield = st.number_input("Real Yield (US 10Y TIPS %)", -2.0, 5.0, 1.8, step=0.1)
+    nom_yield = st.number_input("Nominal Yield (US 10Y %)", 0.0, 10.0, 4.3, step=0.1)
+    
+    breakeven_inf = nom_yield - tips_yield
+    
+    inf_regime = "Niski / Dezinflacja"
+    inf_color = "green"
+    if breakeven_inf > 3.0:
+        inf_regime = "Bardzo Wysoki (⚠️ Overheating)"
+        inf_color = "red"
+    elif breakeven_inf > 2.2:
+        inf_regime = "Podwyższony (Stagflation/Reflation)"
+        inf_color = "orange"
+        
+
+with ir_col2:
+    st.markdown(f"### Oczekiwana Inflacja (Breakeven): <span style='color:{inf_color}'>{breakeven_inf:.2f}%</span>", unsafe_allow_html=True)
+    st.markdown(f"**Diagnoza Reżimu Przez Rynek:** {inf_regime}")
+    
+    if breakeven_inf > 2.5:
+        st.warning("Gdy rynek oczekuje wysokiej inflacji, obligacje nominalne stają się 'martwym balastem' w portfelu. Wymień je na: **TIPS (Obligacje indeksowane), Złoto, Surowce, Spółki Value z dużą mocą cenotwórczą.**")
+    elif breakeven_inf < 1.5:
+        st.success("Oczekiwania inflacyjne ugrzęzły. Idealne środowisko dla klasycznych aktywów wzrostowych. Zwiększ wagi w: **S&P 500, Nasdaq, Długoterminowe Obligacje Nominalne.**")
+    else:
+        st.info("Inflacja w granicach celu Fed. Utrzymuj optymalną, bazową alokację HRP / Black-Litterman.")
+    
+    # Simple bullet points info
+    st.markdown("""
+    **Sygnały Skorelowane:**
+    * ✅ Miedź do Złota (Wskaźnik ekspansji popytu z Chin)
+    * ✅ Krzywa Dochodowości (Stroma = Reflacja)
+    * ⚠️ Korelacja Akcje-Obligacje: powyżej zera uderza w fundusze Risk Parity (60/40) i w tradycyjny portfel Raya Dalio.
+    """)
+

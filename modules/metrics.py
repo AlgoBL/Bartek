@@ -689,3 +689,153 @@ def calculate_srr_score(wealth_paths: np.ndarray) -> float:
 
     srr = float(decile_cagr_means.std() / (abs(decile_cagr_means.mean()) + 1e-10))
     return srr
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🛡️ P7: VaR BACKTESTING (Basel Traffic Light)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def calculate_var_backtest(returns, var_forecasts, confidence=0.99):
+    """
+    Backtesting VaR zgodnie z reżimem Basel (Traffic Light Approach).
+    
+    Sprawdza liczbę przekroczeń VaR (breaches) w historii i ocenia
+    zgodnie ze strefami Basel:
+    - Green Zone: Model działa dobrze (np. do 4 przekroczeń w 250 dni dla 99% VaR)
+    - Yellow Zone: Ostrzeżenie, model może niedoszacowywać ryzyka (5-9 przekroczeń)
+    - Red Zone: Model nie działa, rekalibracja lub karny narzut kapitałowy (10+ przekroczeń)
+    
+    Parameters
+    ----------
+    returns : array-like (N,) - Rzeczywiste zrealizowane zwroty.
+    var_forecasts : array-like (N,) lub float - Prognozowany VaR (jako ułamek dodatni oznaczający stratę, np. 0.05).
+    confidence : poziom ufności dla VaR (domyślnie 0.99 dla Basel).
+    
+    Returns
+    -------
+    dict z wynikami:
+        - breaches: liczba przekroczeń
+        - expected_breaches: oczekiwana liczba przekroczeń
+        - zone: "Green", "Yellow", "Red"
+        - kupiec_p_value: P-value testu proporcji Kupca (POF)
+    """
+    ret_arr = np.asarray(returns, dtype=float)
+    N = len(ret_arr)
+    
+    if N == 0:
+        return {"breaches": 0, "expected_breaches": 0, "zone": "Green", "kupiec_p_value": 1.0}
+        
+    if np.isscalar(var_forecasts):
+        var_arr = np.full(N, var_forecasts)
+    else:
+        var_arr = np.asarray(var_forecasts, dtype=float)
+        
+    # Breach if return is worse than -VaR (assuming var_forecast is positive loss magnitude)
+    is_breach = ret_arr < -np.abs(var_arr)
+    num_breaches = int(np.sum(is_breach))
+    
+    p = 1.0 - confidence
+    expected_breaches = N * p
+    
+    # Basel Traffic Light Zones (assuming typical N=250 for 1 year)
+    # Scaled to N:
+    if num_breaches <= expected_breaches + 1.5 * np.sqrt(N * p * (1-p)):
+        zone = "🟢 Green"
+    elif num_breaches < expected_breaches + 4.0 * np.sqrt(N * p * (1-p)):
+        zone = "🟡 Yellow"
+    else:
+        zone = "🔴 Red"
+        
+    # Kupiec POF Test (Likelihood Ratio)
+    # H0: p_obs == p
+    try:
+        if num_breaches == 0:
+            p_value = 1.0
+        else:
+            from scipy.stats import chi2
+            p_obs = num_breaches / N
+            # LR = 2*ln( (p_obs)^x * (1-p_obs)^(N-x) / (p^x * (1-p)^(N-x)) )
+            lr = 2 * (num_breaches * np.log(p_obs/p) + (N - num_breaches) * np.log((1-p_obs)/(1-p)))
+            p_value = 1.0 - chi2.cdf(lr, df=1)
+    except:
+        p_value = 1.0
+
+    return {
+        "breaches": num_breaches,
+        "expected_breaches": expected_breaches,
+        "zone": zone,
+        "kupiec_p_value": float(p_value),
+        "total_obs": N,
+        "hit_rate": num_breaches / N
+    }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🛡️ P8: ANTI-FRAGILITY SCORE (Taleb)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def calculate_antifragility_score(port_returns, bench_returns, crisis_threshold_pct=-0.10):
+    """
+    Kalkuluje Anti-Fragility Score zgodnie z koncepcją Nassima Taleba.
+    
+    Badamy zachowanie portfela w momentach, gdy benchmark (rynek)
+    doświadcza znaczących drawdrownów (np. strata > 10%).
+    Anti-fragile portfele zyskują na wartości w kryzysach.
+    
+    Score = (Średni zwrot portfela w okresach kryzysu rynkowego) / (Oczekiwana strata rynkowa)
+    Skalowany tak, żeby:
+    >0: Anti-fragile (zarabia gdy inni tracą)
+    [-1, 0]: Robust/Resilient (traci mniej niż rynek)
+    < -1: Fragile (traci więcej niż rynek)
+    
+    Parameters
+    ----------
+    port_returns : pd.Series zwrotów portfela (zindeksowane tak jak benchmark).
+    bench_returns : pd.Series zwrotów benchmarku (np. S&P500).
+    crisis_threshold_pct : próg kwalifikujący do "kryzysu" na krzywej kapitału benchmarkowego.
+    
+    Returns
+    -------
+    float: Anti-Fragility Score
+    """
+    # Upewnij sie, ze indexy sie zgadzaja
+    if isinstance(port_returns, pd.Series) and isinstance(bench_returns, pd.Series):
+        common_idx = port_returns.index.intersection(bench_returns.index)
+        p_ret = port_returns.loc[common_idx]
+        b_ret = bench_returns.loc[common_idx]
+    else:
+        p_ret = np.asarray(port_returns)
+        b_ret = np.asarray(bench_returns)
+        
+    if len(b_ret) == 0:
+        return 0.0
+        
+    # Reconstruct benchmark prices to find drawdown periods
+    b_prices = np.cumprod(1 + b_ret)
+    b_peaks = np.maximum.accumulate(b_prices)
+    b_drawdowns = (b_prices - b_peaks) / b_peaks
+    
+    # Okresy kryzysowe
+    crisis_mask = b_drawdowns <= crisis_threshold_pct
+    
+    if not np.any(crisis_mask):
+        return 0.0 # Brak kryzysow w historii, robust/neutral default
+        
+    # Srednie dzienne zwroty (lub kumulatywne) w calym okresie kryzysu
+    # Lepsza metryka bedzie agregacja w return wg kryzysu, ale uproscmy do sredniego zwrotu 
+    # w reżimie Drawdown > 10%
+    mean_port_crisis_ret = np.mean(p_ret[crisis_mask])
+    mean_bench_crisis_ret = np.mean(b_ret[crisis_mask])
+    
+    # Jesli benchmark traci (co jest zdefiniowane przez kryzys), wynik dodatni jest dobry
+    # Zdefiniujemy prosty stosunek (Ratio of performance)
+    # Jezeli portfel urosnie (mean_port > 0), stosunek port/abs(bench) jest dodatni -> Anti-fragile
+    # Jezeli portfel spada, ale wolniej niz benchmark,  (mean_port < 0, ale > mean_bench)
+    
+    score = mean_port_crisis_ret / (np.abs(mean_bench_crisis_ret) + 1e-8)
+    
+    # Kalibracja: 
+    # Jesli portfel traci tyle co rynek -> score bedzie w okolicach -1.0
+    # Jesli traci 2x wiecej -> score -2.0
+    # Jesli nic sie nie zmienia (0 zwrotu) -> score 0.0
+    # Jesli zarabia w trakcie kryzysu -> score > 0 (Prawdziwy Antifragile)
+    
+    return float(score)

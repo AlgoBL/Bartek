@@ -50,7 +50,7 @@ if returns_df is None or returns_df.empty:
 available = [t for t in tickers if t in returns_df.columns]
 r = returns_df[available].dropna()
 
-tab1, tab2, tab3, tab4 = st.tabs(["📈 TSMOM (CTA Sim.)", "🏆 Cross-Sect. Momentum", "💤 Low-Vol Factor", "📐 Bond Carry & ARP Mix"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 TSMOM (CTA Sim.)", "🏆 Cross-Sect. Momentum", "💤 Low-Vol Factor", "📐 Bond Carry Strategy", "🌿 ESG Risk Premium (Nowość)"])
 
 with tab1:
     if len(available) > 0:
@@ -139,6 +139,33 @@ with tab4:
         <div style="font-size:13px;color:#e5e7eb">{carry_res.get('recommended', '')}</div></div>""", unsafe_allow_html=True)
     st.markdown(f"**{carry_res.get('signal', '')}**")
 
+    st.markdown("---")
+    st.markdown("### 🧮 Backtest Strategii Carry (Symulacja Historyczna)")
+    st.markdown("W klasycznym ujęciu, strategia Carry kupuje waluty/aktywa o wysokich stopach zwrotu (np. EM) i finansuje się walutami o niskich (np. JPY, CHF). Symulacja poniżej wykorzystuje proste założenie stałego zysku z różnicy rentowności (Carry) z uwzględnieniem szumu/zmienności.")
+    
+    if st.button("Uruchom Symulację Carry (Monte Carlo)"):
+        with st.spinner("Symulowanie Carry..."):
+            np.random.seed(42)
+            days = 1000
+            # Zakładamy codzienny zysk ze spreadu (część carry) i losowy szok cenowy (FX risk)
+            daily_carry = (y10 - y3m) / 100 / 252 
+            
+            # W warunkach kryzysowych waluta finansujaca gwałtownie drozeje, tworzac Carry Crash
+            fx_shocks = np.random.normal(0, 0.005, days)
+            # Gruby ogon (Crash carry trade'u 2 razy w historii)
+            fx_shocks[200] = -0.15 
+            fx_shocks[800] = -0.12
+            
+            pnl = np.cumsum(daily_carry + fx_shocks)
+            
+            fig_carry = go.Figure()
+            fig_carry.add_trace(go.Scatter(y=pnl * 100, mode='lines', name="P&L Carry Strategy", line=dict(color="#00ccff")))
+            fig_carry.add_trace(go.Scatter(y=np.cumsum([daily_carry]*days) * 100, mode='lines', name="Yield (Stały dochód bez ryzyka cenowego)", line=dict(color="#ffea00", dash="dash")))
+            
+            fig_carry.update_layout(title="Symulacja Carry P&L (z uwzględnieniem 'Rozwijania Pozycji' w kryzysach)", yaxis_title="Zysk (%)", xaxis_title="Dni", template="plotly_dark", height=300, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_carry, use_container_width=True)
+            st.info("💡 **Ostrzeżenie Hyman Minsky'ego**: Carry Trades to 'zbieranie groszy przed walcem'. Zyski na Carry powoli rosną (linia przerywana), ale ryzyko gwałtownego rozwijania długu w panice gwałtownie ścina P&L w kilka dni.")
+
     st.divider()
     st.markdown("### 🧩 ARP Portfolio Mix Suggestion")
     arp_sug = arp_portfolio_suggestion(r)
@@ -151,3 +178,49 @@ with tab4:
             <small>Est. Sharpe: {sug.get('estimated_sharpe', 0):.2f} | Korelacja z portfelem: {sug.get('estimated_corr', 0):.2f} | {sug.get('reason', '')}</small>
         </div>
         """, unsafe_allow_html=True)
+
+with tab5:
+    st.markdown("### 🌿 Environmental, Social, and Governance (ESG) Risk Premium")
+    st.markdown("Czy spółki nisko-emisyjne faktycznie zapewniają ekstra zwrot? Akademickie dowody sugerują 'Sin Premium' (spółki węglowe, zbrojeniowe dają wyższy zwrot przez brak popytu ze strony instytucji pro-ESG). Zbadajmy portfel syntetyczny ESG.")
+    
+    esg_ratio = st.slider("Zaangażowanie w ESG (Screening, % wykluczenia najbrudniejszych)", 0, 100, 50, 5)
+    
+    # Symulacja ESG vs Non-ESG
+    try:
+        if not r.empty:
+            mean_ret = r.mean().mean() * 252
+            vol = r.std().mean() * np.sqrt(252)
+            
+            # Sin Premium (Tough sectors out-perform purely for cost of capital reasons)
+            esg_drag = (esg_ratio / 100.0) * 0.015 # do 1.5% kary za max ESG (czyli odcięcie od paliw)
+            
+            esg_cagr = mean_ret + (vol * 0.1) - esg_drag 
+            non_esg_cagr = mean_ret + (vol * 0.15) 
+            
+            esg_var = vol * (1.0 - (esg_ratio / 100.0)*0.1) # Lekki spadek zmienności w ESG
+            non_esg_var = vol * 1.1
+            
+            c1, c2 = st.columns(2)
+            c1.metric("ESG Portfolio Expected CAGR", f"{esg_cagr*100:.2f}%", help="Teoretyczny zannualizowany zwrot spółek proekologicznych.")
+            c2.metric("Sin Stocks (Non-ESG) CAGR", f"{non_esg_cagr*100:.2f}%", delta=f"{(non_esg_cagr - esg_cagr)*100:+.2f}% Sin Premium", delta_color="normal")
+            
+            st.markdown("""
+            > [!TIP]
+            > Akademickie pomiary (np. *Fama & French ESG Studies*) wskazują, że **czysto fundamentalnie aktywa ESG powinny dawać MNIEJSZY zwrot na kapitale**. 
+            > Ze względu na masowe wykluczanie z portfeli instytucjonalnych firm "brudnych" (tytoń, broń, węgiel), te spółki stają się tanie, gwarantując **wysoką stopę dywidendy**. Jednocześnie spółki ESG wskutek masowych doważeń pasywnych cierpią z powodu "drożyzny" mnożnikowej.
+            """)
+            
+            # Porownanie wykresu ESG vs Brudne
+            x_ax = np.arange(10)
+            esg_wealth = 100 * (1 + esg_cagr) ** x_ax
+            sin_wealth = 100 * (1 + non_esg_cagr) ** x_ax
+            
+            fig_esg = go.Figure()
+            fig_esg.add_trace(go.Bar(x=[f"Year {i}" for i in x_ax], y=esg_wealth, name="Krzywa kapitału ESG", marker_color="#00e676"))
+            fig_esg.add_trace(go.Bar(x=[f"Year {i}" for i in x_ax], y=sin_wealth, name="Krzywa kapitału 'Sin Stocks'", marker_color="#ff1744"))
+            
+            fig_esg.update_layout(title="Symulacja dywergencji przez następne 10 Lat (Teoretyczna)", barmode='group', template="plotly_dark", height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_esg, use_container_width=True)
+            
+    except Exception as e:
+        st.error(f"Nie udało się wygenerować scenariusza ESG: {e}")

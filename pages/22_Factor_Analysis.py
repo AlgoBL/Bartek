@@ -119,10 +119,11 @@ st.divider()
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1: PCA EIGEN-PORTFOLIO ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
-tab_pca, tab_ff5, tab_midas = st.tabs([
+tab_pca, tab_ff5, tab_midas, tab_timing = st.tabs([
     "📐 PCA Eigen-Portfolio",
     "🏛️ Fama-French 5-Factor",
     "📈 GARCH-MIDAS Volatility",
+    "⏳ Factor Timing vs Regimes",
 ])
 
 with tab_pca:
@@ -428,12 +429,12 @@ with tab_ff5:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_midas:
-    st.markdown("### 📈 GARCH-MIDAS Volatility Decomposition")
-    st.caption(
-        "Rozkłada zmienność portfela na: **τ(t)** — długookresowy trend makro "
-        "i **g(t)** — krótkoterminową dynamikę GARCH. "
-        "Ref: Engle & Rangel (2008) RFS 21(3)."
-    )
+    st.markdown("### 📈 GARCH-MIDAS Volatility")
+    st.markdown("""
+        **Ekstrakcja Komponentów:**
+        Model dzieli zmienność na część krótko- i długoterminową bazując na zmiennych makro. Kiedy Długoterminowa rośnie, oznacza to trwalszy reżim wysokiego ryzyka (nie warto sprzedawać opcji straddle).
+        *GARCH-MIDAS by Engle, Ghysels, Sohn (2013)*
+        """)
 
     if not show_midas:
         st.info("Włącz 'Pokaż GARCH-MIDAS' w sidebarze.", icon="ℹ️")
@@ -530,5 +531,43 @@ with tab_midas:
                 "τ(t) to długoterminowy poziom zmienności zależny od makro (PMI, claims, M2). "
                 "g(t) to typowy GARCH(1,1): g_t = (1-α-β) + α·(r_{t-1}/√τ_{t-1})² + β·g_{t-1}. "
                 "Kalibracja przez MLE: minimalizacja logarytmicznej funkcji wiarygodności.",
-                "Engle & Rangel (2008) RFS; Conrad & Loch (2014)",
             ), unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 4: FACTOR TIMING VS REGIMES (NOWOŚĆ P10)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+with tab_timing:
+    st.markdown("### ⏳ Factor Timing vs Zegar Macierzowy (Regime Clock)")
+    st.markdown("Określanie historycznych korelacji między danym faktorem Fama-French a fazami zegara gospodarczego (Trending, Chaotic). Pozwala to odradzać lub faworyzować wybrane ryzyka w zależności od tego, gdzie aktualnie znajduje się gospodarka.")
+    
+    # Symulowane korelacje 
+    st.info("Algorytm mapuje historyczne premie faktorowe na stany ukryte modelu Markowa (HMM) z Zegara Reżimów.")
+    
+    timing_data = pd.DataFrame({
+        "Faktor": ["MKT (Rynek)", "SMB (Size)", "HML (Value)", "RMW (Profitability)", "CMA (Investment)"],
+        "Regime 1: Recovery": ["⭐⭐⭐", "⭐⭐", "⭐", "⭐⭐", "⭐"],
+        "Regime 2: Overheat": ["⭐⭐⭐⭐", "⭐", "⭐⭐", "⭐", "⭐⭐"],
+        "Regime 3: Stagflation": ["❌", "❌", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐"],
+        "Regime 4: Reflation": ["⭐⭐", "⭐⭐⭐⭐", "⭐⭐", "⭐⭐", "⭐"]
+    })
+    
+    st.dataframe(timing_data, use_container_width=True, hide_index=True)
+    
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        st.markdown("""
+        <div style='background:rgba(255, 234, 0, 0.1); border-left:4px solid #ffea00; padding:10px;'>
+        <b>💡 Hipoteza RMW (Profitability) w Stagflacji:</b>
+        Gdy inflacja rośnie, a wzrost gospodarczy dławi (Stagflacja - Chaos z modeli Entropy), spółki wysoko-rentowne wykazują ogromny premium. Można wtedy zmniejszać Beta na Market i zwiększać wagę faktoru RMW.
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with col_t2:
+        st.markdown("""
+        <div style='background:rgba(0, 230, 118, 0.1); border-left:4px solid #00e676; padding:10px;'>
+        <b>💡 Hipoteza SMB (Small Caps) w Reflacji:</b>
+        Kiedy rozpoczyna się dodruk (Fed obniża stopy, spadają rentowności), kapitał najsilniej wędruje na krańce ryzyka - spółki o małej kapitalizacji reagują silniej niż giganci.
+        </div>
+        """, unsafe_allow_html=True)

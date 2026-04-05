@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from modules.styling import apply_styling, math_explainer
 from modules.risk_manager import RiskManager
+from modules.metrics import calculate_var_backtest
 from modules.i18n import t
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -298,3 +299,48 @@ with st.expander("🧮 Dlaczego EVT daje wyższe wartości niż Normal?"):
         "Niedoszacowanie przez Normal to 'Model Risk' (główna przyczyna krachów 2008).",
         "McNeil & Frey (2000); Danielsson & de Vries (1997)",
     ), unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🆕 P7: VaR BACKTESTING (BASEL TRAFFIC LIGHT)
+# ─────────────────────────────────────────────────────────────────────────────
+st.divider()
+st.markdown("#### 🚦 Backtesting Regulacyjny: Basel Traffic Light")
+st.markdown("Sprawdzenie historycznej poprawności modelu EVT VaR 99%. Czy liczba przekroczeń (breaches) mieści się w limitach wyznaczonych przez Komisję Bazylejską (BCBS)?")
+
+backtest_res = calculate_var_backtest(losses, var_evt_99 := rm.evt_var(evt, 0.99), confidence=0.99)
+
+bt1, bt2, bt3, bt4 = st.columns(4)
+bt1.metric("Strefa Basel", backtest_res["zone"])
+bt2.metric("Liczba Przekroczeń", backtest_res["breaches"])
+bt3.metric("Oczekiwano Przekroczeń", f"{backtest_res['expected_breaches']:.1f}")
+bt4.metric("Kupiec POF (p-value)", f"{backtest_res['kupiec_p_value']:.4f}", help="p-value > 0.05 oznacza brak podstaw do odrzucenia hipotezy o poprawności modelu")
+
+# Hit sequence chart
+fig_bt = go.Figure()
+
+# Plot losses (positive values for simplicity, matching the VaR threshold)
+fig_bt.add_trace(go.Bar(
+    y=losses,
+    marker_color=['#ff1744' if l > var_evt_99 else '#00ccff' for l in losses],
+    name="Dzienne straty"
+))
+
+# Plot VaR Limit
+fig_bt.add_hline(y=var_evt_99, line_dash="dash", line_color="#ffea00", annotation_text=f"Limit: EVT VaR 99% ({var_evt_99*100:.2f}%)")
+
+fig_bt.update_layout(
+    template="plotly_dark", height=300,
+    title=f"Wizualizacja przekroczeń (Breaches) dla 99% EVT VaR (Próbka: {backtest_res['total_obs']} dni)",
+    yaxis_title="Strata",
+    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(10,11,20,0.6)",
+    margin=dict(l=40, r=20, t=40, b=20)
+)
+st.plotly_chart(fig_bt, use_container_width=True)
+
+with st.expander("📚 Basel Traffic Light — objaśnienie stref"):
+    st.markdown("""
+    **Basel Commitee on Banking Supervision (BCBS)** definiuje następujące strefy dla backtestu (zazwyczaj równego 250 dni sesyjnych):
+    * **🟢 Strefa Zielona (Green Zone)**: Liczba przekroczeń jest zgodna z rozkładem ufności (np. 0-4 przekroczenia dla 250 dni i 99% VaR). Model poprawny. Banki nie płacą kary kapitałowej.
+    * **🟡 Strefa Żółta (Yellow Zone)**: Model jest ostrożnie akceptowany, lecz może niedoszacowywać ryzyka (5-9 przekroczeń). Zwiększenie nałożonego kapitału o tzw. mnożnik *kwantyfikacyjny* (Multiplier).
+    * **🔴 Strefa Czerwona (Red Zone)**: Matematyczna pewność nieskuteczności kalibracji modelu (10+ przekroczeń). Ryzyko automatycznego zwiększenia rezerw kapitałowych oraz interwencji krajowych regulatorów KNF/SEC.
+    """)

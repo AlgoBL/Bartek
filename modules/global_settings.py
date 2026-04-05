@@ -132,7 +132,17 @@ class GlobalPortfolio:
     language: str = "pl"  # "pl" | "en"
 
     # Personalizacja Menu (Visible Modules)
-    visible_modules: List[str] = field(default_factory=list)
+    visible_modules: List[str] = field(default_factory=lambda: [
+        "Control Center", "Symulator Barbell", "Skaner Rynku", "Global Ustawienia",
+        "Stress Test", "Drawdown Recovery", "Tail Risk Hedging", "Liquidity Risk",
+        "Concentration Risk", "EVT — Tail Risk", "Systemic Risk & CoVaR",
+        "Wealth Optimizer", "Smart Rebalancing", "Tax Optimizer PL",
+        "Black-Litterman AI", "Investment Clock", "Regime Allocation",
+        "DCC — Korelacje", "HERC Portfolio", "Recession Nowcasting",
+        "Day Trading", "Life OS — Łowca", "Factor Zoo & PCA",
+        "Walk-Forward CPCV", "Sentiment & Flow", "Portfolio Health Monitor",
+        "Alt. Risk Premia", "Emerytura / FIRE", "Decumulation / SWR"
+    ])
 
     # Tryb UI: 'expert' | 'educational'
     ui_mode: str = "expert"

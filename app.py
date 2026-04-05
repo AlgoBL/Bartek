@@ -1226,6 +1226,7 @@ pages = {
         st.Page("pages/13_Liquidity_Risk.py", title="Liquidity Risk", icon="💧"),
         st.Page("pages/9_Concentration_Risk.py", title="Concentration Risk", icon="🎯"),
         st.Page("pages/5_EVT_Analysis.py", title="EVT — Tail Risk", icon="📐"),
+        st.Page("pages/27_Systemic_Risk.py", title="Systemic Risk & CoVaR", icon="🌐"),
     ],
     "♟️  Optymalizacja i Strategia": [
         st.Page("pages/19_Wealth_Optimizer.py", title="Wealth Optimizer", icon="🏰"),
@@ -1236,6 +1237,7 @@ pages = {
         st.Page("pages/12_Regime_Allocation.py", title="Regime Allocation", icon="🔀"),
         st.Page("pages/7_DCC_Dashboard.py", title="DCC — Korelacje", icon="🔗"),
         st.Page("pages/24_HERC_Portfolio.py", title="HERC Portfolio", icon="🧬"),
+        st.Page("pages/26_Recession_Nowcasting.py", title="Recession Nowcasting", icon="🕵️"),
     ],
     "🧠  Kwantowe i AI": [
         st.Page("pages/21_Day_Trading.py", title="Day Trading", icon="📈"),
@@ -1246,6 +1248,7 @@ pages = {
         st.Page("pages/8_Health_Monitor.py", title="Portfolio Health Monitor", icon="🏥"),
         st.Page("pages/18_Alt_Risk_Premia.py", title="Alt. Risk Premia", icon="⚡"),
         st.Page("pages/4_Emerytura.py", title="Emerytura / FIRE", icon="💰"),
+        st.Page("pages/25_Decumulation.py", title="Decumulation / SWR", icon="💸"),
     ],
 }
 

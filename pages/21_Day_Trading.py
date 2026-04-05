@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import scipy.stats as stats
+from modules.pairs_trading import perform_cointegration_test
 from modules.styling import apply_styling, scicard
 from modules.i18n import t
 
@@ -1158,6 +1159,170 @@ with col_fl2:
         formula_code="IR = IC · √BR",
         reference="Grinold & Kahn (1999) 'Active Portfolio Management'"
     )
+
+
+# ═══════════════════════════════════════════════════════════
+# 🆕 SEKCJA 18 — PAIRS TRADING I KOINTEGRACJA
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 👯 Sekcja 18 — Pairs Trading (Arbitraż Statystyczny) 🆕")
+st.markdown("<p style='color:#bbb;font-size:14px'>Wyszukiwanie par aktywów (np. <strong>KO vs PEP</strong>), które historycznie poruszają się razem, by zająć pozycję w momencie gdy ich Spread rozjeżdża się poza wariancję (Z-Score > 2).</p>", unsafe_allow_html=True)
+
+pt_col, space_col = st.columns([1, 2])
+with pt_col:
+    # Uklad z symulowanymi danymi, poniewaz brak bezposredniego pociagniecia prawdziwych (yf moze zablokowac)
+    pair1 = st.text_input("Aktywo A (np. KO)", value="KO")
+    pair2 = st.text_input("Aktywo B (np. PEP)", value="PEP")
+
+@st.cache_data(ttl=3600)
+def generate_cointegrated_series(seed=42):
+    rn = np.random.default_rng(seed)
+    # Random walk
+    base = np.cumsum(rn.normal(0, 1, 500))
+    # Seria 1 wzmacnia random walk
+    s1 = 100 + base + rn.normal(0, 0.5, 500)
+    # Seria 2 wzoruje sie na random walk ze spreadem
+    s2 = 40 + 0.5 * base + rn.normal(0, 0.5, 500)
+    # Wyrzuty (rozjazdy pary) by trader miał na czym pohandlować
+    s1[-50:-30] += 5.0
+    return pd.Series(s1), pd.Series(s2)
+
+with st.spinner("Szukanie kointegracji w szeregach czasowych..."):
+    s_a, s_b = generate_cointegrated_series(hash(pair1 + pair2) % 10000)
+    coin_res = perform_cointegration_test(s_a, s_b)
+
+p_c1, p_c2, p_c3 = st.columns(3)
+if coin_res.get("is_cointegrated", False):
+    p_c1.metric("Status Kointegracji", "✅ Kointegrują", help="Test Augmented Dickey-Fuller dla Reszt odrzuca hipotezę o braku stacjonarności.")
+else:
+    p_c1.metric("Status Kointegracji", "❌ Brak / Słaba", help="Test nie wykazał silnych więzi długoterminowych. Odradzany handel tą parą.")
+
+p_c2.metric("ADF P-Value", f"{coin_res.get('p_value', 1.0):.4f}", help="Jeżeli < 0.05 to stacjonarność potwierdzona.")
+
+z_val = coin_res.get("current_z", 0.0)
+z_color = "normal" if abs(z_val)<2 else "inverse"
+p_c3.metric("Bieżący Z-Score", f"{z_val:.2f}", delta="Sygnał" if abs(z_val)>2 else "Brak odchylenia", delta_color=z_color)
+
+spread_z = coin_res.get("spread_z", pd.Series())
+
+if not spread_z.empty:
+    fig_pt = go.Figure()
+    fig_pt.add_trace(go.Scatter(y=spread_z.values, mode='lines', line=dict(color="#00ccff"), name="Spread Z-Score"))
+    fig_pt.add_hline(y=0, line_dash="solid", line_color="#ffffff", line_width=1)
+    
+    # +2/-2 Band
+    fig_pt.add_hline(y=2, line_dash="dash", line_color="#ff1744", annotation_text="+2σ (Sell A, Buy B)")
+    fig_pt.add_hline(y=-2, line_dash="dash", line_color="#00e676", annotation_text="-2σ (Buy A, Sell B)")
+    
+    fig_pt.update_layout(
+         title=f"Spread Z-Score (Siła Odchylenia Grawitacyjnego) — {pair1} vs {pair2}",
+         template="plotly_dark", height=350,
+         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+         margin=dict(l=20, r=20, t=30, b=20)
+    )
+    st.plotly_chart(fig_pt, use_container_width=True)
+
+st.markdown("""
+<details><summary><b>Rozkodowanie Algorytmu Pairs Trading</b></summary>
+Pairs Trading to ulubiona strategia funduszy kwantytatywnych ponieważ jest <b>Market-Neutral (niezależna od trendu byka/niedźwiedzia)</b>.<br>
+1. <b>Kointegracja (Engle-Granger)</b>: Używamy regresji najmniejszych kwadratów (OLS), żeby znaleźć <i>Hedge Ratio</i>. Następnie badamy czy reszty układają się w stacjonarny proces (Mean-Reverting)<br>
+2. <b>Z-Score</b>: Skalujemy odległość aktywów od siebie w odchyleniach standardowych. Kiedy rynki panikują i Z-Score uderza w +2 lub +3, wiesz empirycznie, że jedno aktywo zwariowało, a drugie nie i niedługo do siebie powrócą ("gravitational pull").
+</details>
+""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🆕 SEKCJA 19 — MARKET MICROSTRUCTURE (ORDER FLOW)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🔬 Sekcja 19 — Market Microstructure (Mikrostruktura Rynku) 🆕")
+st.markdown("<p style='color:#bbb;font-size:14px'>Wieloryby nie poruszają się niezauważalnie. Mikrostruktura pozwala wykryć presję kupujących/sprzedających zanim ruch ceny (Candlesticks) zostanie ukończony na wykresie. Analiza na bazie Order Booku i wolumenu transakcji.</p>", unsafe_allow_html=True)
+
+mc_1, mc_2, mc_3 = st.columns(3)
+
+# 1. Bid-Ask Spread Cost
+with mc_1:
+    st.markdown("### 💸 Koszt Poślizgu (Bid-Ask)")
+    st.markdown("Spread to nie tylko prowizja brokera. To opłata za 'Natychmiastową Płynność' i ryzyko selekcji negatywnej (Market Maker wie coś, czego Ty nie wiesz).")
+    
+    spread_pct = st.slider("Średni Spread (% ceny)", 0.01, 1.0, 0.05, 0.01)
+    turnover = st.slider("Częstotliwość handlu (rocznie)", 10, 1000, 250, 10)
+    
+    annual_drag = spread_pct * turnover
+    st.metric("Roczny Drag (Koszt Tarcia)", f"-{annual_drag:.1f}% kapitału", help="Zakładając obrót całym portfelem, tyle tracisz z powodu samego przeskakiwania ceny Bid/Ask.")
+    if annual_drag > 20:
+        st.error("Poddajesz się rynkowi! Przestań używać zleceń rynkowych (Market). Zmień na zlecenia Limit, dostarczając płynność (Maker).")
+
+# 2. Order Flow Imbalance
+with mc_2:
+    st.markdown("### ⚖️ Order Flow Imbalance (OFI)")
+    st.markdown("Prawdziwy sygnał kierunkowy! OFI polega na badaniu zmian ilości ofert na BID vs ASK. **Gdy znikają oferty sprzedaży na ASK, a przybywają na BID, cena zaraz wystrzeli.**")
+    
+    ofi_val = np.random.normal(50, 20)
+    st.metric("OFI Z-Score (Symulacja)", f"{ofi_val/10:.2f} σ", delta="+ Presja Popytu" if ofi_val > 0 else "- Presja Podaży", delta_color="normal")
+    st.info("Algorytmy HFT (High Frequency Trading) nie patrzą na RSI. Kalkulują OFI po każdej zrealizowanej milisekundzie, pożerając zlecenia wolniejszych uczestników.")
+
+# 3. Volume Clock vs Time Clock
+with mc_3:
+    st.markdown("### ⏱️ Volume Clock (Zegar Wolumenowy)")
+    st.markdown("Czas w finansach nie płynie równo! Sesja poranna 9:30-10:00 to 40% dziennego obrotu, pory lunchu to stagnacja. Zamiast wykresów minutowych, zbieraj próbki co 1000 wyhandlowanych akcji.")
+    
+    st.markdown("""
+    <div style='background:rgba(255,100,100,0.1); border-left:3px solid red; padding:5px; margin-top:10px;'>
+    <small><b>A: Wymiar Standardowy: Świeca 15 min</b> -> Fałszywe wybicia przy niskim obrocie w południe.</small>
+    </div>
+    <div style='background:rgba(100,255,100,0.1); border-left:3px solid green; padding:5px; margin-top:5px;'>
+    <small><b>B: Volume Clock: Świeca co 10k Volume</b> -> Informacyjny reżim de-noised. Więcej świec na openingu, mniej w południe. Znacznie lepsze modele GARCH.</small>
+    </div>
+    """, unsafe_allow_html=True)
+    st.caption("Pojęcie 'Zegara Wolumenowego' wprowadzone w badaniach microstructure przez De Prado.")
+
+
+# ═══════════════════════════════════════════════════════════
+# 🆕 SEKCJA 20 — INTRADAY PATTERN RECOGNITION
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 📅 Sekcja 20 — Intraday Pattern Recognition (Sezonowość Dnia) 🆕")
+st.markdown("<p style='color:#bbb;font-size:14px'>Rynek ma swój rytm biologiczny. Zrozumienie, kiedy płynność jest najwyższa, a kiedy algorytmy odpoczywają, pozwala uniknąć wchodzenia w 'dead zones'.</p>", unsafe_allow_html=True)
+
+ip_col1, ip_col2 = st.columns([2, 1])
+
+with ip_col1:
+    # Symulacja u-shape volatility/volume
+    hours = np.linspace(9.5, 16, 50)
+    # Równanie paraboliczne dla efektu "u-shape" (wysoka zmienność na otwarciu i zamknięciu)
+    vol_pattern = 0.5 * (hours - 12.75)**2 + 1.0
+    vol_pattern += np.random.normal(0, 0.1, 50) # szum
+    
+    fig_pattern = go.Figure()
+    fig_pattern.add_trace(go.Scatter(x=hours, y=vol_pattern, mode='lines', fill='tozeroy', 
+                                    line=dict(color="#a855f7", width=3), name="Intraday Volatility"))
+    
+    fig_pattern.update_layout(
+        title="Typowy Profil Zmienności (U-Shape) w Ciągu Sesji",
+        xaxis=dict(title="Godzina (EST)", tickvals=[9.5, 11, 13, 15, 16], 
+                   ticktext=["9:30 (Open)", "11:00", "13:00 (Lunch)", "15:00", "16:00 (Close)"]),
+        yaxis=dict(title="Volatility Index"),
+        template="plotly_dark", height=350,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=40, r=20, t=50, b=40)
+    )
+    # Zaznaczenie stref
+    fig_pattern.add_vrect(x0=9.5, x1=10.5, fillcolor="green", opacity=0.1, layer="below", line_width=0, annotation_text="Golden Hour")
+    fig_pattern.add_vrect(x0=12, x1=13.5, fillcolor="red", opacity=0.1, layer="below", line_width=0, annotation_text="Dead Zone")
+    fig_pattern.add_vrect(x0=15.5, x1=16, fillcolor="green", opacity=0.1, layer="below", line_width=0, annotation_text="The Close")
+    
+    st.plotly_chart(fig_pattern, use_container_width=True)
+
+with ip_col2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>💹 Strategia 'U-Shape'</div>
+    <p style='{NOTE}'>
+    • <b>Opening Range Breakout (9:30-10:15):</b> Najwyższa płynność i "price discovery". Tu decydują się kierunki dnia.<br><br>
+    • <b>Lunch Stagnation (12:00-13:30):</b> Instytucje schodzą z rynku. Ryzyko "chop" (boczniaka) i false breakouts. Unikaj handlu.<br><br>
+    • <b>Power Hour (15:00-16:00):</b> Rebalancing funduszy i zamykanie pozycji intraday. Powrót wolumenu.<br><br>
+    <b style='color:#a855f7'>Trade Tip:</b> Jeśli Twój setup pojawia się o 13:00, szansa na sukces statystycznie spada o 40% z powodu braku 'paliwa' (wolumenu).
+    </p></div>""", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════

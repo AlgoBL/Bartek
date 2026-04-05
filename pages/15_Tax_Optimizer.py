@@ -7,6 +7,7 @@ from modules.styling import apply_styling
 from modules.tax_optimizer_pl import (
     create_position, tax_loss_harvesting, ike_ikze_optimizer,
     annual_belka_estimate, IKE_LIMIT_PLN, IKZE_LIMIT_PLN, TAX_BELKA,
+    ppk_simulator, asset_location_optimizer
 )
 from modules.i18n import t
 
@@ -16,7 +17,7 @@ st.markdown("# 💰 Tax Optimizer PL")
 st.markdown("*Podatek Belka, Tax Loss Harvesting, IKE/IKZE — bezpieczny zysk dla polskiego inwestora*")
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["🎯 IKE / IKZE Kalkulator", "✂️ Tax Loss Harvesting", "📊 Roczna Belka (PIT-38)"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 IKE / IKZE Kalkulator", "✂️ Tax Loss Harvesting", "📊 Roczna Belka (PIT-38)", "🏢 PPK vs Prywatnie", "🗂️ Asset Location"])
 
 with tab1:
     st.markdown("### 💚 Kalkulator Oszczędności IKE / IKZE")
@@ -149,3 +150,44 @@ with tab3:
               delta=f"efektywna stawka: {belka.get('effective_rate', 0):.1%}")
 
     st.markdown(f"*Efektywna stawka podatkowa: {belka.get('effective_rate', 0):.1%}*")
+
+with tab4:
+    st.markdown("### 🏢 PPK (Pracownicze Plany Kapitałowe) vs Inwestowanie Prywatne")
+    st.markdown("Sprawdź, ile zyskujesz dzięki dopłatom od pracodawcy i państwa.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        salary = st.number_input("Miesięczne wynagrodzenie brutto (PLN)", 3000, 50000, 10000, 500)
+    with col2:
+        y_sim = st.slider("Horyzont symulacji (Lata)", 5, 40, 20)
+        
+    ppk_res = ppk_simulator(salary, years=y_sim)
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Wpłaty własne", f"{ppk_res['total_employee_paid']:,.0f} PLN")
+    c2.metric("Wpłaty pracodawcy/państwa", f"{ppk_res['total_employer_paid']+ppk_res['total_state_paid']:,.0f} PLN")
+    c3.metric("Ostateczny kapitał", f"{ppk_res['final_balance']:,.0f} PLN")
+    
+    st.success(f"Darmowy kapitał przewagi nad inwestowaniem samodzielnym: **{ppk_res['ppk_advantage']:,.0f} PLN**")
+
+with tab5:
+    st.markdown("### 🗂️ Asset Location (Optymalizacja rozmieszczenia aktywów)")
+    st.markdown("IKE i IKZE to limitowane darmowe pule podatkowe. Gdzie wpakować aktywa uciekając przed Belką?")
+    
+    col_a, col_space = st.columns([2, 1])
+    with col_space:
+        free_space = st.number_input("Dostępny limit IKE/IKZE", 0, 50000, 20000, 1000)
+        
+    assets = [
+        {"name": "Vanguard S&P 500 ETF (VUAA)", "cagr": 0.08, "div_yield": 0.00, "value": 15000},
+        {"name": "Global High Dividend ETF", "cagr": 0.07, "div_yield": 0.04, "value": 10000},
+        {"name": "Obligacje Skarbowe EDO (10Y)", "cagr": 0.04, "div_yield": 0.00, "value": 20000}
+    ]
+    
+    alloc = asset_location_optimizer(assets, free_space)
+    
+    df_alloc = pd.DataFrame(alloc['allocation'])
+    df_alloc.rename(columns={"name": "Aktywo", "tax_free_account": "IKE/IKZE (PLN)", "taxable_account": "Zwykły Maklerski (PLN)", "reason": "Uzasadnienie"}, inplace=True)
+    
+    st.dataframe(df_alloc, use_container_width=True, hide_index=True)
+    st.info(f"Pozostałe niewykorzystane miejsce na kontach emerytalnych: {alloc['unfilled_tax_free_space']:,.0f} PLN")

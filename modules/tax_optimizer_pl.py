@@ -322,3 +322,107 @@ def annual_belka_estimate(
         "total_tax_due_pln": total_due,
         "effective_rate": total_due / max(capital_gains + dividends_received_pln, 1),
     }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. PPK SIMULATOR (DOPŁATY PAŃSTWA I PRACODAWCY)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def ppk_simulator(
+    gross_salary_pln: float,
+    employee_contrib_pct: float = 0.02,
+    employer_contrib_pct: float = 0.015,
+    years: int = 20,
+    expected_cagr: float = 0.07
+) -> dict:
+    """
+    Symuluje kapitalizację na koncie PPK.
+    Uwzględnia wpłatę powitalną (250 PLN) i dopłatę roczną od Państwa (240 PLN).
+    Od dopłaty pracodawcy pobierany jest PIT (zmniejsza pensję netto).
+    """
+    welcome_bonus = 250.0
+    annual_state_bonus = 240.0
+    
+    monthly_employee = gross_salary_pln * employee_contrib_pct
+    monthly_employer = gross_salary_pln * employer_contrib_pct
+    
+    # Capital before growth
+    total_employee_paid = monthly_employee * 12 * years
+    total_employer_paid = monthly_employer * 12 * years
+    total_state_paid = welcome_bonus + (annual_state_bonus * years)
+    
+    # Symulacja krok po kroku
+    balance = welcome_bonus
+    months = years * 12
+    monthly_rate = (1 + expected_cagr)**(1/12) - 1
+    
+    for m in range(months):
+        balance += monthly_employee + monthly_employer
+        balance *= (1 + monthly_rate)
+        if (m + 1) % 12 == 0:
+            balance += annual_state_bonus
+            
+    # Gdyby pracownik zainwestował swoją cześć samodzielnie (bez dopłat pracodawcy/państwa)
+    balance_private = 0
+    for m in range(months):
+        balance_private += monthly_employee
+        balance_private *= (1 + monthly_rate)
+        
+    private_after_belka = balance_private - ((balance_private - total_employee_paid) * TAX_BELKA)
+    ppk_advantage = balance - private_after_belka
+            
+    return {
+        "final_balance": balance,
+        "total_employee_paid": total_employee_paid,
+        "total_employer_paid": total_employer_paid,
+        "total_state_paid": total_state_paid,
+        "roi_on_employee_capital": (balance / total_employee_paid) - 1 if total_employee_paid > 0 else 0,
+        "balance_if_private_after_tax": private_after_belka,
+        "ppk_advantage": ppk_advantage
+    }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. ASSET LOCATION OPTIMIZER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def asset_location_optimizer(
+    assets: list[dict], 
+    ike_ikze_available_space: float
+) -> dict:
+    """
+    Proponuje, na którym koncie (IKE/IKZE vs Zwykły rachunek) trzymać poszczególne aktywa.
+    Ogólna zasada: 
+    1. Instrumenty dystrybuujące dywidendy, szczególnie mocno opodatkowane za granicą bez ułatwionego odzyskiwania WHT,
+       lub instrumenty z wysokim CAGR -> IKE
+    2. Bezpieczne instrumenty nisko rentowne -> zwykły rachunek maklerski
+    
+    assets param example:
+    [{"name": "Bonds", "cagr": 0.04, "div_yield": 0.0, "value": 50000},
+     {"name": "Dividend Stocks", "cagr": 0.08, "div_yield": 0.04, "value": 30000}]
+    """
+    # Sortujemy aktywa według 'tax drag' = jak bardzo cierpią przez podatek
+    # Tax drag = (div_yield * 0.19) + ((cagr - div_yield) * compound impact)
+    # W uproszczeniu: aktywa o najwyższym CAGR+Div powinny lądować w IKE.
+    
+    enhanced = []
+    for a in assets:
+        tax_drag_approx = (a['div_yield'] * TAX_BELKA) + ((a['cagr'] - a['div_yield']) * 0.5 * TAX_BELKA) # rough weight
+        enhanced.append({**a, "tax_drag": tax_drag_approx})
+        
+    enhanced.sort(key=lambda x: x["tax_drag"], reverse=True)
+    
+    allocation = []
+    space_left = ike_ikze_available_space
+    
+    for a in enhanced:
+        to_tax_free = min(a['value'], space_left)
+        to_taxable = a['value'] - to_tax_free
+        space_left -= to_tax_free
+        allocation.append({
+            "name": a['name'],
+            "tax_free_account": to_tax_free,
+            "taxable_account": to_taxable,
+            "reason": "Wysoki kosz podatkowy (dywidendy/wysoki wzrost)" if a['tax_drag'] > 0.01 else "Niski koszt podatkowy"
+        })
+        
+    return {"allocation": allocation, "unfilled_tax_free_space": space_left}
+

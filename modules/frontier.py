@@ -369,17 +369,25 @@ def compute_efficient_frontier(
     rf_taxed     = risk_free_rate * 0.81
 
     # ── Monte Carlo sampling (background) ────────────────────────────────
-    results = {"Return": [], "Volatility": [], "Sharpe": [], "Omega": [], "Weights": []}
+    results = {"Return": [], "Volatility": [], "Sharpe": [], "Omega": [], "CVaR": [], "Weights": []}
     np.random.seed(42)
 
     for _ in range(n_portfolios):
         w = np.random.dirichlet(np.ones(n_assets))
+        port_r = returns_taxed.values @ w
         ret = float(np.dot(w, mean_returns))
         vol = float(np.sqrt(w @ cov_matrix.values @ w))
         sh  = (ret - rf_taxed) / vol if vol > 0 else 0
-        om  = min(calculate_omega(returns_taxed.values @ w), 10.0)
+        om  = min(calculate_omega(port_r), 10.0)
+        
+        # Calculate CVaR_5
+        var_5 = np.percentile(port_r, 5)
+        tail = port_r[port_r <= var_5]
+        cv = -float(np.mean(tail)) * np.sqrt(252) if len(tail) > 0 else 0.0 # annualized approximation
+
         results["Return"].append(ret)
         results["Volatility"].append(vol)
+        results["CVaR"].append(cv)
         results["Sharpe"].append(sh)
         results["Omega"].append(om)
         results["Weights"].append(w)
@@ -392,7 +400,7 @@ def compute_efficient_frontier(
     def _port_info(idx):
         row = df.iloc[idx]
         return {"return": row["Return"], "volatility": row["Volatility"],
-                "sharpe": row["Sharpe"], "omega": row["Omega"],
+                "cvar": row["CVaR"], "sharpe": row["Sharpe"], "omega": row["Omega"],
                 "weights": {t: w for t, w in zip(tickers, row["Weights"])}}
 
     max_sharpe_port = _port_info(idx_max_sharpe)
@@ -410,13 +418,13 @@ def compute_efficient_frontier(
 
     # Background MC scatter
     fig.add_trace(go.Scatter(
-        x=df["Volatility"] * 100, y=df["Return"] * 100,
+        x=df["CVaR"] * 100, y=df["Return"] * 100,
         mode="markers",
         marker=dict(color=df["Sharpe"], colorscale="Viridis", size=4,
                     opacity=0.5, colorbar=dict(title="Sharpe"), showscale=True),
-        text=[f"Sharpe: {s:.2f}<br>Omega: {o:.2f}"
-              for s, o in zip(df["Sharpe"], df["Omega"])],
-        hovertemplate="%{text}<br>Vol: %{x:.1f}%<br>Return: %{y:.1f}%<extra></extra>",
+        text=[f"Sharpe: {s:.2f}<br>Omega: {o:.2f}<br>CVaR: {c*100:.1f}%"
+              for s, o, c in zip(df["Sharpe"], df["Omega"], df["CVaR"])],
+        hovertemplate="%{text}<br>CVaR (Zannualizowany): %{x:.1f}%<br>Return: %{y:.1f}%<extra></extra>",
         name="Portfele losowe (MC)",
     ))
 
@@ -427,7 +435,7 @@ def compute_efficient_frontier(
         (max_omega_port,  "🟢 MC Max Omega",   "lime",  "triangle-up"),
     ]:
         fig.add_trace(go.Scatter(
-            x=[port["volatility"] * 100], y=[port["return"] * 100],
+            x=[port["cvar"] * 100], y=[port["return"] * 100],
             mode="markers+text",
             marker=dict(color=color, size=16, symbol=sym,
                         line=dict(color="white", width=1.5)),
@@ -458,8 +466,9 @@ def compute_efficient_frontier(
     # CVaR Min
     cv = cvar_result.get("min_cvar", {})
     if cv:
+        cv_cvar = cv.get("cvar", 0) * np.sqrt(252) * 100 # scale for plot
         fig.add_trace(go.Scatter(
-            x=[cv["volatility"] * 100], y=[cv["return"] * 100],
+            x=[cv_cvar], y=[cv["return"] * 100],
             mode="markers+text",
             marker=dict(color="#e040fb", size=20, symbol="pentagon",
                         line=dict(color="white", width=2)),
@@ -467,8 +476,7 @@ def compute_efficient_frontier(
             textfont=dict(color="#e040fb", size=11),
             hovertemplate=(f"<b>🟣 Min CVaR₅ (Rockafellar & Uryasev 2000)</b><br>"
                            f"Return: {cv['return']*100:.1f}%<br>"
-                           f"Vol: {cv['volatility']*100:.1f}%<br>"
-                           f"CVaR: {cv['cvar']*100:.1f}%<extra></extra>"),
+                           f"CVaR: {cv_cvar:.1f}%<extra></extra>"),
             name="🟣 Min CVaR",
         ))
 
@@ -511,8 +519,8 @@ def compute_efficient_frontier(
         ))
 
     fig.update_layout(
-        title="📐 Granica Efektywna — HRP + Min CVaR + Black-Litterman + MC (Markowitz 1952)",
-        xaxis_title="Ryzyko (Volatility) [%]",
+        title="📐 Granica Efektywna (Mean-CVaR Space) wg Rockafellara-Uryaseva",
+        xaxis_title="Oczekiwana Strata Ogonowa — CVaR [%]",
         yaxis_title="Oczekiwana Stopa Zwrotu [%]",
         template="plotly_dark", height=600,
         legend=dict(orientation="v", x=1.02, y=1),

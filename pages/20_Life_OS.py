@@ -2361,6 +2361,70 @@ with c32_2:
 
 
 # ═══════════════════════════════════════════════════════════
+# 🆕 SEKCJA 33 — BEHAVIORAL BIASES TEST (P16)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🐒 Sekcja 33 — Test Błędów Poznawczych (Kahneman & Tversky)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Symulator do kalibracji systemu decyzyjnego by uniknąć najdroższych błędów mentalnych.</p>", unsafe_allow_html=True)
+
+with st.expander("📝 Uruchom Szybki Test Błędów (Bias Calibration)", expanded=False):
+    # Pytyania testowe symulujace rozne Biases z Prospect Theory
+    st.markdown("Wyobraź sobie następujące scenariusze i podejmij szybką decyzję:")
+    
+    q1 = st.radio("Sytuacja 1. Co wybierzesz?", ["A: 100% szans na stratę 900 PLN", "B: 90% szans na stratę 1000 PLN i 10% szans, że nie stracisz nic."])
+    q2 = st.radio("Sytuacja 2. Kupiłeś akcje firmy X z przekonaniem, a one po raporcie zysków spadają o -20%. Raport jest bardzo słaby. Co robisz?", ["A: Sprzedaję by zrealizować stratę i uciąć ryzyko.", "B: Trzymam do momentu aż cena wróci do mojej ceny zakupu.", "C: Uśredniam w dół dokupując po niższej cenie by szybciej wyjść na zero."])
+    
+    if st.button("Sprawdź wynik (Diagnoza Rynku)"):
+        score_bias = 0
+        if q1.startswith("B"):
+            score_bias += 1
+            st.warning("**Loss Aversion (Awersja do straty) / Risk-Seeking Domain**: Twój wybór w Sytuacji 1 oznacza, że w obliczu straty wolisz podjąć RYZYKO hazardowe (B ma identyczne EV co A = -900 PLN, ale akceptujesz wyższe ryzyko!). Kahneman udowodnił to odkrywając *Prospect Theory*. Tracący grają ryzykowniej.")
+        else:
+            st.success("**Poprawna decyzja (Sytuacja 1)**. Ucinasz stratę nie podejmując hazardu z o wiele większym Drawdownem (1000 PLN).")
+            
+        if q2.startswith("B") or q2.startswith("C"):
+            score_bias += 1
+            st.error("**Sunk Cost Fallacy (Błąd Kosztów Utopionych) / Anchoring**: Zakotwiczyłeś się na 'Cenie Zakupu', która jest z punktu widzenia wolnego rynku bez znaczenia. Trzymanie stratnych akcji 'aby wyjść na zero' to ulubiony sposób na bankructwo tzw. Disposition Effect.")
+        else:
+            st.success("**Poprawna decyzja (Sytuacja 2)**. Informacje uległy zmianie, Twój początkowy koszt się nie liczy. Pieniądz zarobi więcej w lepszym biznesie.")
+            
+        if score_bias == 0:
+            st.info("Prawdopodobnie nadajesz się do funduszu Quant. Masz obojętny układ limbiczny.")
+
+# ═══════════════════════════════════════════════════════════
+# 🆕 SEKCJA 34 — INVESTMENT POLICY STATEMENT (IPS P18)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 📜 Sekcja 34 — Investment Policy Statement (Karta Zasad IPS)")
+st.markdown("<p style='color:#bbb;font-size:14px'>Automatyczny generator konstytucji Twojego zarządzania pieniędzmi. Zabezpieczenie przez samym sobą.</p>", unsafe_allow_html=True)
+
+ips_c1, ips_c2 = st.columns([1, 1])
+
+with ips_c1:
+    st.markdown("Określ swoje brzegowe środowisko portfela:")
+    max_dd = st.slider("Absolute Max Drawdown (%) — Po tym ucinasz WSZYSTKO", 5, 50, 15)
+    risk_cap = st.slider("Maksymalne RR (Reward to Risk per Trade)", 1.0, 10.0, 2.5, 0.5)
+    trade_freq = st.selectbox("Zakładany reżim operacyjny", ["Position Trading (Trzymane > 3 Mc)", "Swing Trading (Tygodnie)", "Stat-Arb / Day Trading"])
+    emergency_cash = st.number_input("Gotówka poduszki bezpieczeństwa (miesiące kosztów życia)", 0, 24, 6)
+
+with ips_c2:
+    if st.button("Generuj Kartę Zasad (IPS)"):
+        st.markdown(f"""
+        <div style='background-color:#13151c; border-left:4px solid #a855f7; padding:20px; font-family:"Courier New", monospace;'>
+        <h3 style='margin-top:0;'>CONSTITUTION OF PORTFOLIO</h3>
+        <p style='color:#bbb; font-size:14px;'>Wygenerowano: {pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}</p>
+        <ol>
+            <li><b>Red Line (System Stop):</b> Jeżeli mój całkowity Drawdown przekroczy <b>{max_dd}%</b>, liquiduję 100% pozycje ryzykowne i przechodzę w gotówkę/obligacje na minimum 3 miesiące rekalibracji psychiki. Brak dyskusji.</li>
+            <li><b>Risk Ratio:</b> Żaden zakład (Trade) nie zostanie otwarty, jeżeli potencjalna nagroda do najgorszego scenariusza ryzyka nie wynosi minimum <b>{risk_cap} do 1</b>.</li>
+            <li><b>Mandat Operacyjny:</b> Mój edge wymaga operowania w fazie <b>{trade_freq}</b>. Wszelkie odchyły 'dla nudy' (np. granie intraday wbrew planowi) skutkują blokadą wpłat.</li>
+            <li><b>Zabezpieczenie Ergodyczne:</b> Oświadczam, że posiadam wydzielone <b>{emergency_cash} miesięcy</b> kosztów przetrwania na rynku w gotówce niezainwestowanej. Gwarantuje to ominięcie ujemnego 'Absorbing State'.</li>
+        </ol>
+        <p><i>Jako autor podpisuję IPS i deleguję go do egzekucji sobie-z-przyszłości. W przypadku złamania Zasad, wyciągnę wobec siebie surowe konsekwencje.</i></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
 # ZAKTUALIZOWANY FOOTER
 # ═══════════════════════════════════════════════════════════
 st.markdown("---")
