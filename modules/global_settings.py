@@ -31,6 +31,9 @@ from config import (
     DEFAULT_SAFE_TICKERS,
     DEFAULT_RISKY_ASSETS,
     DEFAULT_INITIAL_CAPITAL,
+    BASE_CURRENCY,
+    DEFAULT_USDPLN_VOL,
+    DEFAULT_USDPLN_CORR,
 )
 
 # ─── Stałe ────────────────────────────────────────────────────────────────────
@@ -87,6 +90,8 @@ PRESET_PROFILES: Dict[str, dict] = {
         "alloc_safe_pct": 0.60,
         "initial_capital": 100_000.0,
         "profile_name": "Spekulacyjny",
+        "base_currency": "PLN",
+        "currency_risk_enabled": True,
     },
 }
 
@@ -112,6 +117,12 @@ class GlobalPortfolio:
 
     # Kapitał startowy
     initial_capital: float = DEFAULT_INITIAL_CAPITAL
+
+    # ── Ustawienia Walutowe ──
+    base_currency: str = BASE_CURRENCY
+    currency_risk_enabled: bool = False
+    usd_pln_vol: float = DEFAULT_USDPLN_VOL
+    usd_pln_corr: float = DEFAULT_USDPLN_CORR
 
     # Tło (Heartbeat Engine)
     bg_refresh_enabled: bool = True
@@ -183,6 +194,10 @@ def load_global_settings() -> GlobalPortfolio:
             risky_assets=data.get("risky_assets", copy.deepcopy(DEFAULT_RISKY_ASSETS)),
             alloc_safe_pct=float(data.get("alloc_safe_pct", DEFAULT_SAFE_ALLOCATION)),
             initial_capital=float(data.get("initial_capital", DEFAULT_INITIAL_CAPITAL)),
+            base_currency=data.get("base_currency", BASE_CURRENCY),
+            currency_risk_enabled=bool(data.get("currency_risk_enabled", False)),
+            usd_pln_vol=float(data.get("usd_pln_vol", DEFAULT_USDPLN_VOL)),
+            usd_pln_corr=float(data.get("usd_pln_corr", DEFAULT_USDPLN_CORR)),
             bg_refresh_enabled=bool(data.get("bg_refresh_enabled", True)),
             bg_refresh_interval_minutes=int(data.get("bg_refresh_interval_minutes", 15)),
             language=data.get("language", "pl"),

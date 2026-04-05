@@ -130,6 +130,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "gs_badge_safe":        {"pl": "Bezp.", "en": "Safe"},
     "gs_badge_risky":       {"pl": "Ryz.", "en": "Risky"},
     "gs_badge_capital":     {"pl": "Kapitał", "en": "Capital"},
+    "gs_currency_risk":     {"pl": "### 💱 Ryzyko Walutowe (USD/PLN)", "en": "### 💱 Currency Risk (USD/PLN)"},
+    "gs_currency_risk_enable": {"pl": "Włącz ryzyko walutowe", "en": "Enable currency risk"},
+    "gs_usd_pln_vol":       {"pl": "Zmienność USD/PLN", "en": "USD/PLN Volatility"},
+    "gs_usd_pln_corr":      {"pl": "Korelacja USDPLN vs S&P500", "en": "USDPLN vs S&P500 Correlation"},
+    "gs_base_currency":     {"pl": "Waluta Bazowa", "en": "Base Currency"},
 
     # ── app.py — Control Center ───────────────────────────────────────────────
     "cc_sync_text":         {"pl": "⚡ Odczytywanie superszybkiego cache'u rynkowego...", "en": "⚡ Reading ultra-fast market cache..."},
@@ -213,6 +218,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "sim_jump":             {"pl": "Merton Jump-Diffusion (Skoki Cen)", "en": "Merton Jump-Diffusion (Price Jumps)"},
     "sim_fbm":              {"pl": "Rynki Fraktalne (fBM)", "en": "Fractal Markets (fBM)"},
     "sim_hurst":            {"pl": "Wykładnik Hursta (H)", "en": "Hurst Exponent (H)"},
+    "sim_currency_header":  {"pl": "### 💱 Ryzyko Walutowe (PLN/USD)", "en": "### 💱 Currency Risk (PLN/USD)"},
+    "sim_use_fx":           {"pl": "Symuluj ryzyko walutowe", "en": "Simulate currency risk"},
+    "sim_fx_vol":           {"pl": "Zmienność USD/PLN", "en": "USD/PLN Volatility"},
+    "sim_fx_corr":          {"pl": "Korelacja (USDPLN vs Ryzyko)", "en": "Correlation (USDPLN vs Risky)"},
     "sim_scenario":         {"pl": "### 6. 🌩️ Scenario Builder", "en": "### 6. 🌩️ Scenario Builder"},
     "sim_run_btn":          {"pl": "🚀 Symuluj Wyniki", "en": "🚀 Simulate Results"},
     "sim_mc_title":         {"pl": "⚖️ Barbell Strategy - Monte Carlo", "en": "⚖️ Barbell Strategy - Monte Carlo"},

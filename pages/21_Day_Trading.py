@@ -16,9 +16,11 @@ System Wartości Oczekiwanej · Ryzyko Ruiny · Law of Large Numbers · Mikrostr
 </p>
 """, unsafe_allow_html=True)
 
-CARD = "background:linear-gradient(135deg,#0f111a,#1a1c28);border:1px solid #2a2a3a;border-radius:14px;padding:18px 20px;margin-bottom:8px"
-H3 = "color:#00e676;font-size:15px;font-weight:700;letter-spacing:1px;margin-bottom:10px"
-NOTE = "color:#6b7280;font-size:12px;line-height:1.6"
+# UI-3 FIX: Dodano font-family: 'Inter', sans-serif do wszystkich inline styli
+# by zapewnić spójność typograficzną z resztą dashboardu (zdefiniowanego w apply_styling())
+CARD = "background:linear-gradient(135deg,#0f111a,#1a1c28);border:1px solid #2a2a3a;border-radius:14px;padding:18px 20px;margin-bottom:8px;font-family:'Inter',sans-serif"
+H3 = "color:#00e676;font-size:15px;font-weight:700;letter-spacing:1px;margin-bottom:10px;font-family:'Inter',sans-serif"
+NOTE = "color:#6b7280;font-size:12px;line-height:1.6;font-family:'Inter',sans-serif"
 
 # KAPITAŁ POCZĄTKOWY
 st.sidebar.markdown("### 💰 Ustawienia Główne")

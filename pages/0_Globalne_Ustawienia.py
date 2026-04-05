@@ -174,6 +174,40 @@ with tab_portfolio:
 
         st.markdown("---")
 
+        # ── Ryzyko Walutowe ───────────────────────────────────────────────────
+        st.markdown(t("gs_currency_risk"))
+        st.caption("Parametry symulacji wpływu kursu USD/PLN na aktywa zagraniczne.")
+        
+        new_currency_risk = st.toggle(
+            t("gs_currency_risk_enable"),
+            value=gs.currency_risk_enabled,
+            key="gs_currency_risk_enabled"
+        )
+        
+        col_fx1, col_fx2 = st.columns(2)
+        with col_fx1:
+            new_fx_vol = st.number_input(
+                t("gs_usd_pln_vol"),
+                min_value=0.01, max_value=0.50,
+                value=float(gs.usd_pln_vol),
+                step=0.01,
+                format="%.2f",
+                key="gs_usd_pln_vol_input",
+                disabled=not new_currency_risk
+            )
+        with col_fx2:
+            new_fx_corr = st.number_input(
+                t("gs_usd_pln_corr"),
+                min_value=-1.0, max_value=1.0,
+                value=float(gs.usd_pln_corr),
+                step=0.05,
+                format="%.2f",
+                key="gs_usd_pln_corr_input",
+                disabled=not new_currency_risk
+            )
+
+        st.markdown("---")
+
         # ── Podział portfela ──────────────────────────────────────────────────
         st.markdown(t("gs_alloc_header"))
 
@@ -354,6 +388,10 @@ with tab_portfolio:
                 risky_assets=new_risky_assets,
                 alloc_safe_pct=alloc_safe_new,
                 initial_capital=new_capital,
+                base_currency=gs.base_currency, # zachowujemy lub dodajemy wybór w przyszłości
+                currency_risk_enabled=new_currency_risk,
+                usd_pln_vol=new_fx_vol,
+                usd_pln_corr=new_fx_corr,
                 bg_refresh_enabled=bg_enabled,
                 bg_refresh_interval_minutes=bg_interval,
                 language=new_language,
@@ -383,6 +421,10 @@ with tab_portfolio:
                 risky_assets=new_risky_assets,
                 alloc_safe_pct=alloc_safe_new,
                 initial_capital=new_capital,
+                base_currency=gs.base_currency,
+                currency_risk_enabled=new_currency_risk,
+                usd_pln_vol=new_fx_vol,
+                usd_pln_corr=new_fx_corr,
                 bg_refresh_enabled=bg_enabled,
                 bg_refresh_interval_minutes=bg_interval,
                 language=new_language,

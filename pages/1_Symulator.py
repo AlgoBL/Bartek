@@ -231,6 +231,26 @@ if mode == MC_MODE:
             custom_scenarios.append({"year": shock_year, "drop_pct": shock_drop})
             st.warning(f"Symulacja zrzuci rynek o **{shock_drop*100:.0f}%** w {shock_year}. roku.")
 
+    # ─── FX Risk Configuration (USD/PLN) ────────────────────────────────────
+    st.sidebar.markdown(t("sim_currency_header"))
+    use_fx = st.sidebar.toggle(
+        t("sim_use_fx"), 
+        value=_saved("mc_use_fx", get_gs().currency_risk_enabled), 
+        key="mc_use_fx", on_change=_save, args=("mc_use_fx",)
+    )
+    fx_vol = st.sidebar.slider(
+        t("sim_fx_vol"), 0.01, 0.40, 
+        value=_saved("mc_fx_vol", get_gs().usd_pln_vol), 
+        step=0.01, key="mc_fx_vol", on_change=_save, args=("mc_fx_vol",),
+        disabled=not use_fx
+    )
+    fx_corr = st.sidebar.slider(
+        t("sim_fx_corr"), -1.0, 1.0, 
+        value=_saved("mc_fx_corr", get_gs().usd_pln_corr), 
+        step=0.05, key="mc_fx_corr", on_change=_save, args=("mc_fx_corr",),
+        disabled=not use_fx
+    )
+
     # MAIN CONTENT FOR MONTE CARLO
     st.markdown(module_header(
         title="Symulator Monte Carlo",
@@ -288,7 +308,10 @@ if mode == MC_MODE:
                     "alpha_stable_alpha": alpha_stable_alpha,
                     "copula_family": final_copula_family,
                     "copula_theta": final_copula_theta,
-                    "use_neural_sde": use_neural_sde
+                    "use_neural_sde": use_neural_sde,
+                    "use_currency_risk": use_fx,
+                    "usd_pln_vol": fx_vol,
+                    "usd_pln_corr": fx_corr
                 }
                 wealth_paths = simulate_barbell_strategy(**sim_args_retry)
                 metrics = calculate_metrics(wealth_paths, years)
@@ -332,7 +355,10 @@ if mode == MC_MODE:
             "alpha_stable_alpha": alpha_stable_alpha,
             "copula_family": final_copula_family,
             "copula_theta": final_copula_theta,
-            "use_neural_sde": use_neural_sde
+            "use_neural_sde": use_neural_sde,
+            "use_currency_risk": use_fx,
+            "usd_pln_vol": fx_vol,
+            "usd_pln_corr": fx_corr
         }
         
         # Submit to thread pool directly (avoids ProcessPool Windows/Streamlit conflicts causing BrokenProcessPool)
@@ -862,15 +888,15 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         risky_weights_manual = {}
         valid_tickers = []
         for index, row in edited_df.iterrows():
-            t = str(row["Ticker"]).strip().upper()
+            tkr = str(row["Ticker"]).strip().upper()
             try:
                 w = float(row["Waga (%)"]) / 100.0
             except:
                 w = 0.0
                 
-            if t:
-                risky_weights_manual[t] = w
-                valid_tickers.append(t)
+            if tkr:
+                risky_weights_manual[tkr] = w
+                valid_tickers.append(tkr)
         
         risky_tickers_str = ", ".join(valid_tickers) # Mock string to reuse existing download logic
     
@@ -920,6 +946,13 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         stop_loss = st.slider("Hard Stop-Loss (%)", 0, 50, value=0, key="sl") / 100.0
         trailing_stop = st.slider("Trailing Stop (%)", 0, 30, value=0, key="ts") / 100.0
         vol_target = st.slider("Volatility Target (%)", 0, 100, value=0, key="vt") / 100.0
+
+    st.sidebar.markdown(t("sim_currency_header"))
+    use_fx_ai = st.sidebar.toggle(
+        t("sim_use_fx"), 
+        value=_saved("ai_use_fx", get_gs().currency_risk_enabled), 
+        key="ai_use_fx", on_change=_save, args=("ai_use_fx",)
+    )
 
     trans_costs = {
         "equity_pl": cost_equity,
@@ -974,10 +1007,12 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         
         status_ai.info_data("Pobieranie danych historycznych...")
         safe_data = pd.DataFrame()
+        base_curr_arg = "PLN" if use_fx_ai else None
+        
         if safe_tickers:
-                safe_data = load_data(safe_tickers, start_date=start_date)
+            safe_data = load_data(safe_tickers, start_date=start_date, base_currency=base_curr_arg)
                 
-        risky_data = load_data(risky_tickers, start_date=start_date)
+        risky_data = load_data(risky_tickers, start_date=start_date, base_currency=base_curr_arg)
         
         # Check if fetch success
         if risky_data.empty:

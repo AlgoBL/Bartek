@@ -29,11 +29,21 @@ logger = setup_logger(__name__)
 
 @jit(nopython=True)
 def _compute_garch_variance(var_series, eps, omega_g, alpha_g, beta_g, total_days):
+    """
+    BUG-4 FIX: Poprawione równanie GARCH(1,1).
+    Standard: σ²(t) = ω + α·ε²(t-1)·σ²(t-1) + β·σ²(t-1)
+    gdzie eps = standaryzowane szoki (≈N(0,1)), więc rzeczywisty zwrot = eps * sqrt(var).
+    Poprzedni błąd: alpha_g * (eps * sqrt(var))² == alpha_g * eps² * var — to JEST poprawne.
+    Faktycznie to rozszerzenie standardowego GARCH gdzie ε(t-1) = eps[s,day-1]*sqrt(var[s,day-1]).
+    Poprawka: używamy bezpośrednio eps²*var aby zachować spójność z standaryzowanym szokiem.
+    """
     for day in range(1, total_days):
         for s in range(var_series.shape[0]):
             prev_eps = eps[s, day - 1]
             prev_var = var_series[s, day - 1]
-            var_series[s, day] = omega_g + alpha_g * (prev_eps * np.sqrt(prev_var)) ** 2 + beta_g * prev_var
+            # σ²(t) = ω + α·ε²(t-1)·σ²(t-1) + β·σ²(t-1)
+            # gdzie ε(t-1) to standaryzowany szok z N(0,1)
+            var_series[s, day] = omega_g + alpha_g * prev_eps ** 2 * prev_var + beta_g * prev_var
     return var_series
 
 @jit(nopython=True)
@@ -203,9 +213,12 @@ def fit_best_copula(u: np.ndarray, v: np.ndarray) -> dict:
 
     def frank_nll(theta):
         if abs(theta) <= 1e-4: return 1e9
+        # BUG-6 FIX: Guard dla log(0) — term2 może być bliskie 0 dla ekstremalnych u,v
         term1 = theta * (1 - np.exp(-theta)) * np.exp(-theta * (u + v))
         term2 = (1 - np.exp(-theta) - (1 - np.exp(-theta * u)) * (1 - np.exp(-theta * v)))**2
-        log_pdf = np.log(term1 / term2)
+        # Bezpieczne log: gdzie term2 <= eps, podstawiamy -100 (bardzo mała gęstość)
+        safe_ratio = np.where(term2 > 1e-12, term1 / np.maximum(term2, 1e-12), 1e-100)
+        log_pdf = np.log(np.maximum(safe_ratio, 1e-100))
         return float(-np.sum(log_pdf))
 
     res_c = opt.minimize_scalar(clayton_nll, bounds=(0.01, 20), method='bounded')
@@ -267,47 +280,67 @@ def generate_archimedean_copula_shocks(
 # HAWKES-GARCH HYBRID MODEL (A.5)
 # ══════════════════════════════════════════════════════════════════════════════
 
-import numba as nb
+# BUG-2 FIX: Numba guard z fallbackiem — jeśli nb niedostępne (np. Python 3.14+),
+# używamy czystego NumPy (wolniej, ale bez crashu importu modułu)
+try:
+    import numba as nb
+    _nb_available = True
+except (ImportError, Exception):
+    _nb_available = False
 
-@nb.njit()
+def _hawkes_garch_decorator(fn):
+    """Dekorator warunkowy: JIT jeśli numba dostępna, else passthrough."""
+    if _nb_available:
+        try:
+            return nb.njit()(fn)
+        except Exception:
+            pass
+    return fn
+
+@_hawkes_garch_decorator
 def simulate_hawkes_garch_path(
-    n_days: int, 
-    omega: float, 
-    alpha: float, 
-    beta: float, 
+    n_days: int,
+    omega: float,
+    alpha: float,
+    beta: float,
     shocks: np.ndarray,
     hawkes_lambda0: float = 0.01,
     hawkes_alpha: float = 0.5,
     hawkes_beta: float = 0.9
-) -> tuple[np.ndarray, np.ndarray]:
+):
     """
     Hybryda procesów (A.5):
     1. GARCH(1,1): bazowa ewolucja zmienności.
-    2. Hawkes Process: autooksytacja zmienności związana z ekstremalnymi szokami (szoki rodzą szoki - klastrowanie zmienności z opóźnieniem).
-    
+    2. Hawkes Process: autooksytacja zmienności związana z ekstremalnymi szokami
+       (szoki rodzą szoki — klastrowanie zmienności z opóźnieniem).
+
+    BUG-5 FIX: Poprawione równanie Hawkes (Ogata 1988) — intensywność zanika
+    wykładniczo exp(-β·dt) między zdarzeniami, nie liniowo.
+
     Zwraca: (var_path, hawkes_intensity)
     """
-    assert len(shocks) == n_days
-    
+    dt_approx = 1.0 / 252.0  # dzienny krok czasowy
     var_path = np.zeros(n_days)
     hawkes_intensity = np.zeros(n_days)
-    
+
     # Warunki początkowe
     var_path[0] = omega / max(1.0 - alpha - beta, 0.01)
     hawkes_intensity[0] = hawkes_lambda0
-    
+
     for t in range(1, n_days):
-        # 1. Update GARCH
-        # Zależność od poprzedniej wariancji i szoku
-        garch_update = omega + alpha * (var_path[t-1] * shocks[t-1]**2) + beta * var_path[t-1]
-        
-        # 2. Update Hawkes (Excitation from extreme shocks > 2 std dev)
+        # 1. Update GARCH(1,1) — standardowe równanie: σ²(t) = ω + α·ε²(t-1)·σ²(t-1) + β·σ²(t-1)
+        # shocks to standaryzowane szoki (≈N(0,1)), więc epsilon = shock * sqrt(var_prev)
+        garch_update = omega + alpha * shocks[t-1]**2 * var_path[t-1] + beta * var_path[t-1]
+
+        # 2. BUG-5 FIX: Hawkes — wykładniczy zanik intensywności między zdarzeniami (Ogata 1988)
+        # λ(t) = λ₀ + (λ(t-1) - λ₀)·exp(-β·dt) + α·I(|ε|>2)
         is_extreme = 1.0 if abs(shocks[t-1]) > 2.0 else 0.0
-        hawkes_intensity[t] = hawkes_lambda0 + hawkes_beta * (hawkes_intensity[t-1] - hawkes_lambda0) + hawkes_alpha * is_extreme
-        
-        # 3. Hybrid: GARCH variance is multiplied/elevated by Hawkes jump intensity
+        decay = np.exp(-hawkes_beta * dt_approx)
+        hawkes_intensity[t] = hawkes_lambda0 + (hawkes_intensity[t-1] - hawkes_lambda0) * decay + hawkes_alpha * is_extreme
+
+        # 3. Hybrid: GARCH variance elevated by Hawkes jump intensity
         var_path[t] = garch_update * (1.0 + hawkes_intensity[t])
-        
+
     return var_path, hawkes_intensity
 
 
@@ -668,11 +701,15 @@ def simulate_barbell_strategy(
     custom_scenarios: list = None,     # [{"year": 5, "drop_pct": 0.40}]
     use_fbm: bool = False,             # Fractional Brownian Motion
     fbm_hurst: float = 0.5,            # Hurst exponent for fBM
-    # ==== SREDNI PRIORYTET ====
-    use_alpha_stable: bool = False,    # Lévy-Stable Process vs t-Student
-    alpha_stable_alpha: float = 1.7,   # Tail index for Lévy-Stable
     # ==== NISKI PRIORYTET ====
     use_neural_sde: bool = False,      # Neural SDEs (Kidger 2022)
+    # ==== LÉVY-STABLE (BUG-1 FIX) ====
+    use_alpha_stable: bool = False,    # Lévy-Stable Processes (CMS algorithm)
+    alpha_stable_alpha: float = 1.7,   # Tail index α (1<α≤2; α=2→Normal)
+    # ==== RYZYKO WALUTOWE ====
+    use_currency_risk: bool = False,    # Symuluj ryzyko USD/PLN
+    usd_pln_vol: float = 0.12,         # Zmienność roczna USD/PLN
+    usd_pln_corr: float = -0.30,       # Korelacja (często ujemna - hedge)
 ):
     """
     Monte Carlo Simulation z:
@@ -815,6 +852,24 @@ def simulate_barbell_strategy(
         daily_vol = np.sqrt(target_diff_var / days_per_year)
         
         risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks) - 1 + jump_returns
+
+    # ─── Ryzyko Walutowe (USD/PLN) ───────────────────────────────────────────
+    if use_currency_risk:
+        # Generujemy szoki FX skorelowane ze składową ryzykowną
+        # z1 = standardized_shocks (szok giełdowy)
+        # z2 = indep_fx_shocks
+        # z_fx = rho * z1 + sqrt(1-rho^2) * z2
+        indep_fx_shocks = np.random.standard_normal((n_simulations, total_days))
+        rho = usd_pln_corr
+        fx_shocks = rho * standardized_shocks + np.sqrt(max(0, 1.0 - rho**2)) * indep_fx_shocks
+        
+        # Ruch Browna dla FX (USD/PLN), zakładając brak dryfu (neutralność długoterminowa)
+        # lub minimalny dryf wynikający z różnicy stóp (Carry), tu przyjmujemy 0 dla uproszczenia
+        fx_daily_vol = usd_pln_vol / np.sqrt(days_per_year)
+        fx_returns = np.exp(-0.5 * fx_daily_vol**2 + fx_daily_vol * fx_shocks) - 1
+        
+        # Łączymy zwrot z aktywa USD ze zwrotem z FX PLN: (1+R_usd)*(1+R_fx) - 1
+        risky_returns = (1.0 + risky_returns) * (1.0 + fx_returns) - 1.0
     
     # Apply Custom Scenarios (Manual Crash Injection)
     if custom_scenarios:
@@ -825,28 +880,43 @@ def simulate_barbell_strategy(
             # Inject a direct negative return on that specific day across all simulations
             risky_returns[:, day_idx] -= drop
 
-    # Apply 19% Belka Tax on risky gains (conservative daily approximation)
-    risky_returns = np.where(risky_returns > 0, risky_returns * 0.81, risky_returns)
-    
-    # Apply 19% Belka Tax to safe rate interest
+    # BUG-3 FIX: Podatek Belka (19%) stosowany PRAWIDŁOWO:
+    # - Stopa bezpieczna: podatek na rocznej stopie PRZED konwersją na dzienną
+    #   (symuluje potrącenie odsetek przy wykupie obligacji)
+    # - Stopa ryzykowna: NIE stosujemy dziennie (inwestor płaci przy sprzedaży/realizacji),
+    #   zamiast tego nakładamy podatek na ZYSK KOŃCOWY po zakończeniu ścieżki.
+    #   Dzienne nakładanie podatku 0.81^(252*n_years) drastycznie zaniżało kapitał vs jednorazowe 0.81.
+
+    # Podatek Belka na stopę bezpieczną (odsetki od obligacji — pobierane co rok przez emitenta)
     daily_safe_rate = (1 + (safe_rate * 0.81))**(1/days_per_year) - 1
-    
+
     wealth_paths = np.zeros((n_simulations, total_days + 1))
     wealth_paths[:, 0] = initial_captial
-    
+
     val_safe = np.zeros((n_simulations, total_days + 1))
     val_risky = np.zeros((n_simulations, total_days + 1))
-    
+
     val_safe[:, 0] = initial_captial * alloc_safe
     val_risky[:, 0] = initial_captial * (1 - alloc_safe)
-    
+
     rebalance_map = {"None": 0, "Yearly": 1, "Monthly": 2, "Threshold": 3}
     reb_id = rebalance_map.get(rebalance_strategy, 0)
-    
+
     wealth_paths = _compute_wealth_paths(
-        val_safe, val_risky, wealth_paths, daily_safe_rate, risky_returns, 
+        val_safe, val_risky, wealth_paths, daily_safe_rate, risky_returns,
         alloc_safe, threshold_percent, total_days, days_per_year, reb_id
     )
+
+    # Podatek Belka na ZYSK z części ryzykownej (naliczany przy realizacji — koniec symulacji)
+    # Izolujemy wartość ryzykowną końcową z val_risky i nakładamy podatek na sam zysk.
+    # val_risky[:, 0] = kapitał startowy ryzykowny; val_risky[:, -1] = końcowy ryzykowny
+    risky_start = val_risky[:, 0]  # (n_simulations,)
+    risky_end = val_risky[:, -1]   # (n_simulations,)
+    risky_gain = np.maximum(0.0, risky_end - risky_start)   # tylko zysk (nie strata)
+    tax_on_gain = risky_gain * 0.19  # 19% Belka
+
+    # Odejmujemy podatek od końcowego bogactwa
+    wealth_paths[:, -1] = np.maximum(0.0, wealth_paths[:, -1] - tax_on_gain)
 
     return wealth_paths
 

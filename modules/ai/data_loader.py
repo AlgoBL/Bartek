@@ -1,13 +1,13 @@
 
 import pandas as pd
 import streamlit as st
-from modules.data_provider import fetch_data
+from modules.data_provider import fetch_data, fetch_currency_adjusted_data
 from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(tickers, start_date=None, end_date=None, period=None):
+def load_data(tickers, start_date=None, end_date=None, period=None, base_currency=None):
     """
     Fetches historical adjusted close prices for given tickers.
     If period is provided (e.g. '5y'), start_date and end_date are ignored.
@@ -19,7 +19,10 @@ def load_data(tickers, start_date=None, end_date=None, period=None):
         tickers = [tickers]
         
     try:
-        data = fetch_data(tickers, start=start_date, end=end_date, period=period, auto_adjust=False)
+        if base_currency == "PLN":
+            data = fetch_currency_adjusted_data(tickers, start=start_date, end=end_date, period=period)
+        else:
+            data = fetch_data(tickers, start=start_date, end=end_date, period=period, auto_adjust=False)
         
         # yfinance > 0.2 returns MultiIndex (Price, Ticker) if multiple tickers, 
         # or just (Price) if single ticker BUT sometimes still MultiIndex.

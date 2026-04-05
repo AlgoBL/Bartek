@@ -194,3 +194,59 @@ async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, floa
         logger.debug(f"Brak danych STOOQ dla {ticker} (async): {e}")
         
     return ticker, None, None
+
+def fetch_usdpln_data(start: str = None, end: str = None, period: str = None) -> pd.Series:
+    """Pobiera historyczny kurs USD/PLN z Yahoo Finance."""
+    try:
+        ticker = "USDPLN=X"
+        data = fetch_data([ticker], start=start, end=end, period=period)
+        if data.empty:
+            return pd.Series()
+        
+        if isinstance(data.columns, pd.MultiIndex):
+            return data['Close'][ticker]
+        else:
+            return data['Close']
+    except Exception as e:
+        logger.error(f"Błąd pobierania USD/PLN: {e}")
+        return pd.Series()
+
+def fetch_currency_adjusted_data(tickers: List[str], start: str = None, end: str = None, period: str = None) -> pd.DataFrame:
+    """
+    Pobiera dane dla tickerów oraz kurs USD/PLN, a następnie przelicza ceny na PLN.
+    Zakłada, że tickery bez sufiksu .PL lub .WA są denominowane w USD.
+    """
+    data = fetch_data(tickers, start=start, end=end, period=period)
+    if data.empty:
+        return data
+        
+    # Pobierz USDPLN dla tego samego okresu
+    usdpln = fetch_usdpln_data(start=start, end=end, period=period)
+    if usdpln.empty:
+        logger.warning("Nie udało się pobrać kursu USD/PLN. Zwracam dane bez przeliczenia.")
+        return data
+        
+    # Ujednolicenie indeksów (częsty problem z dniami wolnymi w różnych krajach)
+    combined = pd.concat([data, usdpln.rename("USDPLN")], axis=1).ffill().dropna()
+    
+    # Kopia fragmentu odpowiadającego wyjściowym tickerom
+    if isinstance(data.columns, pd.MultiIndex):
+        adjusted_data = combined[data.columns.levels[0]].copy()
+        usdpln_aligned = combined["USDPLN"]
+        
+        for t in tickers:
+            # Zakładamy że wszystko co nie jest .PL/.WA jest w USD
+            if not (t.endswith(".PL") or t.endswith(".WA")):
+                for price_col in data.columns.levels[0]:
+                    if (price_col, t) in data.columns:
+                        adjusted_data.loc[:, (price_col, t)] *= usdpln_aligned
+    else:
+        adjusted_data = combined[data.columns].copy()
+        usdpln_aligned = combined["USDPLN"]
+        t = tickers[0]
+        if not (t.endswith(".PL") or t.endswith(".WA")):
+            for col in adjusted_data.columns:
+                if col in ['Open', 'High', 'Low', 'Close']:
+                    adjusted_data[col] *= usdpln_aligned
+                    
+    return adjusted_data

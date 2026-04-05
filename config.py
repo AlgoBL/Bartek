@@ -8,6 +8,11 @@ TAX_BELKA = 0.19
 RISK_FREE_RATE_PL = 0.0551  # Stopa wolna od ryzyka w PL (np. obligacje TOS)
 INFLATION_RATE_PL = 0.030   # Domyślna stopa inflacji w PL
 
+# --- USTAWIENIA WALUTOWE (FX) ---
+BASE_CURRENCY = "PLN"
+DEFAULT_USDPLN_VOL = 0.12        # Średnia roczna zmienność kursu USD/PLN
+DEFAULT_USDPLN_CORR = -0.30      # Domyślna korelacja USD/PLN z S&P500 (często ujemna - hedge)
+
 # --- USTAWIENIA SKANERA (EVT, Płynność) ---
 SCANNER_HORIZON_YEARS = 5
 SCANNER_MIN_VOLUME = 500_000

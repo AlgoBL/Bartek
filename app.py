@@ -469,10 +469,12 @@ def draw_credit_spread_chart(hy, cs_baa_aaa):
     return fig
 
 
-def show_gauge(label, fig, help_text, overlap_margin="-20px"):
+def show_gauge(label, fig, help_text):
     """
     Renderuje gauge z tytułem w stałej wysokości poza Plotly.
-    Jeden element HTML (tytuł + ℹ tooltip) gwarantuje równe wyrównanie kolumn.
+    UI-1 FIX: Usunięto parametr overlap_margin="-20px" który powodował
+    nakrywanie się tytułów z poprzednimi elementami przy różnych rozdzielczościach.
+    Zamiast tego używamy stałej wysokości kontenera i padding-bottom.
     """
     safe = help_text.replace('"', "'").replace('\n', ' ').replace('<', '&lt;').replace('>', '&gt;')
     st.markdown(
@@ -488,9 +490,9 @@ def show_gauge(label, fig, help_text, overlap_margin="-20px"):
             font-family: Inter, sans-serif;
             font-size: 12px;
             color: #aaa;
-            padding: 0 12px;
+            padding: 0 12px 4px 12px;
             cursor: help;
-            margin-bottom: {overlap_margin};
+            margin-bottom: 0;
         ' title="{safe}">
             <span style='color:#555;margin-right:4px;'>&#9432;</span>{label}
         </div>
@@ -579,12 +581,14 @@ def get_action_recommendations(score: float, macro: dict, alerts: list) -> list:
 def home():
     check_for_updates()
     st.markdown(apply_styling(), unsafe_allow_html=True)
-    # Lokalne overrides tylko dla Control Center (gauge gap i h4 margins)
+    # UI-2 FIX: Usunięto agresywny margin-top: 0px na .stPlotlyChart który powodował
+    # kolizje tytułów wykresów z elementami powyżej. Zachowano tylko gap dla bloków pionowych.
     st.markdown("""
     <style>
         div[data-testid="stVerticalBlock"] > div { gap: 0.35rem; }
-        .stPlotlyChart { margin-bottom: 0px; margin-top: 0px; }
         h4 { margin-bottom: 6px !important; margin-top: 6px !important; }
+        /* Gauges w Control Center: stała wysokość kontenera byłaś nie nakrywane etykiety */
+        .gauge-chart-container .stPlotlyChart { margin-top: 2px; margin-bottom: 2px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -720,7 +724,7 @@ def home():
                 status_text  = "BACKWARDATION ⚠️" if is_back else "CONTANGO ✅"
                 status_color = "#ff1744" if is_back else "#00e676"
                 label = f"VIX TS — <span style='color:{status_color}'>{status_text}</span>"
-                show_gauge(label, draw_vix_term_structure(vix_1m, vxmt), get_help_vts(vix_1m, vxmt), overlap_margin="0px")
+                show_gauge(label, draw_vix_term_structure(vix_1m, vxmt), get_help_vts(vix_1m, vxmt))
             else:
                 st.plotly_chart(draw_vix_term_structure(vix_1m, vxmt), use_container_width=True)
 

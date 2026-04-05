@@ -625,15 +625,19 @@ if 'scanner_results' in st.session_state:
     st.subheader(f"💎 Najlepsze Aktywo{class_label}: {best_asset['Ticker']}")
     
     col_chart1, col_chart2 = st.columns(2)
-    
-    # Returns Histogram
+
+    # Returns Histogram — UI-4 FIX: jawna wysokość 350px by obie kolumny miały tę samą wysokość
     asset_data = data[best_asset['Ticker']].pct_change().dropna()
     fig_hist = px.histogram(asset_data, nbins=100, title=f"Rozkład Zwrotów {best_asset['Ticker']}")
+    fig_hist.update_layout(height=350, template="plotly_dark",
+                           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,15,25,0.9)")
     col_chart1.plotly_chart(fig_hist, use_container_width=True)
-    
-    # Cumulative Return (Log scale)
+
+    # Cumulative Return (Log scale) — UI-4 FIX: ta sama wysokość co histogram
     cum_ret = (1 + asset_data).cumprod()
     fig_line = px.line(cum_ret, log_y=True, title=f"Wzrost Kapitału (Skala Log) {best_asset['Ticker']}")
+    fig_line.update_layout(height=350, template="plotly_dark",
+                           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,15,25,0.9)")
     col_chart2.plotly_chart(fig_line, use_container_width=True)
     
     display_chart_guide("Wykresy Najlepszego Aktywa", """
