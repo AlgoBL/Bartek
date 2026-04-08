@@ -42,6 +42,20 @@ def plot_fourier_spectrum(periods, Pxx):
     )
     return fig
 
+def _custom_cwt(data, widths, w=5.0):
+    """
+    Własna implementacja CWT z falką Morleta (zastępuje usunięte scipy.signal.cwt).
+    """
+    output = np.zeros((len(widths), len(data)), dtype=complex)
+    for ind, width in enumerate(widths):
+        N = int(np.min([10 * width, len(data)]))
+        x = np.arange(0, N) - (N - 1.0) / 2
+        x = x / width
+        wavelet_data = np.exp(1j * w * x) * np.exp(-0.5 * x**2) * np.pi**(-0.25) * np.sqrt(1/width)
+        wavelet_data = np.conj(wavelet_data[::-1])
+        output[ind, :] = np.convolve(data, wavelet_data, mode='same')
+    return output
+
 def compute_wavelet_transform(prices):
     """
     Oblicza falową dekompozycję (Continuous Wavelet Transform) przy użyciu falki Morleta.
@@ -55,7 +69,7 @@ def compute_wavelet_transform(prices):
     widths = np.geomspace(21, 252*15, num=60)
     
     # Używamy Morlet2. Okres = szerokość dla standardowej falki
-    cwtmatr = signal.cwt(returns, signal.morlet2, widths)
+    cwtmatr = _custom_cwt(returns, widths)
     power = np.abs(cwtmatr)**2
     
     return widths, power

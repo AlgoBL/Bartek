@@ -279,7 +279,7 @@ class ScannerEngine:
         cb(0.40, f"Mikro-Skaner: Filtracja aktywów (tryb CIO: {cio_thesis['mode']})...")
         screener     = FundamentalScreener(min_volume=500_000)
         raw_universe = screener.fetch_broad_universe("global")
-        liquid_assets = screener.filter_liquid_assets(raw_universe[:60])
+        liquid_assets = screener.filter_liquid_assets(raw_universe)
 
         # WARSTWA 4: EVT — Matematyka Ogonów + Composite Score
         n_assets = len(liquid_assets)

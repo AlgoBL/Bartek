@@ -368,6 +368,12 @@ def plot_entropy_distribution(entropy_df: pd.DataFrame) -> go.Figure:
         "Neutral":  "#ffea00",
         "Chaotic":  "#ff1744",
     }
+    
+    fill_rgba_map = {
+        "Trending": "rgba(0,230,118,0.20)",
+        "Neutral":  "rgba(255,234,0,0.20)",
+        "Chaotic":  "rgba(255,23,68,0.20)",
+    }
 
     fig = go.Figure()
     for regime, vals in regime_data.items():
@@ -376,7 +382,7 @@ def plot_entropy_distribution(entropy_df: pd.DataFrame) -> go.Figure:
             name=regime,
             box_visible=True,
             meanline_visible=True,
-            fillcolor=colors_map[regime].replace("#", "rgba(") + ",0.20)",
+            fillcolor=fill_rgba_map.get(regime, "rgba(100,100,100,0.20)"),
             line_color=colors_map[regime],
             points="outliers",
         ))

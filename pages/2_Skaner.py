@@ -360,8 +360,10 @@ if 'v5_scanner_results' in st.session_state:
         
         # --- Zapis historii skanów ---
         hist_df = df_res.copy()
-        if 'Barbell Score' in hist_df.columns:
-            hist_rows = hist_df[['Ticker', 'Barbell Score']].copy()
+        score_col = "Barbell Score" if "Barbell Score" in hist_df.columns else ("Score" if "Score" in hist_df.columns else None)
+        if score_col:
+            hist_rows = hist_df[['Ticker', score_col]].copy()
+            hist_rows = hist_rows.rename(columns={score_col: "Barbell Score"})
             hist_rows['ScanDate'] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
             if 'scan_history' not in st.session_state:
                 st.session_state['scan_history'] = hist_rows
@@ -550,18 +552,29 @@ if 'scanner_results' in st.session_state:
         hist_df = st.session_state['scan_history'].copy()
         hist_df['ScanDate'] = pd.to_datetime(hist_df['ScanDate'])
         
-        # Pokaż tylko z Watchlisty, jeśli są, by nie zamazać wykresu
+        # Oczyszczenie z duplikatów powodowanych odświeżaniem interfejsu w tej samej minucie
+        hist_df['Minute'] = hist_df['ScanDate'].dt.strftime('%Y-%m-%d %H:%M')
+        hist_df = hist_df.drop_duplicates(subset=['Ticker', 'Minute', 'Barbell Score'], keep='last')
+        
         wl = st.session_state.get('watchlist', [])
+        hist_plot = pd.DataFrame()
+        
+        # Pokaż tylko z Watchlisty, jeśli historia te aktywa posiada, by nie zamazać wykresu
         if wl:
             hist_plot = hist_df[hist_df['Ticker'].isin(wl)]
-        else:
+            
+        # Fallback: Jeśli na liście obserwowanych nie było walorów z zeskanowaną historią
+        if hist_plot.empty:
             top5_recent = df_res.head(5)['Ticker'].tolist()
             hist_plot = hist_df[hist_df['Ticker'].isin(top5_recent)]
             
-        fig_hist_score = px.line(hist_plot, x='ScanDate', y='Barbell Score', color='Ticker', markers=True,
-                                title="Ewolucja Barbell Score dla obserwowanych walorów")
-        fig_hist_score.update_layout(template="plotly_dark", height=400)
-        st.plotly_chart(fig_hist_score, use_container_width=True)
+        if not hist_plot.empty:
+            fig_hist_score = px.line(hist_plot, x='ScanDate', y='Barbell Score', color='Ticker', markers=True,
+                                    title="Ewolucja Barbell Score dla obserwowanych walorów")
+            fig_hist_score.update_layout(template="plotly_dark", height=400)
+            st.plotly_chart(fig_hist_score, use_container_width=True)
+        else:
+            st.info("ℹ️ Brak wystarczających danych do wygenerowania wykresu. Uruchom skan na aktywach z Twojej Watchlisty.")
 
     # --- New Visualization: 3D Antifragile Scatter ---
     st.divider()

@@ -194,6 +194,37 @@ def calculate_momentum_12_1(price_series: pd.Series) -> float:
     return float(price_series.iloc[-1 - skip] / price_series.iloc[start] - 1)
 
 
+# ─── DSR & Carry Factor (Scientific Additions) ────────────────────────────────
+
+def calculate_dsr(returns: np.ndarray, benchmark_sr: float = 0.0) -> float:
+    """
+    Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014).
+    Kontroluje Sharpe o skośność i kurtozę ogonów (statystyczna istotność).
+    """
+    from scipy.stats import norm
+    if len(returns) < 50:
+        return 0.0
+    sr_ann = calculate_sharpe(returns)
+    n = len(returns)
+    skewness = skew(returns)
+    kurt = kurtosis(returns) # excess
+    
+    numerator = (sr_ann - benchmark_sr) * np.sqrt(n - 1)
+    denominator = np.sqrt(max(0.001, 1.0 - skewness * sr_ann + ((kurt - 1.0) / 4.0) * sr_ann**2))
+    return float(norm.cdf(numerator / denominator))
+
+def calculate_carry_factor(price_series: pd.Series) -> float:
+    """
+    Czynnik Carry (Koijen et al. 2018, proxy). Oczekiwany zwrot z braku zmiany ceny.
+    W akcjach i krypto proxy to spread SMA(21) vs SMA(252).
+    """
+    if len(price_series) < 252:
+        return 0.0
+    sma_short = price_series.rolling(21).mean().iloc[-1]
+    sma_long = price_series.rolling(252).mean().iloc[-1]
+    return float(sma_short / sma_long - 1.0)
+
+
 # ─── Metryki Wypukłości — Główna Funkcja ──────────────────────────────────────
 
 def calculate_convecity_metrics(ticker: str, price_series: pd.Series,
@@ -254,6 +285,10 @@ def calculate_convecity_metrics(ticker: str, price_series: pd.Series,
     # 11. Variance Drag (koszt zmienności)
     var_drag = 0.5 * (vol_ann ** 2)
 
+    # 12. DSR & Carry
+    dsr = calculate_dsr(returns)
+    carry = calculate_carry_factor(price_series)
+
     return {
         "Ticker":             ticker,
         "Annual Return":      mean_ann,
@@ -272,6 +307,8 @@ def calculate_convecity_metrics(ticker: str, price_series: pd.Series,
         "Variance Drag":      var_drag,
         "Kelly Full":         kelly_full,
         "Kelly Safe (50%)":   kelly_safe,
+        "DSR":                dsr,
+        "Carry_Factor":       carry,
     }
 
 
@@ -290,9 +327,11 @@ def score_asset_composite(metrics_df: pd.DataFrame) -> pd.Series:
     factor_weights = {
         "EVT Shape (Tail)": +0.30,   # Główny cel: wypukłość prawego ogona
         "Skewness":         +0.20,   # Asymetria zysk/strata (Taleb)
-        "Omega":            +0.20,   # Gain/Loss ratio (bez założenia normalności)
-        "Momentum_1Y":      +0.15,   # Czynnik trendu (JT 1993)
+        "Omega":            +0.15,   # Gain/Loss ratio (bez założenia normalności)
+        "Momentum_1Y":      +0.10,   # Czynnik trendu (JT 1993)
         "Hurst":            +0.10,   # Persistencja (Peters 1994)
+        "DSR":              +0.10,   # Probabilistic Sharpe Ratio (Bailey 2014)
+        "Carry_Factor":     +0.05,   # Dodatkowy yield / drift proxy (Koijen 2018)
         "EVT Left Tail":    -0.20,   # Crash Risk — KARA za gruby lewy ogon
         "Amihud":           -0.10,   # Illiquidity — KARA za brak płynności
     }

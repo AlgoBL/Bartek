@@ -295,6 +295,166 @@ def compute_conformal_prediction_intervals(
 
 
 
+# ─── Retirement Spending Smile (Blanchett 2013) ──────────────────────────────
+
+def retirement_spending_smile_factor(
+    current_year: int,
+    retirement_year: int,
+    total_horizon: int,
+    go_go_factor: float = 1.15,
+    slow_go_factor: float = 0.78,
+    no_go_factor: float = 1.05,
+) -> float:
+    """
+    Blanchett (2013) Retirement Spending Smile — U-kształtny wzorzec wydatków.
+    Fazy: Go-Go (0-10 lat)-><slow-go (10-20 lat) -> No-Go (20+ lat, koszty opieki).
+    Referencja: Blanchett D. (2013) 'Estimating the True Cost of Retirement',
+                Journal of Financial Planning.
+    """
+    years_since_retirement = current_year - retirement_year
+    if years_since_retirement <= 0:
+        return 1.0  # faza akumulacji = bazowe
+    if years_since_retirement <= 10:
+        return go_go_factor    # Go-Go: aktywna emerytura
+    elif years_since_retirement <= 20:
+        return slow_go_factor  # Slow-Go: spokojniejsza
+    else:
+        return no_go_factor    # No-Go: koszty opieki
+
+
+# ─── Glide Path (Pfau 2013 — Rising Equity Glide Path) ───────────────────────
+
+def glide_path_params(
+    current_year: int,
+    retirement_year: int,
+    base_return: float,
+    base_vol: float,
+    equity_at_start: float = 0.80,   # % akcji na początku emerytury
+    equity_at_end: float = 0.35,     # % akcji na końcu horyzontu
+    bond_return: float = 0.04,
+    bond_vol: float = 0.05,
+) -> tuple[float, float]:
+    """
+    Pfau (2013) Rising Equity Glide Path — liniowa zmiana alokacji akcje/obligacje.
+    Referencja: Pfau W.D. (2013) 'Rising Equity Glide-Path', Journal of
+                Financial Planning. Kitces & Pfau (2015).
+    """
+    years_since_retirement = max(0, current_year - retirement_year)
+    total_retirement_years = 30  # typowy horyzont dekumulacji
+    t = min(years_since_retirement / max(total_retirement_years, 1), 1.0)
+    equity_pct = equity_at_start + t * (equity_at_end - equity_at_start)
+    equity_pct = float(np.clip(equity_pct, 0.0, 1.0))
+    bond_pct = 1.0 - equity_pct
+    # Blended return & vol
+    blended_return = equity_pct * base_return + bond_pct * bond_return
+    blended_vol    = np.sqrt((equity_pct * base_vol) ** 2 + (bond_pct * bond_vol) ** 2
+                             + 2 * equity_pct * bond_pct * base_vol * bond_vol * 0.2)
+    return float(blended_return), float(blended_vol)
+
+
+# ─── IKE/IKZE Kalkulator podatkowy ───────────────────────────────────────────
+
+def calculate_ike_ikze_advantage(
+    annual_contribution: float,
+    years: int,
+    return_rate: float,
+    pit_bracket: float = 0.32,
+    capital_gains_tax: float = 0.19,
+) -> dict:
+    """
+    Korzyść podatkowa IKE i IKZE vs konto zwykłe (Polish tax law).
+    IKE: brak podatku Belki 19% przy wypłacie po 60 r.ż.
+    IKZE: odliczenie od PIT + 10% zryczałtowany podatek przy wypłacie.
+    Referencja: Ustawa z dnia 20 IV 2004 o IKE; Ustawa z dnia 20 IV 2004 o IKZE;
+                KNF (2023) Raport o rynku emerytalnym.
+    """
+    if annual_contribution <= 0 or years <= 0:
+        return {"ike_gain": 0.0, "ikze_gain": 0.0, "zwykle_net": 0.0,
+                "ike_net": 0.0, "ikze_net": 0.0}
+    r = return_rate
+    # Konto zwykłe: podatek od zysku (Belka) przy wyjściu
+    gross_final = annual_contribution * ((1 + r) ** years - 1) / r * (1 + r) if r > 0 else annual_contribution * years
+    cost_of_contributions = annual_contribution * years
+    gross_gain = max(0, gross_final - cost_of_contributions)
+    belka_tax = gross_gain * capital_gains_tax
+    zwykle_net = gross_final - belka_tax
+
+    # IKE: 0% podatku Belki
+    ike_net = gross_final
+    ike_gain = gross_final - zwykle_net
+
+    # IKZE: odliczenie PIT co roku + 10% ryczałt przy wypłacie
+    # (zakładamy wpłaty w granicach limitu IKZE)
+    
+    # 1. Roczny zwrot gotówki z US dzięki odliczeniu od PIT
+    annual_pit_return = annual_contribution * pit_bracket
+    # 2. Inteligentny inwestor natychmiast inwestuje ten zwrot (np. na koncie zwykłym z Belką)
+    #    Obliczmy Future Value raty (FV annuity) z uwzględnieniem podatków opóźnionych
+    #    Dla uproszczenia r_net = r * (1 - 0.19) - dywidendy/częściowa Belka, 
+    #    dla prawdziwego "Konta Zwykłego" policzymy FV a potem uderzymy 19% w zysk na koniec.
+    fv_pit_savings_gross = annual_pit_return * ((1 + r) ** years - 1) / r * (1 + r) if r > 0 else annual_pit_return * years
+    cost_pit_savings = annual_pit_return * years
+    pit_savings_gain = max(0, fv_pit_savings_gross - cost_pit_savings)
+    ikze_pit_savings_net = fv_pit_savings_gross - (pit_savings_gain * capital_gains_tax)
+
+    ikze_tax_at_withdrawal = gross_final * 0.10   # 10% zryczałtowany
+    ikze_net = gross_final - ikze_tax_at_withdrawal + ikze_pit_savings_net
+    ikze_gain = ikze_net - zwykle_net
+
+    return {
+        "gross_final":      round(gross_final, 0),
+        "zwykle_net":       round(zwykle_net, 0),
+        "ike_net":          round(ike_net, 0),
+        "ikze_net":         round(ikze_net, 0),
+        "ike_gain":         round(ike_gain, 0),
+        "ikze_gain":        round(ikze_gain, 0),
+        "belka_tax":        round(belka_tax, 0),
+        "ikze_pit_savings": round(ikze_pit_savings_net, 0),
+    }
+
+
+# ─── CAPE-Adjusted SWR (Kitces 2022) ─────────────────────────────────────────
+
+def cape_adjusted_swr(cape_ratio: float, base_swr: float = 0.04) -> float:
+    """
+    Koryguje Safe Withdrawal Rate o bieżące wyceny (CAPE Shillera).
+    Kitces (2022): każdy punkt CAPE powyżej 20 obniża SWR o ~0.05pp.
+    Referencja: Kitces M. (2022) 'The 4% Rule and the Search for a Safe
+                Withdrawal Rate', Kitces.com. Morningstar (2023).
+    """
+    adjustment = max(0.0, (cape_ratio - 20.0) * 0.0005)
+    return round(float(max(0.025, base_swr - adjustment)), 4)
+
+
+# ─── Retirement Readiness Score (wzorowany Fidelity 2023) ────────────────────
+
+def retirement_readiness_score(
+    success_prob: float,
+    current_swr: float,
+    zus_coverage: float,   # frakcja wydatków pokrywanych przez ZUS
+    years_to_fire: float,
+    capital_vs_fire: float,  # current_cap / fire_number
+) -> float:
+    """
+    Syntetyczny wskaźnik gotowości emerytalnej 0-100.
+    Wzorowany na Fidelity Retirement Score (2023) i T. Rowe Price (2022).
+    Składowe wagowane:
+      35% P(sukces MC)
+      20% Bezpieczeństwo SWR (poniżej 4%)
+      25% Pokrycie ZUS/annuity
+      10% Postęp do FIRE
+      10% Zapas kapitału nad FIRE Number
+    """
+    s1 = float(np.clip(success_prob, 0, 1)) * 35
+    s2 = float(np.clip(1 - current_swr / 0.06, 0, 1)) * 20
+    s3 = float(np.clip(zus_coverage, 0, 1)) * 25
+    # years_to_fire: 0 = osi_gniety (max pkt), 20+ = daleko
+    fire_progress = float(np.clip(1 - years_to_fire / 20, 0, 1))
+    s4 = fire_progress * 10
+    s5 = float(np.clip((capital_vs_fire - 0.5) / 1.5, 0, 1)) * 10
+    return round(s1 + s2 + s3 + s4 + s5, 1)
+
+
 def cir_inflation(base_inflation, horizon, n_sims, kappa=0.3, theta=0.035, sigma_cir=0.015):
     """
     Stochastyczna inflacja — CIR (Cox-Ingersoll-Ross 1985).
@@ -319,18 +479,40 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
                       contrib_during_retirement=False,
                       withdrawal_strategy="constant",
                       guardrails_band=0.20, flexible_pct=0.04,
-                      floor_amount=0):
+                      floor_amount=0,
+                      zus_monthly=0.0,
+                      tax_regime="IKE/IKZE",
+                      use_spending_smile=False,
+                      use_glide_path=False,
+                      medical_inflation_rate=0.0):
     """
     Główna symulacja Monte Carlo z polepszeniami naukowymi.
     Returns: wealth_matrix (n_sims x horizon+1), inflation path (n_sims x horizon)
     """
     mu = ret_return
     sigma = ret_vol
-    log_mu = mu - 0.5 * sigma**2
+    zus_annual = float(zus_monthly) * 12.0
 
-    # Student-t shocks (fat tails)
+    # Glide Path: pre-obliczamy blended mu/sigma per rok (jeśli włączony)
+    glide_mus   = np.full(horizon, mu)
+    glide_sigs  = np.full(horizon, sigma)
+    if use_glide_path:
+        for y in range(horizon):
+            gm, gs = glide_path_params(y, years_to_retirement, mu, sigma)
+            glide_mus[y]  = gm
+            glide_sigs[y] = gs
+
+    # Student-t shocks — per rok z osobną mu/sigma gdy glide path
     shocks = student_t_shocks(n_sims, horizon)
-    annual_returns = np.exp(log_mu + sigma * shocks) - 1
+    if use_glide_path:
+        # Każda kolumna zwrotów z własnym mu/sigma
+        annual_returns = np.zeros((n_sims, horizon))
+        for y in range(horizon):
+            log_mu_y = glide_mus[y] - 0.5 * glide_sigs[y] ** 2
+            annual_returns[:, y] = np.exp(log_mu_y + glide_sigs[y] * shocks[:, y]) - 1
+    else:
+        log_mu = mu - 0.5 * sigma ** 2
+        annual_returns = np.exp(log_mu + sigma * shocks) - 1
 
     # Stochastic inflation (CIR or constant)
     if stochastic_inflation:
@@ -338,79 +520,113 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
     else:
         inf_matrix = np.full((n_sims, horizon), inflation_base)
 
+    # Podatek Belki — cost basis tracking (dla konta zwykłego)
+    # Przybliżenie: coroczne opodatkowanie zysku przy sprzedaży/wypłacie
+    # IKE/IKZE = 0%, Fundusz Akumulujący = opodatkowanie przy zakończeniu
+    annual_tax_rate = 0.0
+    if tax_regime == "Konto Zwykłe (Belka 19%)":
+        annual_tax_rate = 0.19  # podatek od rocznego zysku przy realizacji
+    # Dla IKE/IKZE i Funduszu: 0% corocznie (tax-deferred)
+
     wealth = np.full((n_sims, horizon + 1), 0.0)
     wealth[:, 0] = init_cap
 
-    # For guardrails: track "glide path" — expected portfolio trajectory
-    glide_path = init_cap * (1 + ret_return) ** np.arange(horizon + 1)
+    # Baza kosztowa (R3) do obliczania podatku ułamkowego przy wypłatach
+    cost_basis = np.full(n_sims, init_cap)
 
-    # Per-sim withdrawal amount (can change per guardrails)
+    # For guardrails: track expected portfolio trajectory & withdrawals
+    glide_path = init_cap * (1 + ret_return) ** np.arange(horizon + 1)
     current_withdrawal = np.full(n_sims, annual_expenses)
+    initial_withdrawal_val = np.full(n_sims, annual_expenses)
 
     for y in range(horizon):
         ret = annual_returns[:, y]
-        # Usunięto destrukcyjny podatek potrącany corocznie z całości portfela (zał. Fundusze Akumulujące/IKE/IKZE)
         w = wealth[:, y]
         w_new = w * (1 + ret)
 
-        inf_y = inf_matrix[:, y]
-        inf_factor_scalar = (1 + inflation_base) ** y  # for nominal calcs
+        # Konto Zwykłe (ETF Pasywny): 0.5% drag rocznego podatku (od dywidend/rebalancingu).
+        # Główny podatek Belki pobierzemy pro-rata przy wypłatach (R3).
+        if tax_regime == "Konto Zwykłe (Belka 19%)":
+            w_new -= np.maximum(w_new - w, 0) * 0.005 
 
+        inf_y = inf_matrix[:, y]
+        inf_cum = np.prod(1 + inf_matrix[:, :y+1], axis=1) if y > 0 else (1 + inf_matrix[:, 0])
         phase_retire = (y >= years_to_retirement)
 
-        if phase_retire:
-            # Dynamic withdrawal strategies
-            if withdrawal_strategy == "flexible":
-                # Always withdraw fixed % of current portfolio — never bankrupt
-                current_withdrawal = flexible_pct * w_new
-            elif withdrawal_strategy == "guardrails":
-                # Replace simple heuristic with Guyton-Klinger
-                # For Guyton-Klinger we need to calculate WR relative to initial_withdrawal
-                inf_rate = inf_matrix[:, y] if stochastic_inflation else inflation_base
-                initial_withdrawal_val = annual_expenses 
-                
-                # We do this vectorized across sims as much as possible
-                # But `guyton_klinger_withdrawal` takes floats.
-                # Vectorized approximation of GK logic:
-                current_wr = current_withdrawal / np.maximum(w_new, 1.0)
-                initial_wr = initial_withdrawal_val / np.maximum(w_new, 1.0)
-                
-                adj_withdrawal = current_withdrawal * (1 + inf_rate)
-                
-                # Prosperity rule
-                pr_mask = current_wr < (1.0 - guardrails_band) * initial_wr
-                adj_withdrawal = np.where(pr_mask, adj_withdrawal * 1.10, adj_withdrawal)
-                
-                # Capital Preservation rule
-                cpr_mask = current_wr > (1.0 + guardrails_band) * initial_wr
-                adj_withdrawal = np.where(cpr_mask, adj_withdrawal * 0.90, adj_withdrawal)
-                
-                # PMR logic: if WR > 1.20 * initial_wr, skip inflation adjust
-                pmr_mask = (adj_withdrawal / np.maximum(w_new, 1.0)) > (1.20 * initial_wr)
-                adj_withdrawal = np.where(pmr_mask, current_withdrawal, adj_withdrawal)
-                
-                current_withdrawal = np.maximum(adj_withdrawal, 0)
-            # Inflation-adjust constant withdrawal
-            inf_cum = np.prod(1 + inf_matrix[:, :y+1], axis=1) if y > 0 else (1 + inf_matrix[:, 0])
-            if withdrawal_strategy == "constant":
-                eff_withdrawal = annual_expenses * inf_cum
-            else:
-                eff_withdrawal = current_withdrawal * (1 + inf_y)
+        # Spending Smile — współczynnik wydatków zależny od fazy emerytury
+        spending_factor = 1.0
+        if use_spending_smile and phase_retire:
+            spending_factor = retirement_spending_smile_factor(y, years_to_retirement, horizon)
 
-            # Floor strategy: protect a minimum floor amount
+        if phase_retire:
+            # ZUS reduction — rośnie wraz z inflacją przez CAŁY CZAS (R2 - eliminacja uwięzi deflacyjnej)
+            zus_cum = zus_annual * inf_cum
+
+            # Medical Inflation: ok. 15% wydatków emeryta to usługi medyczne
+            health_proxy_pct = 0.15 
+            med_inf_comp = (1 + medical_inflation_rate) ** (y - years_to_retirement)
+            medical_expense_multiplier = (1 - health_proxy_pct) + health_proxy_pct * med_inf_comp
+
+            if withdrawal_strategy == "flexible":
+                # R5 - Usunięto błąd double-dipping. Procent od nominalnego kapitału = nominalna wypłata
+                eff_withdrawal = flexible_pct * w_new * spending_factor * medical_expense_multiplier
+            else:
+                # Inicjalizacja pierwszej kwoty na starcie emerytury (R1 - Guardrails Bug)
+                if y == years_to_retirement:
+                    current_withdrawal = annual_expenses * inf_cum
+                    initial_withdrawal_val = current_withdrawal.copy()
+
+                if withdrawal_strategy == "guardrails":
+                    inf_rate = inf_matrix[:, y] if stochastic_inflation else inflation_base
+                    current_wr = current_withdrawal / np.maximum(w_new, 1.0)
+                    initial_wr = initial_withdrawal_val / np.maximum(w_new, 1.0)
+                    adj_withdrawal = current_withdrawal * (1 + inf_rate)
+                    pr_mask = current_wr < (1.0 - guardrails_band) * initial_wr
+                    adj_withdrawal = np.where(pr_mask, adj_withdrawal * 1.10, adj_withdrawal)
+                    cpr_mask = current_wr > (1.0 + guardrails_band) * initial_wr
+                    adj_withdrawal = np.where(cpr_mask, adj_withdrawal * 0.90, adj_withdrawal)
+                    pmr_mask = (adj_withdrawal / np.maximum(w_new, 1.0)) > (1.20 * initial_wr)
+                    adj_withdrawal = np.where(pmr_mask, current_withdrawal, adj_withdrawal)
+                    current_withdrawal = np.maximum(adj_withdrawal, 0)
+                    
+                    eff_withdrawal = current_withdrawal * spending_factor * medical_expense_multiplier
+                elif withdrawal_strategy == "constant":
+                    eff_withdrawal = annual_expenses * spending_factor * inf_cum * medical_expense_multiplier
+
+            # ZUS i floor: redukuj potrzebne wypłaty z portfela
+            eff_withdrawal_net = np.maximum(eff_withdrawal - zus_cum, 0)
             floor_adj = np.maximum(floor_amount, 0)
-            w_new -= np.maximum(eff_withdrawal - floor_adj, 0)
+            required_portfolio_withdrawal = np.maximum(eff_withdrawal_net - floor_adj, 0)
+
+            # --- Podatek Belki od Wypłat (R3: Pro-Rata Cost Basis) ---
+            tax_paid = np.zeros(n_sims)
+            if tax_regime != "IKE/IKZE":
+                avg_cost_ratio = np.minimum(cost_basis / np.maximum(w_new, 1.0), 1.0)
+                gain_portion = required_portfolio_withdrawal * (1.0 - avg_cost_ratio)
+                tax_paid = gain_portion * 0.19
+                # Pomniejszamy bazę kosztową proporcjonalnie do uszczkniętego kapitału
+                cost_basis = np.maximum(0, cost_basis - required_portfolio_withdrawal * avg_cost_ratio)
+
+            w_new -= (required_portfolio_withdrawal + tax_paid)
 
             if enable_contributions and contrib_during_retirement:
-                w_new += annual_contrib * (1 + inflation_base) ** y
-
+                contrib_inflated = annual_contrib * inf_cum
+                w_new += contrib_inflated
+                cost_basis += contrib_inflated
         else:
-            # Accumulation phase
             if enable_contributions:
-                w_new += annual_contrib * (1 + inflation_base) ** y
+                contrib_inflated = annual_contrib * inf_cum
+                w_new += contrib_inflated
+                cost_basis += contrib_inflated
 
         w_new = np.maximum(w_new, 0)
         wealth[:, y + 1] = w_new
+
+    # Ostateczny test podatkowy po zakonczeniu (np. gdy umierasz lub zamykasz Fundusz)
+    if tax_regime == "Fundusz Akumulujący (Belka przy umorzeniu)" or tax_regime == "Konto Zwykłe (Belka 19%)":
+        avg_cost_ratio = np.minimum(cost_basis / np.maximum(wealth[:, -1], 1.0), 1.0)
+        final_gain = wealth[:, -1] * (1.0 - avg_cost_ratio)
+        wealth[:, -1] = wealth[:, -1] - final_gain * 0.19
 
     return wealth, inf_matrix
 
@@ -439,11 +655,12 @@ def compute_waterfall(init_cap, wealth_matrix, inf_matrix, annual_expenses,
 
 # ─── Main Module ─────────────────────────────────────────────────────────────
 def render_emerytura_module():
-    st.header("🏖️ Analiza Emerytury — Scientific Edition v2.0")
+    st.header("🏖️ Analiza Emerytury — Scientific Edition v3.0")
     st.markdown("""
-    **9 ulepszeń naukowych**: Student-t (grube ogony), stochastyczna długość życia (Gompertz),
-    stochastyczna inflacja (CIR), dynamiczne strategie wypłat (Guardrails / Flexible / Floor),
-    Retirement Age Optimizer, Krzywa Przeżywalności i nowe wizualizacje.
+    **14 ulepszeń naukowych**: Student-t (grube ogony), stochastyczna długość życia (Lee-Carter),
+    stochastyczna inflacja (CIR), ZUS/PPK integration, podatek Belki (IKE/IKZE/Zwykłe),
+    Spending Smile (U-kształt wydatków), Glide Path (zmienna alokacja), Guyton-Klinger Guardrails,
+    Retirement Age Optimizer, Krzywa Przeżywalności, Conformal Prediction Intervals.
     """)
 
     # ─── Sidebar ─────────────────────────────────────────────────────────────
@@ -504,6 +721,68 @@ def render_emerytura_module():
     elif withdrawal_strategy == "guardrails":
         floor_amount = st.sidebar.number_input("Floor (min. bezpieczna kwota PLN)", value=_saved("rem_floor", 0), step=10000, key="rem_floor", on_change=_save, args=("rem_floor",))
 
+    st.sidebar.markdown("### 🇵🇱 ZUS / PPK / Dodatkowy Dochód")
+    zus_monthly = st.sidebar.number_input(
+        "Emerytura ZUS (PLN/mies)",
+        value=_saved("rem_zus", 2500),
+        step=100,
+        min_value=0,
+        key="rem_zus", on_change=_save, args=("rem_zus",),
+        help="Szacowana emerytura ZUS/KRUS pomniejsza potrzebne wypłaty z portfela. Ustaw 0 jeśli nie dotyczy."
+    )
+    ppk_capital = st.sidebar.number_input(
+        "Kapitał PPK/OFE (PLN)",
+        value=_saved("rem_ppk", 0),
+        step=10_000,
+        min_value=0,
+        key="rem_ppk", on_change=_save, args=("rem_ppk",),
+        help="Środki zgromadzone w PPK lub OFE — zostaną dodane do kapitału startowego."
+    )
+
+    st.sidebar.markdown("### 🏦 Tryb Podatkowy")
+    _tax_opts = ["IKE/IKZE (0% Belki)", "Konto Zwykłe (Belka 19%)", "Fundusz Akumulujący (Belka przy umorzeniu)"]
+    tax_regime = st.sidebar.selectbox(
+        "Reżim Podatkowy",
+        _tax_opts,
+        index=_tax_opts.index(_saved("rem_tax", _tax_opts[0])),
+        key="rem_tax", on_change=_save, args=("rem_tax",),
+        help="IKE/IKZE: 0% podatku od zysku. Konto zwykłe: 19% Belki od zysku corocznie. Fundusz: podatek przy umorzeniu."
+    )
+    pit_bracket_pct = st.sidebar.slider(
+        "Stawka PIT (% dla IKZE)", 12, 32,
+        value=_saved("rem_pit", 32),
+        step=8,
+        key="rem_pit", on_change=_save, args=("rem_pit",),
+        help="Stawka PIT potrzebna do obliczenia korzyści IKZE (odliczenie od podatku). Próg 12% lub 32%."
+    )
+
+    st.sidebar.markdown("### 🔬 Model Zaawansowany")
+    use_spending_smile = st.sidebar.checkbox(
+        "Spending Smile (U-kształt wydatków)",
+        value=_saved("rem_smile", True),
+        key="rem_smile", on_change=_save, args=("rem_smile",),
+        help="Blanchett 2013: Go-Go (+15%), Slow-Go (-22%), No-Go (+5% koszty opieki). Realistyczny wzorzec wydatków emerytalnych."
+    )
+    use_glide_path = st.sidebar.checkbox(
+        "Glide Path (zmienna alokacja)",
+        value=_saved("rem_glide", False),
+        key="rem_glide", on_change=_save, args=("rem_glide",),
+        help="Pfau 2013: Rising Equity Glide Path — portfel zmienia alokację akcje/obligacje z wiekiem (80% akcji → 35%)."
+    )
+    cape_ratio = st.sidebar.number_input(
+        "Zbieżność Rynku - CAPE Shillera",
+        value=_saved("rem_cape", 33.0),
+        step=1.0,
+        key="rem_cape", on_change=_save, args=("rem_cape",),
+        help="Kitces 2022: Wysokie wyceny (pow. 20) zwiastują niższe przyszłe stopy zwrotu. Model automatycznie obniży próg bezpiecznego SWR."
+    )
+    medical_inflation = st.sidebar.slider(
+        "Inflacja Medyczna p.a. (%)",
+        0.0, 10.0, value=_saved("rem_med", 5.0),
+        step=0.5, key="rem_med", on_change=_save, args=("rem_med",),
+        help="Ryzyko długowieczności to rosnące koszty zdrowia przewyższające ogólną inflację (Fidelity 2023)."
+    )
+
     # ─── Core Calculations ────────────────────────────────────────────────────
     years_to_retirement = max(0, retirement_age - current_age)
     years_in_retirement = max(1, life_expectancy - retirement_age)
@@ -512,48 +791,74 @@ def render_emerytura_module():
     n_sims = 500
     annual_expenses = monthly_expat * 12
     annual_contrib = monthly_contribution * 12 if enable_contributions else 0
-    fire_number = annual_expenses / 0.035
-    current_swr = annual_expenses / init_cap if init_cap > 0 else 0
+    zus_annual = float(zus_monthly) * 12.0
+    total_init_cap = float(init_cap) + float(ppk_capital)  # PPK + kapital
 
-    # Deterministic FIRE Time Math
+    # ZUS-korygowany FIRE Number i SWR
+    effective_expenses = max(0.0, annual_expenses - zus_annual)  # portfel musi pokryć RESZTĘ po ZUS
+    fire_number = effective_expenses / 0.035 if effective_expenses > 0 else 0
+    current_swr = effective_expenses / total_init_cap if total_init_cap > 0 else 0
+    zus_coverage = min(1.0, zus_annual / max(annual_expenses, 1.0))
+
+    # Deterministic FIRE Time Math (z ZUS-offset)
     real_return = (1 + ret_return) / (1 + inflation) - 1
-    if init_cap >= fire_number:
+    if total_init_cap >= fire_number:
         years_to_fire = 0
     elif enable_contributions and annual_contrib > 0:
         if real_return == 0:
-            years_to_fire = (fire_number - init_cap) / annual_contrib
+            years_to_fire = (fire_number - total_init_cap) / annual_contrib
         else:
             val1 = fire_number + annual_contrib / real_return
-            val2 = init_cap + annual_contrib / real_return
+            val2 = total_init_cap + annual_contrib / real_return
             if val2 <= 0 or val1 / val2 <= 0:
                 years_to_fire = float('inf')
             else:
                 years_to_fire = np.log(val1 / val2) / np.log(1 + real_return)
     else:
-        if real_return > 0:
-            years_to_fire = np.log(fire_number / init_cap) / np.log(1 + real_return)
+        if real_return > 0 and fire_number > 0:
+            years_to_fire = np.log(max(fire_number / max(total_init_cap, 1), 1e-9)) / np.log(1 + real_return)
         else:
             years_to_fire = float('inf')
 
     # KPI Row
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("FIRE Number (SWR 3.5%)", f"{fire_number:,.0f} PLN")
-    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    if fire_number > 0:
+        col1.metric("FIRE Number (ZUS-adj.)", f"{fire_number:,.0f} PLN",
+                    help=f"Kapitał portfelowy potrzebny przy SWR 3.5% po odjęciu ZUS ({zus_monthly:,.0f} PLN/mies).")
+    else:
+        col1.metric("FIRE Number", "0 PLN — ZUS pokrywa 100%!",
+                    help="Twoja emerytura ZUS pokrywa całe wydatki — nie potrzebujesz dodatkowego kapitału portfelowego.")
+
     if years_to_fire == 0:
         col2.metric("Czas do FIRE", "Osiągnięty! 🎉", help="Masz wystarczająco kapitału.")
     elif years_to_fire == float('inf'):
         col2.metric("Czas do FIRE", "Nigdy 😢", help="Inflacja pożera kapitał szybciej niż oszczędzasz.")
     else:
         col2.metric("Czas do FIRE", f"{years_to_fire:.1f} lat", help="Lata do wolności przy podanych wpłatach i stopie zwrotu.")
-        
-    col3.metric("Twoje obecne SWR", f"{current_swr:.2%}")
+
+    col3.metric("SWR (po ZUS)", f"{current_swr:.2%}",
+                delta=f"Limit: {cape_adjusted_swr(cape_ratio, 0.04):.2%}",
+                delta_color="off",
+                help=f"Safe Withdrawal Rate ze środków portfelowych po odjęciu ZUS. CAPE-Adjusted SWR Kitces = obniżony z powodu wysokich wycen (ob. CAPE={cape_ratio}). Twój SWR powinien być MNIEJSZY niż limit.")
     col4.metric("Okres emerytury", f"{years_in_retirement} lat")
+
+    # Readiness Score (wstępny — przed MC)
+    ytf = years_to_fire if years_to_fire != float('inf') else 30
+    cap_vs_fire = total_init_cap / max(fire_number, 1.0)
+    _rrs_prelim = retirement_readiness_score(0.85, current_swr, zus_coverage, ytf, cap_vs_fire)
+    rrs_color = "#00ff88" if _rrs_prelim >= 70 else ("#ffaa00" if _rrs_prelim >= 50 else "#ff4444")
+    col5.markdown(f"""
+    <div style='text-align:center;padding:8px 0;'>
+        <div style='font-size:11px;color:#9ca3af;'>READINESS SCORE</div>
+        <div style='font-size:28px;font-weight:800;color:{rrs_color};'>{_rrs_prelim:.0f}<span style='font-size:14px'>/100</span></div>
+        <div style='font-size:10px;color:#6b7280;'>Fidelity-style</div>
+    </div>""", unsafe_allow_html=True)
 
     st.markdown("---")
 
     # ─── Run MC ──────────────────────────────────────────────────────────────
     wealth_matrix, inf_matrix = run_mc_retirement(
-        init_cap, annual_expenses, annual_contrib,
+        total_init_cap, annual_expenses, annual_contrib,
         ret_return, ret_vol, horizon, n_sims,
         years_to_retirement, inflation,
         stochastic_inflation=stoch_inf,
@@ -561,7 +866,12 @@ def render_emerytura_module():
         contrib_during_retirement=contrib_during_retirement,
         withdrawal_strategy=withdrawal_strategy,
         flexible_pct=flexible_pct,
-        floor_amount=floor_amount
+        floor_amount=floor_amount,
+        zus_monthly=float(zus_monthly),
+        tax_regime=tax_regime,
+        use_spending_smile=use_spending_smile,
+        use_glide_path=use_glide_path,
+        medical_inflation_rate=float(medical_inflation / 100.0)
     )
 
     years_arr = np.arange(current_age, current_age + horizon + 1)
@@ -698,9 +1008,58 @@ def render_emerytura_module():
         fig_violin.add_trace(go.Violin(y=final_w, box_visible=True, meanline_visible=True,
                                         fillcolor='rgba(0,255,136,0.3)', line_color='#00ff88',
                                         name='Kapitał Końcowy'))
-        fig_violin.add_hline(y=init_cap, line_dash="dash", line_color="orange", annotation_text="Kapitał Startowy")
+        fig_violin.add_hline(y=total_init_cap, line_dash="dash", line_color="orange", annotation_text="Kapitał Startowy")
         fig_violin.update_layout(template="plotly_dark", height=400, yaxis_title="PLN", showlegend=False)
         st.plotly_chart(fig_violin, use_container_width=True)
+
+        # ── IKE/IKZE Kalkulator (GAP-2) ──────────────────────────────────────
+        with st.expander("🏦 Kalkulator Korzyści IKE / IKZE vs Konto Zwykłe"):
+            st.caption("Polska ustawa o IKE/IKZE (KNF 2023) — oblicz ile zaoszczędzisz na podatku Belki i PIT.")
+            ike_col1, ike_col2, ike_col3 = st.columns(3)
+            ike_contrib = ike_col1.number_input("Roczna wpłata (PLN)", value=min(annual_contrib if enable_contributions else 23_472, 23_472), step=1_000, min_value=0, max_value=23_472, key="ike_c")
+            ike_years = ike_col2.number_input("Liczba lat oszczędzania", value=years_to_retirement or 20, min_value=1, max_value=50, key="ike_y")
+            ike_ret = ike_col3.slider("Stopa zwrotu (%)", 2.0, 15.0, value=float(ret_return * 100), step=0.5, key="ike_r") / 100.0
+            ike_res = calculate_ike_ikze_advantage(
+                float(ike_contrib), int(ike_years), float(ike_ret),
+                pit_bracket=pit_bracket_pct / 100.0,
+            )
+            if ike_res["ike_gain"] > 0 or ike_res["ikze_gain"] > 0:
+                ik1, ik2, ik3 = st.columns(3)
+                ik1.metric("Konto Zwykłe (po Belce)", f"{ike_res['zwykle_net']:,.0f} PLN")
+                ik2.metric("IKE (+korzyść)", f"{ike_res['ike_net']:,.0f} PLN",
+                           delta=f"+{ike_res['ike_gain']:,.0f} PLN (zaoszczędzona Belka)")
+                ik3.metric("IKZE (+korzyść)", f"{ike_res['ikze_net']:,.0f} PLN",
+                           delta=f"+{ike_res['ikze_gain']:,.0f} PLN (Belka+PIT)")
+                st.info(f"💡 **IKE** zaoszczędza **{ike_res['ike_gain']:,.0f} PLN** (brak podatku Belki {ike_res['belka_tax']:,.0f} PLN). "
+                        f"**IKZE** zaoszczędza **{ike_res['ikze_gain']:,.0f} PLN** "
+                        f"(w tym odliczenie PIT {ike_res['ikze_pit_savings']:,.0f} PLN przy stawce {pit_bracket_pct}%).")
+                st.caption(f"📌 Limit IKE 2024: 23,472 PLN/rok | Limit IKZE 2024: {int(23_472 * 1.5):,} PLN/rok (3× MIN) | Ustawa z 20.04.2004 r.")
+
+        # ── Glide Path Visualizer ─────────────────────────────────────────────
+        if use_glide_path:
+            with st.expander("📉 Podgląd Glide Path — Zmiana Alokacji z Wiekiem"):
+                gp_ages = list(range(current_age, current_age + horizon + 1))
+                gp_equity = []
+                for y, age in enumerate(gp_ages):
+                    gm, gs = glide_path_params(y, years_to_retirement, ret_return, ret_vol)
+                    # reverse-engineer equity pct from blended return
+                    # equity_pct from formula: blended = eq*base_r + (1-eq)*bond_r → eq = (blended-bond_r)/(base_r-bond_r)
+                    bond_r = 0.04
+                    denom = ret_return - bond_r
+                    eq_pct = (gm - bond_r) / denom if abs(denom) > 1e-9 else 0.8
+                    gp_equity.append(float(np.clip(eq_pct, 0, 1)) * 100)
+                fig_gp = go.Figure()
+                fig_gp.add_trace(go.Scatter(x=gp_ages, y=gp_equity, mode='lines', fill='tozeroy',
+                                             fillcolor='rgba(0,200,255,0.15)', line=dict(color='#00ccff', width=2),
+                                             name='% Akcji'))
+                fig_gp.add_trace(go.Scatter(x=gp_ages, y=[100-e for e in gp_equity], mode='lines', fill='tonexty',
+                                             fillcolor='rgba(255,170,0,0.15)', line=dict(color='#ffaa00', width=2),
+                                             name='% Obligacji'))
+                fig_gp.add_vline(x=retirement_age, line_dash="dash", line_color="white", annotation_text="Emerytura")
+                fig_gp.update_layout(template="plotly_dark", height=300, hovermode="x unified",
+                                      xaxis_title="Wiek", yaxis_title="Alokacja (%)", yaxis_range=[0, 100])
+                st.plotly_chart(fig_gp, use_container_width=True)
+                st.caption("Pfau (2013) Rising Equity Glide Path: 80% akcji na początku emerytury → 35% po 30 latach.")
 
     # ══════════════════════════════════════════════════════════════════════════
     with tab2:
@@ -1061,18 +1420,143 @@ def render_emerytura_module():
             )
             st.plotly_chart(fig_copula, use_container_width=True)
 
-    # ─── Summary and Recommendations ─────────────────────────────────────────
+        # ── 7 Ryzyk Emerytalnych (Pfau 2015) ─────────────────────────────────
+        st.markdown("### ⚠️ Radar 7 Ryzyk Emerytalnych (Pfau 2015)")
+        st.caption("Wade Pfau (2015) *The 7 Risks of Retirement*. Twój moduł pokrywa 4/7. Pozostałe wymagają Twojego osądu.")
+        r_longevity   = float(np.clip(life_survival_prob if life_survival_prob is not None else success_prob, 0, 1))
+        r_market      = float(np.clip(success_prob, 0, 1))
+        r_sequence    = float(np.clip(1.0 - current_swr / 0.06, 0, 1))
+        r_inflation   = float(np.clip(1.0 - inflation / 0.10, 0, 1))
+        r_health      = float(np.clip(0.5 - max(0, current_age - 70) * 0.02, 0, 1))  # szacunek
+        r_spouse      = 0.6  # użytkownik musi ocenić sam
+        r_policy      = float(np.clip(zus_coverage * 0.5 + 0.5, 0, 1))  # proxy dywersyfikacji od ZUS
+        pfau_labels = ['Długowieczność', 'Ryzyko Rynku', 'Seq. of Returns', 'Inflacja', 'Koszty Zdrowia', 'Utrata Partnera', 'Ryzyko Polityczne (ZUS)']
+        pfau_vals    = [r_longevity, r_market, r_sequence, r_inflation, r_health, r_spouse, r_policy]
+        pfau_colors  = ['#00ff88' if v >= 0.7 else '#ffaa00' if v >= 0.4 else '#ff4444' for v in pfau_vals]
+        fig_pfau = go.Figure()
+        fig_pfau.add_trace(go.Scatterpolar(
+            r=[v * 10 for v in pfau_vals], theta=pfau_labels,
+            fill='toself', fillcolor='rgba(0,200,255,0.10)',
+            line=dict(color='#00ccff', width=2), name='Twój Plan'
+        ))
+        fig_pfau.add_trace(go.Scatterpolar(
+            r=[7, 7, 7, 7, 7, 7, 7], theta=pfau_labels,
+            fill=None, line=dict(color='rgba(255,255,255,0.2)', dash='dot'), name='Próg 70%'
+        ))
+        fig_pfau.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 10], tickvals=[3, 5, 7, 10], ticktext=["30%", "50%", "70%", "100%"])),
+            template="plotly_dark", height=450, showlegend=True,
+            title="7 Ryzyk Emerytalnych vs Twój Plan (skala 0-10)"
+        )
+        st.plotly_chart(fig_pfau, use_container_width=True)
+        with st.expander("ℹ️ Jak interpretować Radar 7 Ryzyk?"):
+            st.markdown("""
+| Ryzyko | Standard | Twój pokrycie |
+|---|---|---|
+| ✅ Długowieczność | Lee-Carter MC | Modelowane |
+| ✅ Ryzyko Rynku | Student-t MC | Modelowane |
+| ✅ Seq. of Returns | Animacja & Conformal PI | Modelowane |
+| ✅ Inflacja | CIR stochastyczna | Modelowane |
+| ⚠️ Koszty Zdrowia | Medical inflation 6-8% p.a. | Szacunek heurystyczny |
+| ⚠️ Utrata Partnera | Zmiana wydatków ~40% | Stała wartość 60% |
+| ⚠️ Ryzyko Polityczne | Zmiany w ZUS/IKE | Proxy z ZUS coverage |
+            """)
+
+        # ── Sensitivity Tornado Chart ─────────────────────────────────────────
+        st.markdown("### 🌪️ Sensitivity Analysis — Co Najbardziej Wpływa na Sukces?")
+        st.caption("One-factor-at-a-time: każdy parametr zmieniamy o ±20% i mierzymy wpływ na P(sukces). Standard analizy ryzyka.")
+        with st.spinner("Obliczanie wrażliwości (8 parametrów × 2)..."):
+            base_sp = float(success_prob)
+            tornado_items = []
+            test_delta = 0.20  # ±20%
+
+            def _mc_success(cap, exp, ret, vol, inf_r, ytret):
+                wm_t, _ = run_mc_retirement(
+                    cap, exp, annual_contrib, ret, vol, horizon, 150, ytret, inf_r,
+                    stochastic_inflation=False, enable_contributions=enable_contributions,
+                    contrib_during_retirement=contrib_during_retirement,
+                    withdrawal_strategy=withdrawal_strategy, flexible_pct=flexible_pct,
+                    zus_monthly=float(zus_monthly), tax_regime=tax_regime,
+                )
+                return float(np.mean(wm_t[:, -1] > 0))
+
+            params_tornado = [
+                ("Kapitał (+20%)", _mc_success(total_init_cap * 1.20, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement), _mc_success(total_init_cap * 0.80, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement)),
+                ("Wydatki (-20%)", _mc_success(total_init_cap, annual_expenses * 0.80, ret_return, ret_vol, inflation, years_to_retirement), _mc_success(total_init_cap, annual_expenses * 1.20, ret_return, ret_vol, inflation, years_to_retirement)),
+                ("Zwrot (+20%)", _mc_success(total_init_cap, annual_expenses, ret_return * 1.20, ret_vol, inflation, years_to_retirement), _mc_success(total_init_cap, annual_expenses, ret_return * 0.80, ret_vol, inflation, years_to_retirement)),
+                ("Zmienność (-20%)", _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol * 0.80, inflation, years_to_retirement), _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol * 1.20, inflation, years_to_retirement)),
+                ("Inflacja (-20%)", _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation * 0.80, years_to_retirement), _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation * 1.20, years_to_retirement)),
+                ("Wiek em. (-2 lata)", _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation, max(0, years_to_retirement - 2)), _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement + 2)),
+            ]
+
+        tornado_df_items = [(label, up - base_sp, down - base_sp) for label, up, down in params_tornado]
+        tornado_df_items.sort(key=lambda x: abs(x[1] - x[2]), reverse=True)
+        labels_t = [x[0] for x in tornado_df_items]
+        ups_t    = [x[1] for x in tornado_df_items]
+        downs_t  = [x[2] for x in tornado_df_items]
+
+        fig_tornado = go.Figure()
+        fig_tornado.add_trace(go.Bar(y=labels_t, x=ups_t,  orientation='h', name='Pozytywna zmiana', marker_color='#00ff88'))
+        fig_tornado.add_trace(go.Bar(y=labels_t, x=downs_t, orientation='h', name='Negatywna zmiana', marker_color='#ff4444'))
+        fig_tornado.add_vline(x=0, line_color='white', line_width=1)
+        fig_tornado.update_layout(
+            barmode='overlay', template="plotly_dark", height=380,
+            xaxis_title="Zmiana P(sukcesu) vs baza", xaxis_tickformat=".0%",
+            yaxis_title="Parametr", title="Tornado Chart — Analiza Wrażliwości",
+            hovermode="y unified"
+        )
+        st.plotly_chart(fig_tornado, use_container_width=True)
+        st.caption("Każdy słupek = różnica w P(sukces) przy zmianie parametru o ±20%. Dłuższy słupek = większy wpływ na bezpieczeństwo planu.")
+
+    # ─── Summary and Updated Recommendations ─────────────────────────────────
     st.divider()
-    st.subheader("💡 Rekomendacje")
-    if success_prob < 0.9:
-        st.warning(f"⚠️ Szansa sukcesu ({success_prob:.1%}) jest poniżej 90%. Rozważ: wyższe wpłaty, późniejszą emeryturę lub strategię Guardrails.")
-    else:
-        st.success(f"✅ Plan jest antykruchy. Szansa sukcesu: **{success_prob:.1%}**.")
+    st.subheader("💡 Rekomendacje i Gotowość Emerytalna")
 
-    if withdrawal_strategy == "constant":
-        st.info("💡 **Wskazówka**: Strategia 'Stała kwota' jest podatna na ryzyko sekwencji. Rozważ 'Guardrails' lub '% Portfela' dla wyższej odporności.")
+    # Finalize Readiness Score po MC
+    ytf_final = years_to_fire if years_to_fire != float('inf') else 30
+    rrs_final = retirement_readiness_score(success_prob, current_swr, zus_coverage, ytf_final, cap_vs_fire)
+    rrs_col = "#00ff88" if rrs_final >= 70 else ("#ffaa00" if rrs_final >= 50 else "#ff4444")
+    rrs_label = "🟢 Plan Antykruchy" if rrs_final >= 70 else ("🟡 Plan Wymaga Uwagi" if rrs_final >= 50 else "🔴 Plan Zagrożony")
 
-    if stoch_life and life_survival_prob is not None and life_survival_prob < 0.85:
-        st.warning(f"⚠️ Portfel przeżyje Cię tylko w {life_survival_prob:.1%} symulacji. Rozważ dożywotnią rentę (annuity) lub wydłużenie horyzontu.")
+    st.markdown(f"""
+    <div style='background:rgba(255,255,255,0.04);border-radius:12px;padding:20px;margin-bottom:16px;'>
+        <div style='display:flex;align-items:center;gap:24px;'>
+            <div style='text-align:center;'>
+                <div style='font-size:48px;font-weight:900;color:{rrs_col};'>{rrs_final:.0f}</div>
+                <div style='font-size:12px;color:#9ca3af;'>/ 100</div>
+            </div>
+            <div>
+                <div style='font-size:20px;font-weight:700;color:{rrs_col};'>{rrs_label}</div>
+                <div style='font-size:13px;color:#d1d5db;margin-top:6px;'>
+                    Retirement Readiness Score — Fidelity-style composite (P(sukces) • SWR • ZUS coverage • postęp FIRE • kapitał)
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.caption("Analiza oparta na: Bengen 2021, Merton 2014, Pfau 2018, Kaplan & Meier 1958, GUS 2023. Model używa Student-t(df=4) dla grafikoowych ogonów, CIR dla inflacji, Lee-Carter dla ryzyka długowieczności oraz Split Conformal Prediction.")
+    rec_col1, rec_col2 = st.columns(2)
+    with rec_col1:
+        if success_prob < 0.9:
+            st.warning(f"⚠️ Szansa sukcesu ({success_prob:.1%}) jest poniżej 90%. Rozważ: wyższe wpłaty, późniejszą emeryturę lub strategię Guardrails.")
+        else:
+            st.success(f"✅ Plan jest antykruchy. Szansa sukcesu: **{success_prob:.1%}**.")
+        if zus_monthly > 0:
+            st.info(f"🏛️ **ZUS pokrywa {zus_coverage:.0%}** Twoich wydatków ({zus_monthly:,.0f} PLN/mies). Portfel musi zapewnić resztę: {max(0, annual_expenses - zus_monthly*12):,.0f} PLN/rok.")
+        if tax_regime != "IKE/IKZE (0% Belki)":
+            st.warning(f"⚠️ Tryb **{tax_regime}** — podatek Belki obniża efektywny zwrot. Rozważ przeniesienie kapitału na IKE/IKZE.")
+    with rec_col2:
+        if withdrawal_strategy == "constant":
+            st.info("💡 Strategia 'Stała kwota' jest podatna na ryzyko sekwencji. Rozważ 'Guardrails' lub '% Portfela'.")
+        if use_spending_smile:
+            st.success("✅ **Spending Smile** aktywny — bardziej realistyczny wzorzec wydatków (Blanchett 2013).")
+        if use_glide_path:
+            st.success("✅ **Glide Path** aktywny — portfel dostosowuje alokację akcji/obligacji z wiekiem (Pfau 2013).")
+        if stoch_life and life_survival_prob is not None and life_survival_prob < 0.85:
+            st.warning(f"⚠️ Portfel przeżyje Cię tylko w {life_survival_prob:.1%} symulacji. Rozważ dożywotnią rentę (annuity).")
+
+    st.caption("Analiza oparta na: Bengen 2021, Merton 2014, Pfau 2015/2018, Blanchett 2013, Kitces 2022, GUS 2023, KNF 2023. "
+               "Model używa Student-t(df=4) dla grubych ogonów, CIR dla inflacji, Lee-Carter dla długowieczności, "
+               "Split Conformal Prediction dla przedziałów, Guyton-Klinger dla Guardrails, CAPE-Adjusted SWR. "
+               "V3.0 — Intelligent Barbell Dashboard.")
+

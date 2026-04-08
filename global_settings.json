@@ -29,11 +29,14 @@
   ],
   "alloc_safe_pct": 0.95,
   "initial_capital": 1000000.0,
+  "base_currency": "PLN",
+  "currency_risk_enabled": false,
+  "usd_pln_vol": 0.12,
+  "usd_pln_corr": -0.3,
   "bg_refresh_enabled": true,
   "bg_refresh_interval_minutes": 4,
   "language": "pl",
   "visible_modules": [
-    "Stress Test",
     "Symulator Barbell",
     "Skaner Rynku",
     "Emerytura / FIRE",
@@ -42,5 +45,5 @@
   ],
   "ui_mode": "educational",
   "profile_name": "Domyślny",
-  "last_updated": "2026-04-01T10:33:24"
+  "last_updated": "2026-04-08T10:01:39"
 }
