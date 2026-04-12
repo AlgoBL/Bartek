@@ -716,6 +716,7 @@ with tab_preview:
         height=350,
         yaxis_title=t("gs_bar_yaxis"),
         showlegend=False,
+    )
     st.plotly_chart(fig_bar, use_container_width=True)
 
 
