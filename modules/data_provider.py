@@ -121,14 +121,26 @@ def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = Non
         
     tickers = list(tickers)
     
-    # Wyjątek: pobieranie intraday 1m, 5m etc. jest wspierane natywnie tylko z YFinance 
-    # i nie działa łatwo ze stooq na pandas_datareader,
-    # ale nasze aplikacje głównie polegają na interwałach dziennych.
+    # Transparent ISIN resolution
+    from modules.isin_resolver import ISINResolver
+    mapped_tickers = []
+    isin_map = {}
+    for t in tickers:
+        mapped = ISINResolver.resolve(t)
+        mapped_tickers.append(mapped)
+        if mapped != t.strip().upper():
+            isin_map[mapped] = t.strip().upper()
     
     try:
-        logger.info(f"Pobieranie danych rynkowych przez yfinance dla: {tickers[:3]}...")
-        data = _fetch_from_yfinance_sync(tickers, start, end, period, auto_adjust)
+        logger.info(f"Pobieranie danych rynkowych przez yfinance dla: {mapped_tickers[:3]}...")
+        data = _fetch_from_yfinance_sync(mapped_tickers, start, end, period, auto_adjust)
         if not data.empty:
+            if isin_map and isinstance(data.columns, pd.MultiIndex):
+                new_cols = []
+                for attr, sym in data.columns:
+                    new_cols.append((attr, isin_map.get(sym, sym)))
+                data.columns = pd.MultiIndex.from_tuples(new_cols)
+                data.sort_index(axis=1, level=0, inplace=True)
             return data
         else:
             logger.warning("yfinance zwróciło puste dane. Przełączanie na stooq...")
@@ -148,8 +160,16 @@ def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = Non
             else:
                 start = "2000-01-01"
 
-        logger.info(f"Pobieranie stooq dla: {tickers[:3]}...")
-        data = _fetch_from_stooq_sync(tickers, start, end)
+        logger.info(f"Pobieranie stooq dla: {mapped_tickers[:3]}...")
+        data = _fetch_from_stooq_sync(mapped_tickers, start, end)
+        
+        if isin_map and not data.empty and isinstance(data.columns, pd.MultiIndex):
+            new_cols = []
+            for attr, sym in data.columns:
+                new_cols.append((attr, isin_map.get(sym, sym)))
+            data.columns = pd.MultiIndex.from_tuples(new_cols)
+            data.sort_index(axis=1, level=0, inplace=True)
+            
         return data
         
     except Exception as e:
@@ -159,12 +179,15 @@ def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = Non
 
 async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, float | None, float | None]:
     """Asynchroniczne pobieranie ceny zamknięcia. Yahoo -> StooqFallback"""
+    from modules.isin_resolver import ISINResolver
+    mapped_ticker = ISINResolver.resolve(ticker)
+    
     try:
-        data = await asyncio.to_thread(_fetch_from_yfinance_sync, [ticker], period=period)
+        data = await asyncio.to_thread(_fetch_from_yfinance_sync, [mapped_ticker], period=period)
         if not data.empty:
             # yfinance shape handle  
             if isinstance(data.columns, pd.MultiIndex):
-                series = data["Close"][ticker].dropna()
+                series = data["Close"][mapped_ticker].dropna()
             else:
                 series = data["Close"].dropna()
                 
@@ -175,13 +198,13 @@ async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, floa
             return ticker, val, pct
             
     except Exception as e:
-        logger.debug(f"Brak danych Yahoo dla {ticker} (async): {e}")
+        logger.debug(f"Brak danych Yahoo dla {ticker} ({mapped_ticker}) (async): {e}")
         
     # Stooq fallback
     try:
         logger.debug(f"Pobieranie stooq (async) dla {ticker}")
         start = (pd.Timestamp.today() - pd.DateOffset(days=10)).strftime('%Y-%m-%d')
-        data = await asyncio.to_thread(_fetch_from_stooq_sync, [ticker], start=start)
+        data = await asyncio.to_thread(_fetch_from_stooq_sync, [mapped_ticker], start=start)
         if not data.empty:
             # dla 1 tickera pandas_datareader zwraca kolumny 'Close', 'High'
             series = data["Close"].dropna()

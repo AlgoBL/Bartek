@@ -55,11 +55,12 @@ k5.metric(t("capital_start_label"),  f"{gs.initial_capital:,.0f} PLN")
 st.divider()
 
 # ── ZAKŁADKI ──────────────────────────────────────────────────────────────────
-tab_portfolio, tab_profiles, tab_status, tab_preview = st.tabs([
+tab_portfolio, tab_profiles, tab_status, tab_preview, tab_isin = st.tabs([
     t("gs_tab_portfolio"),
     t("gs_tab_profiles"),
     t("gs_tab_status"),
     t("gs_tab_preview"),
+    "🔍 Odkrywca ISIN",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -693,6 +694,37 @@ with tab_preview:
         height=350,
         yaxis_title=t("gs_bar_yaxis"),
         showlegend=False,
-        margin=dict(t=20, b=20),
-    )
     st.plotly_chart(fig_bar, use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ZAKŁADKA 5: ODKRYWCA ISIN
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_isin:
+    st.markdown("### 🔍 Wyszukiwarka i Weryfikacja ISIN")
+    st.markdown("Dzięki systemowi ISIN Resolver, cała aplikacja obsługuje **przezroczyste tłumaczenie numerów ISIN** (np. `IE00B4L5Y983`) na Tickery giełdowe w locie. Możesz bez obaw wklejać identyfikatory w pola **Ticker** analizatorów.")
+    st.markdown("Użyj poniższej wyszukiwarki do ręcznej autoryzacji i sprawdzenia, z jakiego wiodącego rynku aplikacja zaczerpnie dane (EUR/USD/GBP) dla Twojego Europejskiego ETF.")
+    
+    isin_query = st.text_input("Podaj numer ISIN (np. ETF irlandzki):", placeholder="np. IE00B4L5Y983")
+    
+    if st.button("🔎 Szukaj odpowiednika na giełdzie", type="primary"):
+        from modules.isin_resolver import ISINResolver
+        if not ISINResolver.is_isin(isin_query):
+            st.warning("⚠️ Podany ciąg znaków nie wygląda w pełni na prawidłowy, 12-znakowy kod ISIN. Sprawdź, czy nie ma literówek.")
+        else:
+            with st.spinner("Przeszukiwanie baz Yahoo Finance..."):
+                res = ISINResolver.search_isin(isin_query)
+                if res:
+                    sym = res.get("symbol", "Brak")
+                    st.success(f"Odnaleziono mapowanie: **{isin_query.upper()}** ➔ **{sym}**")
+                    
+                    df_res = pd.DataFrame([{
+                        "Ticker (Zmapowany)": sym,
+                        "Pełna Nazwa instrumentu": res.get("longname") or res.get("shortname", "-"),
+                        "Giełda pochodzenia": res.get("exchange", "-"),
+                        "Typ Aktywa": res.get("quoteType", "-"),
+                    }])
+                    st.dataframe(df_res, use_container_width=True, hide_index=True)
+                    st.info(f"💡 Wskazówka: Po wklejeniu `{isin_query.upper()}` na innych zakładkach projektu, automatycznie użyte zostaną notowania dla `{sym}`.")
+                else:
+                    st.error(f"Nie znaleziono wiodącego Tickera giełdowego dla ISIN: **{isin_query.upper()}** w publicznym API. Użyj ręcznie oficjalnego skrótu (np. CSPX.AS).")
