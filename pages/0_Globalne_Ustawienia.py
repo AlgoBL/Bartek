@@ -295,28 +295,29 @@ with tab_portfolio:
         st.markdown(t("gs_risky_header"))
         st.caption(t("gs_risky_caption"))
 
-        # Edytowalna tabela ryzykownych aktywów
-        risky_df_default = pd.DataFrame(gs.risky_assets)
-        if risky_df_default.empty or "ticker" not in risky_df_default.columns:
-            risky_df_default = pd.DataFrame(
-                [{"ticker": "SPY", "weight": 100.0, "asset_class": "ETF US"}]
-            )
-
-        if "asset_class" not in risky_df_default.columns:
-            risky_df_default["asset_class"] = "N/A"
-
         col_ticker  = t("ticker")
         col_weight  = t("weight_pct")
         col_class   = t("asset_class")
 
-        risky_df_default = risky_df_default.rename(columns={
-            "ticker": col_ticker,
-            "weight": col_weight,
-            "asset_class": col_class,
-        })
+        # Inicjalizacja session state dla dynamicznej edycji
+        if "gs_risky_df_state" not in st.session_state:
+            risky_df_default = pd.DataFrame(gs.risky_assets)
+            if risky_df_default.empty or "ticker" not in risky_df_default.columns:
+                risky_df_default = pd.DataFrame(
+                    [{"ticker": "SPY", "weight": 100.0, "asset_class": "ETF US"}]
+                )
+            if "asset_class" not in risky_df_default.columns:
+                risky_df_default["asset_class"] = "Inne"
+
+            risky_df_default = risky_df_default.rename(columns={
+                "ticker": col_ticker,
+                "weight": col_weight,
+                "asset_class": col_class,
+            })
+            st.session_state["gs_risky_df_state"] = risky_df_default
 
         edited_risky = st.data_editor(
-            risky_df_default,
+            st.session_state["gs_risky_df_state"],
             num_rows="dynamic",
             use_container_width=True,
             key="gs_risky_table",
@@ -329,6 +330,24 @@ with tab_portfolio:
                 ),
             },
         )
+
+        # Tłumaczenie ISIN w locie
+        from modules.isin_resolver import ISINResolver
+        needs_rerun = False
+        for i, row in edited_risky.iterrows():
+            tkr = str(row.get(col_ticker, "")).strip().upper()
+            if tkr and ISINResolver.is_isin(tkr):
+                resolved = ISINResolver.resolve(tkr)
+                if resolved != tkr:
+                    edited_risky.at[i, col_ticker] = resolved
+                    needs_rerun = True
+
+        if needs_rerun:
+            st.session_state["gs_risky_df_state"] = edited_risky
+            st.rerun()
+        else:
+            # Aktualizacja state, aby móc bez przeszkód dodać rzędy
+            st.session_state["gs_risky_df_state"] = edited_risky
 
         # Walidacja wag
         total_w = edited_risky[col_weight].sum() if not edited_risky.empty else 0
@@ -496,6 +515,9 @@ with tab_profiles:
                     )
                     set_gs(preset_gs)
                     force_apply_gs_to_session(preset_gs)
+                    # Czyść cache tabeli by załadować nowe presety
+                    if "gs_risky_df_state" in st.session_state:
+                        del st.session_state["gs_risky_df_state"]
                     st.toast(t("gs_toast_loaded", name=preset_name), icon="⬇️")
                     st.rerun()
 

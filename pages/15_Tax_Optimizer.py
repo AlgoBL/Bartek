@@ -110,7 +110,8 @@ with tab3:
     st.markdown("### 📊 Roczny Szacunek Podatku Belka (PIT-38)")
     col1, col2 = st.columns(2)
     with col1:
-        planned_sells_val = st.text_area(
+        from modules.ui.widgets import tickers_area
+        planned_sells_val = tickers_area(
             "Planowane sprzedaże (ticker, ilość, cena sprzedaży — po przecinku, każda w linii)",
             "SPY, 5, 495\nAAPL, 20, 185",
             height=120,
