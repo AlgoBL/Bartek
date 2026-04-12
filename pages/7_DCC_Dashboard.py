@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from modules.styling import apply_styling, math_explainer
+from modules.ui.widgets import tickers_area
 from modules.i18n import t
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -28,7 +29,7 @@ st.divider()
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### ⚙️ Ustawienia")
-    tickers_input = st.text_area(
+    tickers_input = tickers_area(
         "Tickery (po średniku)", value="SPY;TLT;GLD;BTC-USD", height=80
     )
     rolling_window = st.slider("Okno rolling correlation (dni)", 20, 120, 60)

@@ -18,6 +18,8 @@ from modules.ai.scanner_engine import ScannerEngine
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
+from modules.market_conditions import detect_current_regime
+from modules.ui.widgets import ticker_input
 from modules.frontier import compute_efficient_frontier
 from modules.emerytura import render_emerytura_module
 from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR, REGIME_CRISIS
@@ -84,7 +86,7 @@ if st.sidebar.button(t("restore_global"), key="st_restore_gs", use_container_wid
     st.rerun()
 
 _gs_now = get_gs()
-st_safe_str  = st.sidebar.text_input(t("st_safe_basket"), value=st.session_state.get("_s.st_safe", _gs_now.safe_tickers_str or "TLT, GLD"), key="st_safe")
+st_safe_str  = ticker_input(t("st_safe_basket"), value=st.session_state.get("_s.st_safe", _gs_now.safe_tickers_str or "TLT, GLD"), key="st_safe", parent=st.sidebar)
 
 default_risky = st.session_state.pop('st_risky_transfer', "SPY, QQQ, BTC-USD")
 if 'st_risky' not in st.session_state:
@@ -94,7 +96,7 @@ else:
     if default_risky != "SPY, QQQ, BTC-USD" and default_risky != st.session_state['st_risky']:
         st.session_state['st_risky'] = default_risky
 
-st_risky_str = st.sidebar.text_input(t("st_risky_basket"), key="st_risky")
+st_risky_str = ticker_input(t("st_risky_basket"), key="st_risky", parent=st.sidebar)
 _gs_sw_default = int(round(get_gs().alloc_safe_pct * 100))
 st_safe_w    = st.sidebar.slider(t("st_safe_weight"), 10, 95, st.session_state.get("_s.st_sw", _gs_sw_default), key="st_sw") / 100.0
 st_capital   = st.sidebar.number_input(t("st_capital"), value=int(st.session_state.get("_s.st_cap", int(get_gs().initial_capital))), step=10000, key="st_cap")

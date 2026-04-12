@@ -10,6 +10,7 @@ from scipy.spatial.distance import squareform
 from modules.styling import apply_styling, module_header, scicard
 from modules.ai.data_loader import load_data
 from modules.herc_optimizer import compute_herc_weights
+from modules.ui.widgets import tickers_area
 from config import START_DATE
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -23,7 +24,7 @@ st.markdown(module_header(
 
 st.sidebar.markdown("### 1. Ekosystem Aktywów")
 default_assets = "SPY, QQQ, TLT, IEF, GLD, GSG, VNQ, BTC-USD, EEM"
-assets_input = st.sidebar.text_area("Koszyk Inwestycyjny", value=default_assets, height=100)
+assets_input = tickers_area("Koszyk Inwestycyjny", value=default_assets, height=100, parent=st.sidebar)
 tickers = [x.strip().upper() for x in assets_input.split(",") if x.strip()]
 
 n_clusters_opt = st.sidebar.selectbox("Liczba Klastrów (Machine Learning)", ["Auto (Heurystyka)", "2", "3", "4", "5", "6"])

@@ -15,6 +15,7 @@ from modules.styling import apply_styling, math_explainer
 from modules.risk_manager import RiskManager
 from modules.metrics import calculate_var_backtest
 from modules.i18n import t
+from modules.ui.widgets import ticker_input
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
@@ -29,7 +30,7 @@ st.divider()
 # ─── SIDEBAR CONTROLS ────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### ⚙️ Ustawienia")
-    ticker = st.text_input("Ticker (zwroty z Symulatora lub wpisz ręcznie)", value="SPY")
+    ticker = ticker_input("Ticker (zwroty z Symulatora lub wpisz ręcznie)", value="SPY", parent=st.sidebar)
     threshold_pct = st.slider("Próg POT (percentyl strat)", 0.85, 0.99, 0.95, 0.01,
                               help="Im wyższy próg, tym mniej danych — EVT działa na skrajnym ogonie")
     confidence_levels = st.multiselect(

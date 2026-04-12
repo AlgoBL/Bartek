@@ -1171,8 +1171,8 @@ st.markdown("<p style='color:#bbb;font-size:14px'>Wyszukiwanie par aktywów (np.
 pt_col, space_col = st.columns([1, 2])
 with pt_col:
     # Uklad z symulowanymi danymi, poniewaz brak bezposredniego pociagniecia prawdziwych (yf moze zablokowac)
-    pair1 = st.text_input("Aktywo A (np. KO)", value="KO")
-    pair2 = st.text_input("Aktywo B (np. PEP)", value="PEP")
+    pair1 = ticker_input("Aktywo A (np. KO)", value="KO")
+    pair2 = ticker_input("Aktywo B (np. PEP)", value="PEP")
 
 @st.cache_data(ttl=3600)
 def generate_cointegrated_series(seed=42):

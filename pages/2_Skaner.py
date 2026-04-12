@@ -22,6 +22,7 @@ from modules.ai.asset_universe import (
     get_wig20_tickers, get_stoxx50_tickers, get_crypto_tickers
 )
 from modules.ui.status_manager import StatusManager
+from modules.ui.widgets import ticker_input
 from modules.ai.observer import REGIME_BULL_QUIET, REGIME_BULL_VOL, REGIME_BEAR, REGIME_CRISIS
 from modules.i18n import t
 
@@ -388,7 +389,7 @@ if 'scanner_results' in st.session_state:
             ["Wszystkie", "Akcje US (S&P 500)", "Europa (STOXX 50)", "Polska (WIG20)", "Krypto", "ETF / Surowce (Top 100)"]
         )
     with col_f2:
-        new_watch = st.text_input("Dodaj ticker do Watchlisty (np. AAPL):").strip().upper()
+        new_watch = ticker_input("Dodaj ticker do Watchlisty (np. AAPL):").strip().upper()
         if new_watch and new_watch not in st.session_state['watchlist']:
             st.session_state['watchlist'].append(new_watch)
             st.rerun()

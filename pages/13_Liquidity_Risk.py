@@ -8,6 +8,7 @@ from modules.styling import apply_styling
 from modules.liquidity_risk_analyzer import (
     amihud_ratio, liquidity_adjusted_var, liquidity_ladder,
 )
+from modules.ui.widgets import tickers_area
 from modules.i18n import t
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -32,7 +33,7 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ Portfel")
-    tickers_in = st.text_area("Tickery", "SPY\nQQQ\nIWM\nEEM\nBTC-USD", height=120)
+    tickers_in = tickers_area("Tickery", "SPY\nQQQ\nIWM\nEEM\nBTC-USD", height=120)
     tickers = [t.strip().upper() for t in tickers_in.strip().split("\n") if t.strip()]
     weights_in = st.text_area("Wagi (suma=1)", "0.35\n0.25\n0.15\n0.15\n0.10", height=120)
     try:

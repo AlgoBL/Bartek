@@ -9,6 +9,7 @@ from modules.smart_rebalancing_engine import (
     compute_drift, minimum_trade_rebalance, rebalancing_cost_benefit,
 )
 from modules.i18n import t
+from modules.ui.widgets import tickers_area
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
@@ -28,7 +29,7 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ Portfel")
-    tickers_in = st.text_area("Tickery", "SPY\nTLT\nGLD\nQQQ\nEEM", height=110)
+    tickers_in = tickers_area("Tickery", "SPY\nTLT\nGLD\nQQQ\nEEM", height=110)
     tickers = [t.strip().upper() for t in tickers_in.strip().split("\n") if t.strip()]
     target_w_in = st.text_area("Docelowe wagi (suma=1)", "0.40\n0.30\n0.10\n0.10\n0.10", height=110)
     try:

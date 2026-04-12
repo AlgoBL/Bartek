@@ -3,7 +3,8 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import pandas as pd
-from modules.styling import apply_styling
+from modules.styling import apply_styling, module_header
+from modules.ui.widgets import ticker_input
 from modules.macro_regime_clock import (
     CLOCK_PHASES, classify_clock_phase, compute_regime_from_macro,
     historical_performance_table, clock_position_coords,
@@ -304,7 +305,7 @@ try:
         ent_m       = st.selectbox("Wymiar osadzenia m", [3, 4, 5], index=0, key="ent_m")
         ent_bull_th = st.slider("Próg Trending (<)", 0.20, 0.60, 0.40, 0.05, key="ent_bull")
         ent_bear_th = st.slider("Próg Chaotic (>)", 0.60, 0.95, 0.75, 0.05, key="ent_bear")
-        ent_ticker  = st.text_input("Ticker (puste = demo)", "", key="ent_tick")
+        ent_ticker  = ticker_input("Ticker (puste = demo)", "", key="ent_tick")
 
     # ── Dane: pobierz lub demo ──────────────────────────────────────────
     price_series = None

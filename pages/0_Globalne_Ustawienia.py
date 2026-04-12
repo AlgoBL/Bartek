@@ -282,7 +282,7 @@ with tab_portfolio:
             )
         else:
             st.markdown(t("gs_ticker_basket"))
-            safe_tickers_str_input = st.text_input(
+            safe_tickers_str_input = tickers_area(
                 t("gs_ticker_input"),
                 value=gs.safe_tickers_str or "TLT, IEF, GLD",
                 key="gs_safe_tickers_str",
@@ -705,10 +705,12 @@ with tab_isin:
     st.markdown("Dzięki systemowi ISIN Resolver, cała aplikacja obsługuje **przezroczyste tłumaczenie numerów ISIN** (np. `IE00B4L5Y983`) na Tickery giełdowe w locie. Możesz bez obaw wklejać identyfikatory w pola **Ticker** analizatorów.")
     st.markdown("Użyj poniższej wyszukiwarki do ręcznej autoryzacji i sprawdzenia, z jakiego wiodącego rynku aplikacja zaczerpnie dane (EUR/USD/GBP) dla Twojego Europejskiego ETF.")
     
-    isin_query = st.text_input("Podaj numer ISIN (np. ETF irlandzki):", placeholder="np. IE00B4L5Y983")
+    from modules.ui.widgets import ticker_input
+    isin_query = ticker_input("Podaj numer ISIN (np. ETF irlandzki):", placeholder="np. IE00B4L5Y983")
     
     if st.button("🔎 Szukaj odpowiednika na giełdzie", type="primary"):
         from modules.isin_resolver import ISINResolver
+        from modules.ui.status_manager import StatusManager
         if not ISINResolver.is_isin(isin_query):
             st.warning("⚠️ Podany ciąg znaków nie wygląda w pełni na prawidłowy, 12-znakowy kod ISIN. Sprawdź, czy nie ma literówek.")
         else:

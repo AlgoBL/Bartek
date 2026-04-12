@@ -23,6 +23,7 @@ from modules.global_settings import get_gs, apply_gs_to_session, force_apply_gs_
 from modules.i18n import t
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
+from modules.ui.widgets import tickers_area
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
 from modules.frontier import compute_efficient_frontier
 from modules.emerytura import render_emerytura_module
@@ -822,7 +823,7 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
     safe_fixed_rate = RISK_FREE_RATE_PL
     
     if safe_type == "Tickers (Yahoo)":
-        safe_tickers_str = st.sidebar.text_area("Koszyk Bezpieczny (Safe)", value=_saved("ai_safe_tickers", "TLT, IEF, GLD"), help="Obligacje, Złoto", key="ai_safe_tickers", on_change=_save, args=("ai_safe_tickers",))
+        safe_tickers_str = tickers_area("Koszyk Bezpieczny (Safe)", value=_saved("ai_safe_tickers", "TLT, IEF, GLD"), help="Obligacje, Złoto", key="ai_safe_tickers", on_change=_save, args=("ai_safe_tickers",), parent=st.sidebar)
         cap_freq = 1  # bez znaczenia dla tickerów
     else:
         st.sidebar.info("Generowanie syntetycznego aktywa o stałym wzroście 5.51% rocznie.")
@@ -860,31 +861,49 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
     risky_weights_manual = None
 
     if risky_asset_mode == "Lista (Auto Wagi)":
-         risky_tickers_str = st.sidebar.text_area("Koszyk Ryzykowny (Risky)", value=_saved("ai_risky_tickers", _gs_risky_default), help="Akcje, Krypto", key="ai_risky_tickers", on_change=_save, args=("ai_risky_tickers",))
+         risky_tickers_str = tickers_area("Koszyk Ryzykowny (Risky)", value=_saved("ai_risky_tickers", _gs_risky_default), help="Akcje, Krypto", key="ai_risky_tickers", on_change=_save, args=("ai_risky_tickers",), parent=st.sidebar)
          # Logic uses this string later
     else:
         st.sidebar.markdown("**Manualne Wagi Aktywów**")
-        # Initialize session state for table if needed, or just use default
-        default_data = pd.DataFrame([
-            {"Ticker": "SPY", "Waga (%)": 100.0}
-        ])
+        # Initialize session state for table if it doesn't exist
+        if "ai_manual_df" not in st.session_state:
+            st.session_state["ai_manual_df"] = pd.DataFrame([{"Ticker": "SPY", "Waga (%)": 100.0}])
+            
+            # Check for data transferred from Scanner
+            if 'transfer_data' in st.session_state and not st.session_state['transfer_data'].empty:
+                st.session_state["ai_manual_df"] = st.session_state['transfer_data']
 
-        # Check for data transferred from Scanner
-        if 'transfer_data' in st.session_state and not st.session_state['transfer_data'].empty:
-            default_data = st.session_state['transfer_data']
-            # Clean up session state to avoid persistence if not desired, 
-            # or keep it. Let's keep it until user changes it.
+        edited_df = st.sidebar.data_editor(
+            st.session_state["ai_manual_df"], 
+            num_rows="dynamic", 
+            use_container_width=True, 
+            key="ai_manual_table_editor"
+        )
         
-        edited_df = st.sidebar.data_editor(default_data, num_rows="dynamic", use_container_width=True, key="ai_manual_table")
-        
+        # Translation of ISINs in the dataframe
+        from modules.isin_resolver import ISINResolver
+        needs_rerun = False
+        for i, row in edited_df.iterrows():
+            tkr = str(row["Ticker"]).strip()
+            if tkr and ISINResolver.is_isin(tkr):
+                resolved = ISINResolver.resolve(tkr)
+                if resolved != tkr:
+                    edited_df.at[i, "Ticker"] = resolved
+                    needs_rerun = True
+
+        if needs_rerun:
+            st.session_state["ai_manual_df"] = edited_df
+            st.rerun()
+        else:
+            # Update base state in case user added/deleted row normally so we persist it
+            st.session_state["ai_manual_df"] = edited_df
+
         # Validation
         total_weight = edited_df["Waga (%)"].sum()
         if abs(total_weight - 100.0) > 0.01:
             st.sidebar.error(f"Suma wag musi wynosić 100%! Obecnie: {total_weight:.1f}%")
         
         # Prepare data for simulation
-        # Create a dictionary {Ticker: Fraction}
-        # And also update risky_tickers_str just in case or use it to load data
         risky_weights_manual = {}
         valid_tickers = []
         for index, row in edited_df.iterrows():

@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import yfinance as yf
 from modules.styling import apply_styling
+from modules.ui.widgets import tickers_area
 from modules.alternative_risk_premia import (
     time_series_momentum, cross_sectional_momentum,
     low_volatility_factor, bond_carry_signal, arp_portfolio_suggestion,
@@ -29,7 +30,7 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ Universe")
-    tickers_in = st.text_area("Tickery (ARP universe)", "SPY\nQQQ\nIWM\nTLT\nGLD\nEEM\nGSG", height=150)
+    tickers_in = tickers_area("Tickery (ARP universe)", "SPY\nQQQ\nIWM\nTLT\nGLD\nEEM\nGSG", height=150)
     tickers = [t.strip().upper() for t in tickers_in.strip().split("\n") if t.strip()]
     period_h = st.selectbox("Okres historyczny", ["3y", "5y", "10y"], index=1)
     vol_target = st.slider("Vol Target TSMOM (%)", 10, 60, 40) / 100

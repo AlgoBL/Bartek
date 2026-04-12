@@ -14,8 +14,8 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ Konfiguracja Testu")
-    risky_asset = st.text_input("Ryzykowne aktywo (np. SPY)", "SPY")
-    safe_asset = st.text_input("Bezpieczne aktywo (np. TLT)", "TLT")
+    risky_asset = ticker_input("Ryzykowne aktywo (np. SPY)", "SPY")
+    safe_asset = ticker_input("Bezpieczne aktywo (np. TLT)", "TLT")
     period = st.selectbox("Okres danych", ["10y", "15y", "20y", "max"], index=1)
     n_chunks = st.slider("Liczba bloków CPCV (N)", 4, 10, 6, 2, help="Im więcej bloków, tym więcej kombinacji. Typowo używa się N=6 (15 kombinacji IS/OOS) lub N=8 (70 kombinacji).")
     n_strats = st.slider("Liczba wariantów strategii (M)", 10, 100, 20, 10, help="Rozmiar przestrzeni parametrów (im większa, tym ryzyko Overfittingu większe).")

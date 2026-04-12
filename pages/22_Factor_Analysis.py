@@ -16,6 +16,7 @@ import plotly.express as px
 from scipy.stats import chi2
 
 from modules.styling import apply_styling, math_explainer
+from modules.ui.widgets import tickers_area
 from modules.factor_model import (
     build_factor_returns, run_factor_decomposition,
     plot_factor_decomposition, plot_variance_attribution,
@@ -40,7 +41,7 @@ st.divider()
 with st.sidebar:
     st.markdown("### ⚙️ Ustawienia")
 
-    ticker_input = st.text_area(
+    ticker_input = tickers_area(
         "Tickers portfela (jeden per linia lub przecinek)",
         value="SPY\nQQQ\nTLT\nGLD\nIWM",
         height=120,

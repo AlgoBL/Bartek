@@ -8,6 +8,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 from modules.styling import apply_styling, module_header
+from modules.ui.widgets import tickers_area
 from modules.portfolio_health_monitor import (
     drawdown_alert, volatility_spike_detector, correlation_breakdown_alert,
     kelly_fraction_monitor, portfolio_health_score, get_active_alerts,
@@ -46,7 +47,7 @@ st.markdown(module_header(
 with st.sidebar:
     st.markdown(t("hm_config"))
 
-    tickers_input = st.text_area(
+    tickers_input = tickers_area(
         t("hm_tickers"),
         value="SPY\nTLT\nGLD\nQQQ\nEEM",
         height=120,

@@ -74,7 +74,7 @@ with tab2:
     with st.expander("📝 Wprowadź pozycje portfela", expanded=True):
         for i in range(int(n_pos)):
             cc = st.columns([2, 1, 1, 1, 1])
-            ticker = cc[0].text_input(f"Ticker {i+1}", key=f"tlh_t_{i}", value=["SPY", "QQQ", "AAPL", "TSLA", "BNDX"][i % 5])
+            ticker = ticker_input(f"Ticker {i+1}", key=f"tlh_t_{i}", value=["SPY", "QQQ", "AAPL", "TSLA", "BNDX"][i % 5], parent=cc[0])
             qty = cc[1].number_input("Ilość", 1.0, key=f"tlh_q_{i}", value=10.0)
             avg_cost = cc[2].number_input("Śr. koszt (USD)", 1.0, key=f"tlh_c_{i}", value=[500.0, 400.0, 180.0, 250.0, 60.0][i % 5])
             curr_price = cc[3].number_input("Cena bieżąca", 1.0, key=f"tlh_p_{i}", value=[490.0, 410.0, 170.0, 260.0, 55.0][i % 5])

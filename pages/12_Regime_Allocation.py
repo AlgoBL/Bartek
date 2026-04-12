@@ -37,7 +37,7 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ Ustawienia")
-    ticker = st.text_input("Ticker (benchmark)", "SPY")
+    ticker = ticker_input("Ticker (benchmark)", "SPY", parent=st.sidebar)
     period = st.selectbox("Okres historyczny", ["3y", "5y", "10y"], index=1)
     vix_level = st.slider("VIX (bieżący)", 10.0, 60.0, 18.0, 0.5)
     yield_curve_val = st.slider("Yield Curve (10Y-2Y)", -2.0, 3.0, 0.5, 0.1)

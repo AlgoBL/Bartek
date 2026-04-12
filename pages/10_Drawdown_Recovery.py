@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import yfinance as yf
 from modules.styling import apply_styling
+from modules.ui.widgets import ticker_input
 from modules.drawdown_recovery_analyzer import (
     underwater_analysis, sequence_of_returns_risk,
     breakeven_calculator, recovery_probability_mc,
@@ -36,7 +37,7 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ Ustawienia")
-    ticker = st.text_input("Ticker (benchmark/portfel)", value="SPY")
+    ticker = ticker_input("Ticker (benchmark/portfel)", value="SPY")
     period = st.selectbox("Okres historyczny", ["5y", "10y", "15y", "20y"], index=1)
     initial_capital = st.number_input("Kapitał startowy (PLN)", value=100_000, step=10_000)
     withdrawal = st.number_input("Roczna wypłata (PLN)", value=4_000, step=1_000)

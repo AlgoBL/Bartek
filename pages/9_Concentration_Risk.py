@@ -7,6 +7,7 @@ import plotly.express as px
 import yfinance as yf
 
 from modules.styling import apply_styling
+from modules.ui.widgets import tickers_area
 from modules.concentration_risk_monitor import (
     compute_hhi, pca_concentration, concentration_risk_score, diversification_ratio,
 )
@@ -32,7 +33,7 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ Portfel")
-    tickers_input = st.text_area("Tickery", value="SPY\nQQQ\nTLT\nGLD\nBTC-USD\nEEM\nIWM", height=150)
+    tickers_input = tickers_area("Tickery", value="SPY\nQQQ\nTLT\nGLD\nBTC-USD\nEEM\nIWM", height=150)
     tickers = [t.strip().upper() for t in tickers_input.strip().split("\n") if t.strip()]
     weights_input = st.text_area("Wagi (suma=1)", value="\n".join(["0.20", "0.15", "0.20", "0.10", "0.10", "0.15", "0.10"]), height=150)
     try:
