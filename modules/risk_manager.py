@@ -459,8 +459,11 @@ class RiskManager:
         else:
             phi = np.ones(n)
 
-        # Normalize so ∫φ dp ≈ 1
-        phi = phi / (phi.sum() / n * n)
+        # BUG-19 FIX: SRM wymaga ∫φ dp = 1, czyli phi_integral = phi.sum()/n ≈ 1
+        # Poprzedni kod: phi/(phi.sum()/n * n) = phi/phi.sum() → sum(phi)=1, ale ∫φ dp = 1/n ≠ 1
+        # Poprawnie: normalizujemy tak żeby ∫φ dp = phi.sum()/n = 1, tzn. phi.sum() = n
+        phi_integral = phi.sum() / n   # ≈ ∫φ dp
+        phi = phi / (phi_integral + 1e-12)   # teraz ∫φ dp ≈ 1
 
         srm = float(np.sum(phi * losses) / n)
         return srm

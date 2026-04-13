@@ -69,11 +69,18 @@ if len(tickers) < 2:
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_returns_data(tickers_tuple: tuple, period_str: str) -> pd.DataFrame:
     """Load price data and compute daily returns."""
+    from modules.isin_resolver import ISINResolver
+    # Transparentne tłumaczenie ISIN → ticker dla każdego elementu krotki
+    resolved_map = {t: ISINResolver.resolve(t) for t in tickers_tuple}
+    resolved_list = [resolved_map[t] for t in tickers_tuple]
     try:
         import yfinance as yf
-        raw = yf.download(list(tickers_tuple), period=period_str, progress=False, auto_adjust=True)
+        raw = yf.download(resolved_list, period=period_str, progress=False, auto_adjust=True)
         if isinstance(raw.columns, pd.MultiIndex):
             prices = raw["Close"]
+            # Przywróć oryginalne etykiety (ISIN lub ticker podany przez użytkownika)
+            reverse_map = {v: k for k, v in resolved_map.items()}
+            prices.columns = [reverse_map.get(c, c) for c in prices.columns]
         else:
             prices = raw[["Close"]]
             prices.columns = list(tickers_tuple)

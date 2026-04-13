@@ -15,14 +15,21 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_data(tickers, period="2y"):
+    from modules.isin_resolver import ISINResolver
+    # Transparentne tłumaczenie ISIN → ticker dla listy tickerów
+    resolved = [ISINResolver.resolve(t) for t in tickers]
     try:
-        raw = yf.download(tickers, period=period, progress=False, auto_adjust=True)
+        raw = yf.download(resolved, period=period, progress=False, auto_adjust=True)
         if isinstance(raw.columns, pd.MultiIndex):
             closes = raw["Close"]
-            vols = raw["Volume"]
+            vols   = raw["Volume"]
+            # Przywróć oryginalne etykiety
+            rev = {r: o for o, r in zip(tickers, resolved)}
+            closes.columns = [rev.get(c, c) for c in closes.columns]
+            vols.columns   = [rev.get(c, c) for c in vols.columns]
         else:
             closes = raw[["Close"]] if "Close" in raw.columns else raw
-            vols = raw[["Volume"]] if "Volume" in raw.columns else pd.DataFrame()
+            vols   = raw[["Volume"]] if "Volume" in raw.columns else pd.DataFrame()
         return closes.dropna(how="all"), vols.dropna(how="all")
     except Exception as e:
         return None, None

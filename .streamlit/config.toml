@@ -1,0 +1,33 @@
+[server]
+# Tryb headless: nie otwiera przeglądarki automatycznie (szybszy start)
+headless = true
+# Wyłączone hot-reload przy zapisie pliku (zbędne w produkcji, zwalnia OneDrive)
+runOnSave = false
+# Wyłączone obserwowanie plików — OneDrive i tak powoduje false-positive events
+fileWatcherType = "none"
+# Limit rozmiaru uploadu (MB)
+maxUploadSize = 200
+# Maksymalny rozmiar wiadomości WebSocket (MB)
+maxMessageSize = 200
+
+[browser]
+# Wyłączona telemetria Streamlit → brak requestów do serwerów Snowflake przy starcie
+gatherUsageStats = false
+
+[logger]
+# Tylko błędy i ostrzeżenia — eliminuje verbose debug logging przy starcie
+level = "warning"
+# Krótszy format logu
+messageFormat = "%(asctime)s %(message)s"
+
+[runner]
+# Szybsze re-runy: Streamlit nie czeka na garbage collection widgetów
+fastReruns = true
+# Enumy jako stringi — mniejszy koszt serializacji
+enumCoercion = "nameonly"
+
+[client]
+# Pokaż błędy w UI (przydatne w dev, ustaw false w produkcji)
+showErrorDetails = true
+# Skróć opóźnienie inicjalizacji toolbara
+toolbarMode = "minimal"

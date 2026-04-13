@@ -17,6 +17,8 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_data(ticker="SPY", period="5y"):
+    from modules.isin_resolver import ISINResolver
+    ticker = ISINResolver.resolve(ticker)  # transparentne tłumaczenie ISIN → ticker
     try:
         raw = yf.download(ticker, period=period, progress=False, auto_adjust=True)
         if isinstance(raw.columns, pd.MultiIndex):

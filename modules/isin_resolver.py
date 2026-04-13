@@ -20,18 +20,24 @@ class ISINResolver:
         pattern = r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$"
         return bool(re.match(pattern, identifier))
 
+    _MEMORY_CACHE: dict = {}
+
     @classmethod
     def load_cache(cls) -> dict:
+        if cls._MEMORY_CACHE:
+            return cls._MEMORY_CACHE
         if os.path.exists(CACHE_FILE):
             try:
                 with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    cls._MEMORY_CACHE = json.load(f)
+                    return cls._MEMORY_CACHE
             except Exception as e:
                 logger.warning(f"Błąd odczytu cache ISIN: {e}")
         return {}
 
     @classmethod
     def save_cache(cls, cache: dict):
+        cls._MEMORY_CACHE = cache
         os.makedirs(CACHE_DIR, exist_ok=True)
         try:
             with open(CACHE_FILE, "w", encoding="utf-8") as f:

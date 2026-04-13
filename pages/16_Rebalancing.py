@@ -37,10 +37,23 @@ with st.sidebar:
         target_w = target_w / target_w.sum()
     except Exception:
         target_w = np.ones(len(tickers)) / len(tickers)
+
     total_nav = st.number_input("NAV portfela (PLN)", 100_000, step=50_000)
     new_cash = st.number_input("Nowa gotówka do zainwestowania (PLN)", 0, step=5_000)
     band_pct = st.slider("Próg drift-band (%)", 1, 15, 5) / 100
     period_bt = st.selectbox("Okres backtest", ["3y", "5y", "10y"], index=0)
+
+    st.divider()
+    st.markdown("### 💼 Aktualne Wagi Portfela")
+    st.caption("ℹ️ Wpisz bieżące wartości pozycji (PLN), aby otrzymać realistyczny plan rebalansowania.")
+    use_custom_weights = st.checkbox("🔍 Wprowadź rzeczywiste wagi portfela", value=False)
+    custom_values_input = st.text_area(
+        "Wartości pozycji (PLN, jedna per linia)",
+        "\n".join(["40000", "30000", "10000", "10000", "10000"]),
+        height=110,
+        help="Wpisz bieżącą wartość każdej pozycji w PLN. Suma powinna ≈ NAV.",
+        disabled=not use_custom_weights,
+    )
 
 with st.spinner("Ładowanie..."):
     prices = load_data(tickers, period_bt)
@@ -49,17 +62,34 @@ if prices is None or prices.empty:
     st.error("Brak danych.")
     st.stop()
 
-available = [t for t in tickers if t in prices.columns]
+available = [tick for tick in tickers if tick in prices.columns]
 prices_a = prices[available].dropna()
 tw = target_w[:len(available)]
 tw = tw / tw.sum()
 
-# Simulate current drift (random for demo)
-rng = np.random.default_rng(42)
-drift_noise = rng.normal(0, 0.04, len(available))
-current_w = np.clip(tw + drift_noise, 0.01, 0.99)
-current_w = current_w / current_w.sum()
-current_values = current_w * total_nav
+# BUG-18 FIX: Aktualne wagi portfela pobieramy od użytkownika, nie losujemy
+if use_custom_weights:
+    try:
+        raw_vals = [float(v.strip()) for v in custom_values_input.strip().split("\n") if v.strip()]
+        raw_vals = raw_vals[:len(available)]  # dopasuj do dostępnych tickerów
+        # Wypełnij zerami jeśli za mało wartości
+        while len(raw_vals) < len(available):
+            raw_vals.append(0.0)
+        current_values = np.array(raw_vals, dtype=float)
+        current_values = np.maximum(current_values, 0.0)
+        if current_values.sum() < 1:
+            st.sidebar.warning("⚠️ Suma wartości pozycji jest bliska 0 — sprawdź dane wejściowe.")
+            current_values = tw * total_nav  # fallback
+        current_w = current_values / (current_values.sum() + 1e-10)
+    except Exception:
+        st.sidebar.error("Błąd parsowania wartości pozycji — użyto wag docelowych jako fallback.")
+        current_values = tw * total_nav
+        current_w = tw.copy()
+else:
+    # Re-skala wag docelowych do NAV jako startowa aproksymacja (bez sztucznego losowego driftu)
+    current_values = tw * total_nav
+    current_w = tw.copy()
+    st.info("ℹ️ Aby zobaczyć realistyczny plan rebalansowania, włącz **'Wprowadź rzeczywiste wagi portfela'** w panelu bocznym i wpisz bieżące wartości pozycji.")
 
 # Compute drift
 drift_res = compute_drift(current_w, tw, band_pct)

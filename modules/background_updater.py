@@ -4,8 +4,6 @@ import json
 import logging
 import threading
 from datetime import datetime
-from modules.ai.oracle import TheOracle
-from modules.ai.agents import LocalGeopolitics
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -78,6 +76,9 @@ class BackgroundDataEngine:
     def _fetch_and_save(self):
         """Główna logika pobierania i atomowego zapisu do JSON."""
         try:
+            from modules.ai.oracle import TheOracle
+            from modules.ai.agents import LocalGeopolitics
+            
             # 1. Pobieranie ciężkich danych (wcześniej zawieszało app.py)
             oracle = TheOracle()
             macro = oracle.get_macro_snapshot()

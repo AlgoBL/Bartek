@@ -368,12 +368,14 @@ def simulate_neural_sde_paths(
     vol_paths : (n_sims, n_days)
     spot_shocks : (n_sims, n_days)
     """
-    if seed is not None:
-         np.random.seed(seed)
+    # BUG-20 FIX: Użwamy np.random.default_rng zamiast przestarzałego np.random.seed()
+    # np.random.seed() modyfikuje globalny stan losowy co powoduje problemy przy równoległych wywołaniach
+    rng = np.random.default_rng(seed)  # None = losowy seed
+    # Kompatybilność: dzięki rng.standard_normal mamy lokalny, izolowany generator
          
     vol_paths = np.zeros((n_sims, n_days))
-    spot_shocks = np.random.standard_normal((n_sims, n_days))
-    brownian_vol = np.random.standard_normal((n_sims, n_days))
+    spot_shocks = rng.standard_normal((n_sims, n_days))
+    brownian_vol = rng.standard_normal((n_sims, n_days))
     
     vol_paths[:, 0] = initial_vol
     
@@ -676,7 +678,7 @@ def simulate_rough_bergomi_vol(
 def simulate_barbell_strategy(
     n_years=10, 
     n_simulations=1000, 
-    initial_captial=10000,
+    initial_capital=10000,  # BUG-06 FIX: poprawiono literowę 'captial' → 'capital'
     safe_rate=RISK_FREE_RATE_PL,
     risky_mean=0.08, 
     risky_vol=0.20, 
@@ -891,13 +893,13 @@ def simulate_barbell_strategy(
     daily_safe_rate = (1 + (safe_rate * 0.81))**(1/days_per_year) - 1
 
     wealth_paths = np.zeros((n_simulations, total_days + 1))
-    wealth_paths[:, 0] = initial_captial
+    wealth_paths[:, 0] = initial_capital  # BUG-06 FIX: używamy poprawionej nazwy
 
     val_safe = np.zeros((n_simulations, total_days + 1))
     val_risky = np.zeros((n_simulations, total_days + 1))
 
-    val_safe[:, 0] = initial_captial * alloc_safe
-    val_risky[:, 0] = initial_captial * (1 - alloc_safe)
+    val_safe[:, 0] = initial_capital * alloc_safe
+    val_risky[:, 0] = initial_capital * (1 - alloc_safe)
 
     rebalance_map = {"None": 0, "Yearly": 1, "Monthly": 2, "Threshold": 3}
     reb_id = rebalance_map.get(rebalance_strategy, 0)

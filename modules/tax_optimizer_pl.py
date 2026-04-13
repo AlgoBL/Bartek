@@ -12,7 +12,8 @@ Prawo Polskie:
   - Podatek Belka = 19% od zysków kapitałowych
   - IKE limit 2026: 3× przeciętne wynagrodzenie ≈ 25,000 PLN
   - IKZE limit 2026: 1.2× 3× průz ≈ 10,000 PLN (+ 75% dla prowadzących DG)
-  - Brak możliwości offsetu zysk/strata między różnymi latami (w tym roku)
+  - Możliwość przenoszenia strat kapitałowych na kolejne 5 lat (art. 9 ust. 3 UPDOF)
+    (do 50% straty rocznie można odliczać w każdym z 5 kolejnych lat podatkowych)
   - FIFO jako domyślna metoda wyceny
 """
 
@@ -118,22 +119,27 @@ def tax_loss_harvesting(
     for pos in positions:
         pnl = pos.get("unrealized_pnl_pln", 0)
         if pnl < -min_loss_threshold_pln:
-            offsettable = min(abs(pnl), realised_gains_ytd_pln + abs(pnl))
+            # BUG-01 FIX: offsettable ograniczone do RZECZYWISTYCH zysków YTD
+            # (nie można odliczyć więcej straty niż mamy zrealizowanych zysków w tym roku)
+            offsettable = min(abs(pnl), realised_gains_ytd_pln)
             tax_benefit = offsettable * TAX_BELKA
             candidates.append({
                 "ticker": pos["ticker"],
                 "loss_pln": pnl,
                 "loss_pct": pos["return_pct"],
+                "offsettable_pln": offsettable,
                 "tax_benefit_pln": tax_benefit,
                 "recommendation": f"Sprzedaj {pos['ticker']}, odkup podobny ETF (np. zamień SPY→IVV)",
             })
             total_loss += abs(pnl)
 
-    # Ile możemy offsetować (ograniczone do zysków YTD lub całości straty)
-    max_offsettable = min(total_loss, realised_gains_ytd_pln + total_loss * 0.5)
+    # BUG-01 FIX: max_offsettable = min(łączna strata, zrealizowane zyski YTD)
+    # Nadwyżka straty ponad zyski przechodzi na lata kolejne (do 5 lat, art. 9 ust. 3 UPDOF)
+    max_offsettable = min(total_loss, realised_gains_ytd_pln)
     tax_saved = max_offsettable * TAX_BELKA
+    loss_carryforward = max(0.0, total_loss - realised_gains_ytd_pln)
 
-    # Szacowany koszt transakcji (0.19% round-trip dla ETF)
+    # Szacowany koszt transakcji (0.1% round-trip dla ETF)
     approx_tc = total_loss * 0.001 * 2
 
     recs = []
@@ -142,14 +148,17 @@ def tax_loss_harvesting(
     else:
         recs.append(f"🔴 Znaleziono {len(candidates)} pozycji do TLH — potencjalna oszczędność: {tax_saved:,.0f} PLN")
         recs.append(f"💡 Po kosztach transakcyjnych (~{approx_tc:,.0f} PLN): netto {tax_saved - approx_tc:,.0f} PLN oszczędności")
+        if loss_carryforward > 0:
+            recs.append(f"📅 Nadwyżka straty {loss_carryforward:,.0f} PLN przenosi się na kolejne lata (do 5 lat, max 50%/rok — art. 9 ust. 3 UPDOF)")
         if realised_gains_ytd_pln < 1000:
-            recs.append("⚠️ Małe zrealizowane zyski YTD — TLH przenosi stratę na następny rok, nie anuluje bieżącej Belki")
+            recs.append("⚠️ Małe zrealizowane zyski YTD — TLH przenosi stratę na następny rok (do 5 lat), nie anuluje bieżącej Belki")
 
     return {
         "candidates": candidates,
         "total_loss_available": total_loss,
         "realised_gains_ytd": realised_gains_ytd_pln,
         "max_offsettable": max_offsettable,
+        "loss_carryforward_pln": loss_carryforward,
         "tax_saved_gross": tax_saved,
         "estimated_tc": approx_tc,
         "tax_saved_net": max(0, tax_saved - approx_tc),
@@ -196,28 +205,36 @@ def ike_ikze_optimizer(
     ike_remaining = max(0, IKE_LIMIT_PLN - current_ike_funded_pln)
     ikze_remaining = max(0, ikze_limit - current_ikze_funded_pln)
 
-    # IKE — oszczędność: Belka 19% od zysku po N latach
-    ike_future_value = IKE_LIMIT_PLN * ((1 + expected_cagr) ** years_to_retirement)
-    ike_gain = ike_future_value - IKE_LIMIT_PLN
+    # BUG-03 FIX: IKE — wzrost uwzględnia zarówno już wpłacone środki jak i maksymalny limit roczny
+    # Użytkownik ma (current_ike_funded_pln) zgromadzone + może dopłacić (ike_remaining)
+    # Tutaj liczymy wartość przyszłą od CAŁOŚCI (ike_funded + ike_remaining) = IKE_LIMIT_PLN
+    total_ike_capital = IKE_LIMIT_PLN  # bo funded + remaining = limit
+    ike_future_value = total_ike_capital * ((1 + expected_cagr) ** years_to_retirement)
+    ike_gain = ike_future_value - total_ike_capital
     ike_tax_saved_lifetime = ike_gain * TAX_BELKA
 
-    # IKZE — oszczędność: odliczenie w roku wpłaty (zwrot PIT) - podatek 10% przy wypłacie
-    ikze_deduction_now = min(ikze_remaining, ikze_limit) * marginal_pit_rate
+    # BUG-02 FIX: IKZE — odliczenie PIT to kwota FAKTYCZNIE WPŁACONA w bieżącym roku
+    # (current_ikze_funded_pln to co już wpłacono; nie to co zostało)
+    ikze_deduction_now = current_ikze_funded_pln * marginal_pit_rate
+    # Wartość przyszła CAŁEGO limitu IKZE (zakładamy pełne wykorzystanie)
     ikze_future_value = ikze_limit * ((1 + expected_cagr) ** years_to_retirement)
+    # Podatek 10% ryczałtowy przy wypłacie, zdyskontowany do wartości dzisiejszej
     ikze_tax_at_withdrawal = ikze_future_value * 0.10
-    ikze_net_benefit = ikze_deduction_now - ikze_tax_at_withdrawal * (1 / (1.04 ** years_to_retirement))
+    ikze_net_benefit = ikze_deduction_now - ikze_tax_at_withdrawal / ((1.04 ** years_to_retirement))
 
-    # Porównanie: inwestycja regularna vs IKE
-    regular_future = IKE_LIMIT_PLN * ((1 + expected_cagr) ** years_to_retirement)
-    regular_gain = regular_future - IKE_LIMIT_PLN
+    # Porównanie: inwestycja regularna (rachunek maklerski) vs IKE
+    regular_future = total_ike_capital * ((1 + expected_cagr) ** years_to_retirement)
+    regular_gain = regular_future - total_ike_capital
     regular_after_tax = regular_future - regular_gain * TAX_BELKA
-    ike_after_tax = ike_future_value  # brak Belki
+    ike_after_tax = ike_future_value  # brak Belki — całość trafia do inwestora
 
     recs = []
     if ike_remaining > 0:
         recs.append(f"💚 Możesz jeszcze wpłacić {ike_remaining:,.0f} PLN na IKE w tym roku")
     if ikze_remaining > 0:
         recs.append(f"💙 Możesz jeszcze wpłacić {ikze_remaining:,.0f} PLN na IKZE — odliczysz {ikze_remaining * marginal_pit_rate:,.0f} PLN od PIT")
+    if current_ikze_funded_pln > 0:
+        recs.append(f"✅ Wpłacono już {current_ikze_funded_pln:,.0f} PLN na IKZE — odliczenie PIT w tym roku: {ikze_deduction_now:,.0f} PLN")
     recs.append(f"📊 Po {years_to_retirement} latach: IKE daje ~{ike_after_tax - regular_after_tax:,.0f} PLN więcej niż rachunek maklerski")
 
     return {
@@ -227,7 +244,7 @@ def ike_ikze_optimizer(
         "ikze_funded": current_ikze_funded_pln,
         "ike_remaining": ike_remaining,
         "ikze_remaining": ikze_remaining,
-        "ike_deduction": 0,  # IKE nie odlicza wpłaty
+        "ike_deduction": 0,  # IKE nie odlicza wpłaty od PIT
         "ikze_deduction_current_year": ikze_deduction_now,
         "ike_belka_saved_lifetime": ike_tax_saved_lifetime,
         "ike_vs_regular_advantage": ike_after_tax - regular_after_tax,
@@ -405,7 +422,15 @@ def asset_location_optimizer(
     
     enhanced = []
     for a in assets:
-        tax_drag_approx = (a['div_yield'] * TAX_BELKA) + ((a['cagr'] - a['div_yield']) * 0.5 * TAX_BELKA) # rough weight
+        # BUG-23 FIX: Tax drag = roczne opodatkowanie dywidend (pobierane na bieżąco)
+        # + wpływ Belki na skumulowany wzrost kapitałowy (szacowany jako stała roczna "renta" podatkowa)
+        # Dla uproszczenia: dywidendy opodatkowane w 100% co rok (div_yield * 19%)
+        # Wzrost kapitałowy: efektywna roczna strata przez odroczony podatek Belka
+        #   = (cagr - div_yield) * TAX_BELKA / (1 + assumed horizon discount)
+        # Używamy horyzontu 10 lat: efektywna stawka ≈ Belka / 10 vs dywidendy płacone co rok
+        cap_gain = max(0, a['cagr'] - a['div_yield'])
+        tax_drag_approx = (a['div_yield'] * TAX_BELKA) + (cap_gain * TAX_BELKA * 0.1)
+        # Wyższy współczynnik dywidend (opodatkowane co rok) vs wzrost (odroczony do sprzedaży)
         enhanced.append({**a, "tax_drag": tax_drag_approx})
         
     enhanced.sort(key=lambda x: x["tax_drag"], reverse=True)

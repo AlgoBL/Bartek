@@ -45,13 +45,17 @@ n_assets = len(tickers)
 # ─── DATA LOADING ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_multi_returns(ticker_list: list, n: int) -> pd.DataFrame:
+    from modules.isin_resolver import ISINResolver
     dfs = []
-    for t in ticker_list:
+    for raw_t in ticker_list:
+        resolved = ISINResolver.resolve(raw_t)  # transparentne tłumaczenie ISIN → ticker
         try:
             import yfinance as yf
-            data = yf.download(t, period=f"{n//252+2}y", progress=False)["Adj Close"]
+            data = yf.download(resolved, period=f"{n//252+2}y", progress=False)["Close"]
+            if isinstance(data, pd.DataFrame):
+                data = data.iloc[:, 0]
             if len(data) > 30:
-                dfs.append(data.pct_change().dropna().rename(t))
+                dfs.append(data.pct_change().dropna().rename(raw_t))  # zachowaj oryginalny label
         except Exception:
             pass
     if not dfs:

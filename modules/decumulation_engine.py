@@ -29,28 +29,35 @@ def simulate_bengen_swr(
     # Uproszczenie: stała inflacja lub dodajemy zmienność do inflacji
     
     survived = np.ones(num_simulations, dtype=bool)
-    
+
     for y in range(1, years + 1):
-        # Roczna zmiana portfela: ujemny wypływ na początku roku + wzrost reszty przez rok
-        # Wypłata korygowana o inflację
-        current_withdrawal = base_withdrawal * ((1 + inflation_rate) ** (y - 1))
-        
-        # Odejmij wypłatę u tych, którzy jeszcze nie zbankrutowali
-        portfolios[:, y] = portfolios[:, y-1]
-        
-        # Jeśli kapitał nie starcza na pełną wypłatę, bankructwo
-        bankrupt_this_year = portfolios[:, y] < current_withdrawal
-        survived[bankrupt_this_year] = False
-        portfolios[bankrupt_this_year, y] = 0
-        
-        # Dla tych co przetrwali ucinamy wypłatę
-        portfolios[survived, y] -= current_withdrawal
-        
-        # Roczny rynkowy zwrot - upewniamy się, że to proces lognormalny lub arytmetyczny?
+        # Roczna zmiana portfela: najpierw wzrost rynkowy, potem wypłata
+        # BUG-10 FIX: Poprawna kolejność operacji Bengen SWR:
+        # 1. Rynek rośnie przez rok (growth na początku / w środku roku)
+        # 2. Na koniec roku wypłacamy skorygowaną o inflację kwotę
+        # 3. Bankrut = portfel po wypłacie < 0
+
+        # Krok 1: Roczny wzrost rynkowy (lognormalny)
         returns = rng.normal(loc=mu - 0.5 * vol**2, scale=vol, size=num_simulations)
         growth_factors = np.exp(returns)
-        
-        portfolios[survived, y] = portfolios[survived, y] * growth_factors[survived]
+
+        # Wzrost tylko dla tych co jeszcze przeżyli
+        portfolios[survived, y] = portfolios[survived, y-1] * growth_factors[survived]
+        # Nieprzyźywający pozostają na 0
+        portfolios[~survived, y] = 0.0
+
+        # Krok 2: Wypłata skorygowana o inflację
+        current_withdrawal = base_withdrawal * ((1 + inflation_rate) ** (y - 1))
+
+        # Krok 3: Wykrycie bankructwa (po wzroście, przed wypłatą)
+        bankrupt_this_year = survived & (portfolios[:, y] < current_withdrawal)
+        survived[bankrupt_this_year] = False
+        portfolios[bankrupt_this_year, y] = 0
+
+        # Wypłata dla przeżywających
+        portfolios[survived, y] -= current_withdrawal
+        # Upewniamy się że nie ujemne (edge case: bardzo blisko granicy)
+        portfolios[survived, y] = np.maximum(portfolios[survived, y], 0.0)
 
     success_rate = survived.mean()
     

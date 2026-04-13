@@ -6,11 +6,24 @@ def nss_yield_curve(maturities: np.ndarray, beta0: float, beta1: float, beta2: f
     """
     Równanie Nelson-Siegel-Svensson (NSS) dla krzywej dochodowości.
     Zwraca wyliczone yieldy dla podanych zapadalności (maturities).
+
+    BUG-11 FIX: Dodano ochronę przed singularnościami:
+    - tau1 lub tau2 ≈ 0 powodowałoby dzielenie przez 0
+    - maturities = 0 powoduje 0/0 (L'Hôpital: limit = 1)
     """
-    term1 = (1 - np.exp(-maturities / tau1)) / (maturities / tau1)
-    term2 = term1 - np.exp(-maturities / tau1)
-    term3 = ((1 - np.exp(-maturities / tau2)) / (maturities / tau2)) - np.exp(-maturities / tau2)
-    
+    # Ochrona przed tau ≈ 0 (numeryczna stabilność)
+    tau1 = max(float(tau1), 1e-6)
+    tau2 = max(float(tau2), 1e-6)
+    maturities = np.asarray(maturities, dtype=float)
+
+    # Dla maturities/tau ≈ 0: L'Hôpital → limit = 1; używamy bezpiecznego mianownika
+    safe_m1 = np.where(np.abs(maturities / tau1) < 1e-8, 1e-8, maturities / tau1)
+    safe_m2 = np.where(np.abs(maturities / tau2) < 1e-8, 1e-8, maturities / tau2)
+
+    term1 = (1 - np.exp(-safe_m1)) / safe_m1
+    term2 = term1 - np.exp(-safe_m1)
+    term3 = ((1 - np.exp(-safe_m2)) / safe_m2) - np.exp(-safe_m2)
+
     y = beta0 + beta1 * term1 + beta2 * term2 + beta3 * term3
     return y
 

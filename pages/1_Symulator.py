@@ -396,7 +396,7 @@ if mode == MC_MODE:
     if 'mc_future' in st.session_state and 'mc_results' not in st.session_state:
         future = st.session_state['mc_future']
         
-        @st.fragment(run_every="1s")
+        @st.fragment(run_every="2s")
         def poll_monte_carlo():
             if future.done():
                 try:

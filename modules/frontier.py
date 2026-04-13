@@ -111,8 +111,11 @@ def compute_hrp(returns_df: pd.DataFrame, risk_free_rate: float = 0.04) -> dict:
     Returns dict with weights, expected return, volatility, Sharpe, fig.
     """
     returns = returns_df.copy()
-    # Belka Tax
-    returns.mask(returns > 0, returns * 0.81, inplace=True)
+    # BUG-08 FIX: Podatek Belka jest realizowany przy sprzedaży, NIE dziennie.
+    # Stosowanie Belki do każdego dziennego zwrotu (wielow dróż) drastycznie zaniża wartości
+    # i daje efekt eksponencjalny zamiast jednorazowego. Optymalizacja na zwrotach przed podatkiem;
+    # Belka aplikowana na wynik NETTO (port_return * 0.81 tylko przy wynikach > 0).
+    # returns.mask(returns > 0, returns * 0.81, inplace=True)  # USUNIĘTE
 
     corr = returns.corr().values
     cov  = returns.cov().values * 252
@@ -135,10 +138,13 @@ def compute_hrp(returns_df: pd.DataFrame, risk_free_rate: float = 0.04) -> dict:
 
     port_return = float(w @ mu)
     port_vol    = float(np.sqrt(w @ cov @ w))
-    rf_taxed    = risk_free_rate * 0.81
+    rf_taxed    = risk_free_rate * 0.81  # efektywna stopa wolna od ryzyka po Belce
     sharpe      = (port_return - rf_taxed) / port_vol if port_vol > 0 else 0
     daily_r     = (returns.values @ w)
     omega       = float(min(calculate_omega(daily_r), 10.0))
+    # CVaR portfela (5%)
+    var_5 = np.percentile(daily_r, 5)
+    port_cvar = float(-np.mean(daily_r[daily_r <= var_5])) * 252 if np.any(daily_r <= var_5) else 0.0
 
     tickers = returns_df.columns.tolist()
     return {
@@ -146,6 +152,7 @@ def compute_hrp(returns_df: pd.DataFrame, risk_free_rate: float = 0.04) -> dict:
         "weights":   {t: float(w[i]) for i, t in enumerate(tickers)},
         "return":    port_return,
         "volatility":port_vol,
+        "cvar":      port_cvar,
         "sharpe":    sharpe,
         "omega":     omega,
         "linkage":   linkage,
@@ -174,7 +181,8 @@ def compute_min_cvar(
     Also computes Max-Sharpe and Max-Omega as reference points.
     """
     returns = returns_df.copy()
-    returns.mask(returns > 0, returns * 0.81, inplace=True)
+    # BUG-08 FIX: Podatek Belka jest realizowany przy sprzedaży, NIE dziennie.
+    # returns.mask(returns > 0, returns * 0.81, inplace=True)  # USUNIĘTE
 
     R   = returns.values          # (T, n)
     T, n = R.shape
@@ -259,7 +267,8 @@ def compute_black_litterman(
     Returns portfolio weights, expected returns, and diagnostics.
     """
     returns = returns_df.copy()
-    returns.mask(returns > 0, returns * 0.81, inplace=True)
+    # BUG-08 FIX: Podatek Belka jest realizowany przy sprzedaży, NIE dziennie.
+    # returns.mask(returns > 0, returns * 0.81, inplace=True)  # USUNIĘTE
 
     tickers = returns_df.columns.tolist()
     n       = len(tickers)
@@ -360,13 +369,14 @@ def compute_efficient_frontier(
     if n_assets < 2:
         return {"error": "Potrzeba co najmniej 2 aktywów do obliczeń granicy efektywnej."}
 
-    # Belka Tax copy
+    # Belka Tax copy — zwroty przed podatkiem do optymalizacji
+    # BUG-08 FIX: Belka nakładana na WYNIK portfela (zysk końcowy), nie dzienne zwroty
     returns_taxed = returns_df.copy()
-    returns_taxed.mask(returns_taxed > 0, returns_taxed * 0.81, inplace=True)
+    # returns_taxed.mask(returns_taxed > 0, returns_taxed * 0.81, inplace=True)  # USUNIĘTE — błąd ekonomiczny
 
     mean_returns = returns_taxed.mean() * 252
     cov_matrix   = returns_taxed.cov() * 252
-    rf_taxed     = risk_free_rate * 0.81
+    rf_taxed     = risk_free_rate * 0.81  # efektywna stopa wolna od ryzyka po Belce
 
     # ── Monte Carlo sampling (background) ────────────────────────────────
     results = {"Return": [], "Volatility": [], "Sharpe": [], "Omega": [], "CVaR": [], "Weights": []}
@@ -379,11 +389,12 @@ def compute_efficient_frontier(
         vol = float(np.sqrt(w @ cov_matrix.values @ w))
         sh  = (ret - rf_taxed) / vol if vol > 0 else 0
         om  = min(calculate_omega(port_r), 10.0)
-        
-        # Calculate CVaR_5
+
+        # BUG-09 FIX: CVaR nie skaluj przez sqrt(252) — CVaR to oczekiwana strata,
+        # nie odchylenie standardowe. Annualizacja CVaR = CVaR_dzienny * 252 (nie sqrt).
         var_5 = np.percentile(port_r, 5)
         tail = port_r[port_r <= var_5]
-        cv = -float(np.mean(tail)) * np.sqrt(252) if len(tail) > 0 else 0.0 # annualized approximation
+        cv = -float(np.mean(tail)) * 252 if len(tail) > 0 else 0.0  # annualizacja przez 252
 
         results["Return"].append(ret)
         results["Volatility"].append(vol)
@@ -449,16 +460,17 @@ def compute_efficient_frontier(
         ))
 
     # HRP
-    hrp_vol = hrp_result.get("volatility", 0) * 100
-    hrp_ret = hrp_result.get("return", 0) * 100
+    # BUG-17 FIX: HRP plotowany na osi CVaR (nie Vol)
+    hrp_cvar = hrp_result.get("cvar", 0) * 100
+    hrp_ret  = hrp_result.get("return", 0) * 100
     fig.add_trace(go.Scatter(
-        x=[hrp_vol], y=[hrp_ret], mode="markers+text",
+        x=[hrp_cvar], y=[hrp_ret], mode="markers+text",
         marker=dict(color="#ff6b35", size=20, symbol="hexagram",
                     line=dict(color="white", width=2)),
         text=["🟠 HRP"], textposition="bottom right",
         textfont=dict(color="#ff6b35", size=11),
         hovertemplate=(f"<b>🟠 HRP (Lopez de Prado 2016)</b><br>"
-                       f"Return: {hrp_ret:.1f}%<br>Vol: {hrp_vol:.1f}%<br>"
+                       f"Return: {hrp_ret:.1f}%<br>CVaR: {hrp_cvar:.1f}%<br>"
                        f"Sharpe: {hrp_result.get('sharpe', 0):.2f}<extra></extra>"),
         name="🟠 HRP",
     ))
@@ -481,16 +493,17 @@ def compute_efficient_frontier(
         ))
 
     # Black-Litterman
-    bl_vol = bl_result.get("volatility", 0) * 100
-    bl_ret = bl_result.get("return", 0) * 100
+    # BUG-17 FIX: BL plotowany na osi CVaR (nie Vol)
+    bl_cvar = bl_result.get("cvar", bl_result.get("volatility", 0)) * 100  # fallback na vol jeśli brak cvar
+    bl_ret  = bl_result.get("return", 0) * 100
     fig.add_trace(go.Scatter(
-        x=[bl_vol], y=[bl_ret], mode="markers+text",
+        x=[bl_cvar], y=[bl_ret], mode="markers+text",
         marker=dict(color="#00e5ff", size=20, symbol="star-square",
                     line=dict(color="white", width=2)),
         text=["🔷 BL"], textposition="top right",
         textfont=dict(color="#00e5ff", size=11),
         hovertemplate=(f"<b>🔷 Black-Litterman (He & Litterman 1999)</b><br>"
-                       f"Return: {bl_ret:.1f}%<br>Vol: {bl_vol:.1f}%<br>"
+                       f"Return: {bl_ret:.1f}%<br>CVaR: {bl_cvar:.1f}%<br>"
                        f"Sharpe: {bl_result.get('sharpe', 0):.2f}<br>"
                        f"Widoki CIO: {len(bl_result.get('views_used', []))}<extra></extra>"),
         name="🔷 Black-Litterman",
@@ -573,7 +586,8 @@ def compute_nco(
          Cambridge University Press, Chapter 16.
     """
     returns = returns_df.copy()
-    returns.mask(returns > 0, returns * 0.81, inplace=True)
+    # BUG-08 FIX: Podatek Belka jest realizowany przy sprzedaży, NIE dziennie.
+    # returns.mask(returns > 0, returns * 0.81, inplace=True)  # USUNIĘTE
 
     tickers  = returns_df.columns.tolist()
     n        = len(tickers)

@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import pandas_datareader.data as web
 import asyncio
+import streamlit as st
 from typing import List, Union
 from modules.logger import setup_logger
 
@@ -110,16 +111,9 @@ def _fetch_from_stooq_sync(tickers: List[str], start: str = None, end: str = Non
         _log.warning(f"Błąd we wbudowanym czytniku Stooq: {e}")
         return pd.DataFrame()
 
-def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = None, period: str = None, auto_adjust: bool = True) -> pd.DataFrame:
-    """
-    Kluczowy system pobierania danych. Próbuje pobrać poprzez YFinance, 
-    a następnie w wypadku błędu za pośrednictwem Stooq.pl.
-    Zwraca ujednolicony pd.DataFrame.
-    """
-    if isinstance(tickers, str):
-        tickers = [tickers]
-        
-    tickers = list(tickers)
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_data_cached(tickers_tuple: tuple, start: str, end: str, period: str, auto_adjust: bool) -> pd.DataFrame:
+    tickers = list(tickers_tuple)
     
     # Transparent ISIN resolution
     from modules.isin_resolver import ISINResolver
@@ -149,7 +143,6 @@ def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = Non
 
     # Fallback to Stooq
     try:
-        # Dla stooq potrzebne są daty start i end, brak parametru period (np '2y') prosto podawanego
         if not start:
             if period and period.endswith("y"):
                 years = int(period.replace("y", ""))
@@ -171,10 +164,23 @@ def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = Non
             data.sort_index(axis=1, level=0, inplace=True)
             
         return data
-        
     except Exception as e:
-        logger.error(f"Krytyczny błąd pobierania danych awaryjnych (stooq): {e}")
+        logger.error(f"Krytyczny błąd pobierania danych (Yahoo+Stooq ostatecznie zawiodły): {e}")
         return pd.DataFrame()
+
+
+def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = None, period: str = None, auto_adjust: bool = True) -> pd.DataFrame:
+    """
+    Kluczowy system pobierania danych. Próbuje pobrać poprzez YFinance, 
+    a następnie w wypadku błędu za pośrednictwem Stooq.pl.
+    Zwraca ujednolicony pd.DataFrame.
+    """
+    if isinstance(tickers, str):
+        tickers_tuple = (tickers,)
+    else:
+        tickers_tuple = tuple(tickers)
+        
+    return _fetch_data_cached(tickers_tuple, start, end, period, auto_adjust)
 
 
 async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, float | None, float | None]:

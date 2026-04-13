@@ -10,6 +10,7 @@ from modules.tax_optimizer_pl import (
     ppk_simulator, asset_location_optimizer
 )
 from modules.i18n import t
+from modules.ui.widgets import ticker_input, tickers_area
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
@@ -85,10 +86,14 @@ with tab2:
     realised_gains = st.number_input("Zrealizowane zyski YTD (PLN)", 0.0, step=1000.0, value=10000.0)
     if positions:
         tlh = tax_loss_harvesting(positions, realised_gains)
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Strata do TLH", f"{tlh.get('total_loss_available', 0):,.0f} PLN")
-        c2.metric("Belka do odzysku", f"{tlh.get('tax_saved_gross', 0):,.0f} PLN")
-        c3.metric("Netto po TC", f"{tlh.get('tax_saved_net', 0):,.0f} PLN", delta="zysk z TLH")
+        c2.metric("Belka do odzysku (bieżący rok)", f"{tlh.get('tax_saved_gross', 0):,.0f} PLN")
+        c3.metric("Netto po kosztach TC", f"{tlh.get('tax_saved_net', 0):,.0f} PLN", delta="zysk z TLH")
+        carryforward = tlh.get('loss_carryforward_pln', 0)
+        c4.metric("Strata do przeniesienia (≤5 lat)",
+                  f"{carryforward:,.0f} PLN",
+                  delta="art. 9 ust. 3 UPDOF" if carryforward > 0 else None)
 
         for rec in tlh.get("recommendations", []):
             if "🔴" in rec:

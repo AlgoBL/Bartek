@@ -20,10 +20,15 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_demo_data(tickers, period="2y"):
+    from modules.isin_resolver import ISINResolver
+    # Transparentne tłumaczenie ISIN → ticker
+    resolved = [ISINResolver.resolve(t) for t in tickers]
+    rev_map = {r: o for o, r in zip(tickers, resolved)}
     try:
-        raw = yf.download(tickers, period=period, progress=False, auto_adjust=True)
+        raw = yf.download(resolved, period=period, progress=False, auto_adjust=True)
         if isinstance(raw.columns, pd.MultiIndex):
             prices = raw["Close"]
+            prices.columns = [rev_map.get(c, c) for c in prices.columns]  # przywróć oryginalne nazwy
         else:
             prices = raw[["Close"]] if "Close" in raw.columns else raw
         prices = prices.dropna(how="all")

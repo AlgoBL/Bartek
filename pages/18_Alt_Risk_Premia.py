@@ -16,10 +16,16 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_data(tickers, period="5y"):
+    from modules.isin_resolver import ISINResolver
+    # Transparentne tłumaczenie ISIN → ticker
+    resolved = [ISINResolver.resolve(t) for t in tickers]
+    rev_map = {r: o for o, r in zip(tickers, resolved)}
     try:
-        raw = yf.download(tickers, period=period, progress=False, auto_adjust=True)
+        raw = yf.download(resolved, period=period, progress=False, auto_adjust=True)
         if isinstance(raw.columns, pd.MultiIndex):
-            return raw["Close"].pct_change().dropna(how="all")
+            rets = raw["Close"].pct_change().dropna(how="all")
+            rets.columns = [rev_map.get(c, c) for c in rets.columns]
+            return rets
         return raw.pct_change().dropna(how="all")
     except Exception:
         return None

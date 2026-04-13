@@ -13,6 +13,8 @@ Zawiera:
 """
 
 
+import streamlit as st
+
 def inject_accordion_js():
     """
     Wstrzykuje JavaScript sterujacy accordion sidebar (st.navigation).
@@ -435,6 +437,7 @@ def inject_keyboard_shortcuts_js():
     components.html(js_code, height=0, width=0)
 
 
+@st.cache_resource
 def apply_styling() -> str:
     return """
     <style>
@@ -1108,6 +1111,7 @@ def ticker_bar_html(items: list[dict]) -> str:
     """
 
 
+@st.cache_resource
 def module_header(title: str, subtitle: str = "", icon: str = "", badge: str = "") -> str:
     """
     Zwraca HTML nagłówka modułu z breadcrumb, tytułem i opisem.

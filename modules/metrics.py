@@ -335,7 +335,9 @@ def calculate_burke_ratio(
     if sum_dd_sq <= 0:
         return np.inf
     denominator = np.sqrt(sum_dd_sq / len(returns)) if modified else np.sqrt(sum_dd_sq)
-    return (cagr - rf * 0.81) / denominator if denominator > 0 else 0.0
+    # BUG-07 FIX: Burke Ratio to miara portfelowa, nie podatkowa. Usunięto błędny mnożnik 0.81.
+    # Poprzedni kod: (cagr - rf * 0.81) — bezpodstawne stosowanie Belki do rf w tej metryce.
+    return (cagr - rf) / denominator if denominator > 0 else 0.0
 
 
 def calculate_rachev_ratio(
