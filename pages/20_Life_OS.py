@@ -2466,7 +2466,7 @@ with c35_1:
     st.plotly_chart(fig_noise, use_container_width=True)
 
 with c35_2:
-    st.markdown(f"""<div style='{CARD}'>
+    st.markdown(fr"""<div style='{CARD}'>
     <div style='{H3}'>📉 Typy Błędów Stochastycznych</div>
     <p style='{NOTE}'>
     <b>1. Szum Addytywny:</b> Błąd jest niezależny od stanu ($dX_t = f dt + \sigma dW_t$). Błąd po prostu 'dokleja się' do sygnału. Skala problemu nie rośnie liniowo z sukcesem.<br><br>
@@ -2479,7 +2479,7 @@ st.markdown("### 🧬 Nieliniowa Transformacja Błędu (Efekt Kwadratu)")
 c35_3, c35_4 = st.columns([2, 3])
 
 with c35_3:
-    st.markdown(f"""<div style='{CARD}'>
+    st.markdown(fr"""<div style='{CARD}'>
     <div style='{H3}'>📐 Rozwinięcie Taylora: (x + ε)²</div>
     <p style='{NOTE}'>
     Nawet jeśli błąd na wejściu jest 'grzeczny' (addytywny), nieliniowość układu zmienia go w coś gorszego:<br><br>

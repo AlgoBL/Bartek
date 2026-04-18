@@ -375,7 +375,8 @@ class RiskManager:
                     if ks_stat < best_ks:
                         best_ks = ks_stat
                         best_p  = p
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Adaptive threshold candidate p={p} failed: {e}")
                     continue
             best_pcts.append(best_p)
 
@@ -759,7 +760,9 @@ class RiskManager:
                 acerbi_pass = s_stat >= -0.1
             else:
                 s_stat, acerbi_pass = 0.0, True
-        except Exception:
+        except Exception as e:
+            from modules.logger import setup_logger
+            setup_logger(__name__).error(f"Acerbi-Szekely test failed: {e}")
             s_stat, acerbi_pass = np.nan, False
 
         results["acerbi_szekely"] = {

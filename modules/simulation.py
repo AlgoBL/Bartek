@@ -293,7 +293,9 @@ def _hawkes_garch_decorator(fn):
     if _nb_available:
         try:
             return nb.njit()(fn)
-        except Exception:
+        except Exception as e:
+            from modules.logger import setup_logger
+            setup_logger(__name__).warning(f"Numba njit failed for {fn.__name__}: {e}. Falling back to Python.")
             pass
     return fn
 

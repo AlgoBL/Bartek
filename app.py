@@ -52,7 +52,9 @@ def fetch_control_center_data_from_cache():
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 packet = json.load(f)
             return packet.get("macro", {}), packet.get("geo_report", {})
-        except Exception:
+        except Exception as e:
+            from modules.logger import setup_logger
+            setup_logger(__name__).error(f"Fallback Heartbeat Cache read failed: {e}")
             pass
             
     return {}, {}
@@ -602,8 +604,10 @@ def home():
         try:
             if target == "📉 Symulator": st.switch_page("pages/1_Symulator.py")
             elif target == "⚡ Stress Test": st.switch_page("pages/3_Stress_Test.py")
-        except Exception:
-            st.error(f"❌ Moduł '{target}' jest ukryty. Przejdź do 'Globalne Ustawienia' i włącz go by przejść dalej.")
+        except Exception as e:
+            st.error(f"❌ Moduł '{target}' jest ukryty lub wystąpił błąd: {e}")
+            from modules.logger import setup_logger
+            setup_logger(__name__).exception(f"Force navigation failed for {target}")
 
     with st.spinner(""):
         _prog = st.progress(0, text=t("cc_sync_text"))
@@ -658,7 +662,9 @@ def home():
         _ticker_items = [i for i in _ticker_items if i["value"] > 0]
         if _ticker_items:
             st.markdown(ticker_bar_html(_ticker_items), unsafe_allow_html=True)
-    except Exception:
+    except Exception as e:
+        from modules.logger import setup_logger
+        setup_logger(__name__).debug(f"Ticker bar generation failed: {e}")
         pass
 
     # --- ANIMATED ALERT BADGE ---------------------------------------------------
