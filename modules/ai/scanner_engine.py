@@ -10,7 +10,6 @@ Ulepszenia v6.0:
   • Graceful fallback do Pandas jeśli Polars niedostępny
 """
 
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import streamlit as st

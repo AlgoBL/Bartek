@@ -1,6 +1,6 @@
 [server]
 # Tryb headless: nie otwiera przeglądarki automatycznie (szybszy start)
-headless = true
+headless = false
 # Wyłączone hot-reload przy zapisie pliku (zbędne w produkcji, zwalnia OneDrive)
 runOnSave = false
 # Wyłączone obserwowanie plików — OneDrive i tak powoduje false-positive events

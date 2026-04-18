@@ -18,17 +18,9 @@ from scipy.stats import skew, kurtosis, genpareto
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as ssd
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.figure_factory as ff
 from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
-
-try:
-    import networkx as nx
-    HAS_NETWORKX = True
-except ImportError:
-    HAS_NETWORKX = False
 
 from modules.metrics import calculate_sharpe, calculate_sortino, calculate_max_drawdown
 
@@ -436,6 +428,9 @@ def compute_hierarchical_dendrogram(returns_df: pd.DataFrame):
     condensed = ssd.squareform(dist.values, checks=False)
     Z = sch.linkage(condensed, method="ward")
 
+    import plotly.figure_factory as ff
+    import plotly.graph_objects as go
+    
     fig = ff.create_dendrogram(
         dist.values,
         labels=tickers,
@@ -463,7 +458,10 @@ def compute_correlation_network(returns_df: pd.DataFrame, metrics_df: pd.DataFra
     """
     Minimum Spanning Tree (Mantegna 1999) — Sieć korelacji.
     """
-    if not HAS_NETWORKX:
+    try:
+        import networkx as nx
+        import plotly.graph_objects as go
+    except ImportError:
         return None
 
     tickers = returns_df.columns.tolist()

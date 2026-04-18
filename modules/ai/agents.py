@@ -1,48 +1,83 @@
-
 import numpy as np
+import streamlit as st
 
 # ─── Sentiment Backend (FinBERT > VADER fallback) ────────────────────────────
-_SENTIMENT_BACKEND = "none"
 
-try:
-    from modules.logger import setup_logger
-    logger = setup_logger(__name__)
-    from transformers import pipeline as _hf_pipeline
-    import torch as _torch
+# Lokalny cache dla wątków tła (poza sesją Streamlit)
+_LOCAL_RESOURCE_CACHE = {}
 
-    # Try loading FinBERT; falls back to distilroberta if unavailable
-    _FINBERT_MODEL = "ProsusAI/finbert"
-    _finbert_pipe = _hf_pipeline(
-        "text-classification",
-        model=_FINBERT_MODEL,
-        device=0 if _torch.cuda.is_available() else -1,
-        truncation=True,
-        max_length=512,
-    )
-    _SENTIMENT_BACKEND = "finbert"
-except Exception as e:
-    logger.warning(f"Błąd ładowania FinBERT: {e} -> Fallback do VADER")
-    _finbert_pipe = None
-
-if _SENTIMENT_BACKEND != "finbert":
+def _load_finbert_resource():
+    """Właściwa logika ładowania modelu, bez dekoratora st."""
     try:
-        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VADERAnalyzer
-        _vader_analyzer = _VADERAnalyzer()
-        _SENTIMENT_BACKEND = "vader"
+        from transformers import pipeline as hf_pipeline
+        import torch
+        
+        model_name = "ProsusAI/finbert"
+        pipe = hf_pipeline(
+            "text-classification",
+            model=model_name,
+            device=0 if torch.cuda.is_available() else -1,
+            truncation=True,
+            max_length=512,
+        )
+        return pipe, "finbert"
     except Exception as e:
-        logger.error(f"Całkowity brak NLP (Vader fail): {e}")
-        _vader_analyzer = None
-        _SENTIMENT_BACKEND = "none"
+        try:
+            from modules.logger import setup_logger
+            _logger = setup_logger(__name__)
+            _logger.warning(f"Błąd ładowania FinBERT: {e}. Fallback do VADER.")
+        except:
+            pass
+        return None, "vader"
 
+@st.cache_resource(show_spinner="Ładowanie modelu FinBERT AI...")
+def _get_finbert_pipeline_st():
+    """Wrapper Streamlit dla FinBERT."""
+    return _load_finbert_resource()
+
+def _get_finbert_pipeline():
+    """Główny punkt wejścia wybierający odpowiedni mechanizm cache'owania."""
+    # Jeśli jesteśmy w głównym wątku Streamlit (widocznym dla użytkownika)
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    if get_script_run_ctx() is not None:
+        return _get_finbert_pipeline_st()
+    
+    # W przeciwnym razie (wątek tła) używamy lokalnego cache'u
+    if "finbert" not in _LOCAL_RESOURCE_CACHE:
+        _LOCAL_RESOURCE_CACHE["finbert"] = _load_finbert_resource()
+    return _LOCAL_RESOURCE_CACHE["finbert"]
+
+def _load_vader_resource():
+    try:
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+        return SentimentIntensityAnalyzer()
+    except:
+        return None
+
+@st.cache_resource
+def _get_vader_analyzer_st():
+    return _load_vader_resource()
+
+def _get_vader_analyzer():
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    if get_script_run_ctx() is not None:
+        return _get_vader_analyzer_st()
+    
+    if "vader" not in _LOCAL_RESOURCE_CACHE:
+        _LOCAL_RESOURCE_CACHE["vader"] = _load_vader_resource()
+    return _LOCAL_RESOURCE_CACHE["vader"]
 
 def _score_text(text: str) -> float:
     """
     Returns compound sentiment score in [-1, +1].
     Priority: FinBERT → VADER → 0.0 (neutral fallback).
     """
-    if _SENTIMENT_BACKEND == "finbert" and _finbert_pipe is not None:
+    # 1. Próba użycia FinBERT (Lazy + Cached)
+    pipe, backend = _get_finbert_pipeline()
+    
+    if backend == "finbert" and pipe is not None:
         try:
-            result = _finbert_pipe(text[:512])[0]
+            result = pipe(text[:512])[0]
             label = result["label"].lower()   # 'positive', 'negative', 'neutral'
             score = float(result["score"])    # confidence 0-1
             if label == "positive":
@@ -51,15 +86,16 @@ def _score_text(text: str) -> float:
                 return -score
             else:
                 return 0.0
-        except Exception as e:
-            logger.warning(f"Błąd analizy FinBERT: {e}")
+        except Exception:
+            # Fallback do VADER w przypadku błędu runtime'owego FinBERT
             pass
 
-    if _SENTIMENT_BACKEND == "vader" and _vader_analyzer is not None:
+    # 2. Fallback do VADER
+    analyzer = _get_vader_analyzer()
+    if analyzer is not None:
         try:
-            return float(_vader_analyzer.polarity_scores(text)["compound"])
-        except Exception as e:
-            logger.warning(f"Błąd analizy VADER: {e}")
+            return float(analyzer.polarity_scores(text)["compound"])
+        except Exception:
             pass
 
     return 0.0
@@ -67,7 +103,13 @@ def _score_text(text: str) -> float:
 
 def get_sentiment_backend() -> str:
     """Returns which backend is active: 'finbert', 'vader', or 'none'."""
-    return _SENTIMENT_BACKEND
+    _, backend = _get_finbert_pipeline()
+    if backend == "finbert":
+        return "finbert"
+    if _get_vader_analyzer() is not None:
+        return "vader"
+    return "none"
+
 
 
 # ─── LocalEconomist ───────────────────────────────────────────────────────────

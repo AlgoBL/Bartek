@@ -57,6 +57,7 @@ feedparser                 # RSS dla Oracle (nagłówki finansowe)
 
 # --- Moduł 3: Async I/O -------------------------------------------------------
 aiohttp>=3.9.0             # Asynchroniczne pobieranie FRED/makro (asyncio)
+nest-asyncio               # Wsparcie dla zagnieżdżonych pętli (Streamlit + Background threads)
 
 # --- Moduł 7: Deep Reinforcement Learning (PPO/SAC) --------------------------
 # stable-baselines3>=2.0.0 # PPO, SAC, TD3 (wymaga gymnasium)

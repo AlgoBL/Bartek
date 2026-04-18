@@ -291,7 +291,7 @@ if mode == MC_MODE:
                 sim_args_retry = {
                     "n_years": years,
                     "n_simulations": 1000,
-                    "initial_captial": initial_capital,
+                    "initial_capital": initial_capital,
                     "safe_rate": safe_rate,
                     "risky_mean": risky_mean,
                     "risky_vol": risky_vol,
@@ -338,7 +338,7 @@ if mode == MC_MODE:
         sim_args = {
             "n_years": years,
             "n_simulations": 1000,
-            "initial_captial": initial_capital,
+            "initial_capital": initial_capital,
             "safe_rate": safe_rate,
             "risky_mean": risky_mean,
             "risky_vol": risky_vol,
@@ -659,7 +659,10 @@ if mode == MC_MODE:
                 "initial_capital": initial_capital,
                 "description": f"Symulowany najgorszy scenariusz (5. percentyl) z Monte Carlo ({years} lat)."
             }
-            st.switch_page("pages/3_Stress_Test.py")
+            try:
+                st.switch_page("pages/3_Stress_Test.py")
+            except Exception:
+                st.error("❌ Moduł 'Stress Test' jest ukryty. Przejdź do 'Globalne Ustawienia' i włącz go by przejść dalej.")
         
         # --- New Visualization Section ---
         st.divider()
@@ -760,7 +763,7 @@ if mode == MC_MODE:
                         w_paths = simulate_barbell_strategy(
                             n_years=years,
                             n_simulations=100, 
-                            initial_captial=initial_capital,
+                            initial_capital=initial_capital,
                             safe_rate=safe_rate,
                             risky_mean=risky_mean,
                             risky_vol=v, 
@@ -986,8 +989,6 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
         "vol_target": vol_target
     }
         
-
-    
     st.title("🧠 Intelligent Barbell - Backtest Algorytmiczny")
     st.markdown("""
     **Moduły Algorytmiczne:**
@@ -996,115 +997,129 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
     - **Trader (RL Agent)**: Dynamicznie zarządza lewarem (Kelly).
     """)
     
-    if st.button("🧠 Uruchom Backtest", type="primary"):
+    # Przycisk uruchamiania Backtestu (teraz zajmuje pełną szerokość)
+    run_backtest = st.button("🧠 Uruchom Backtest", type="primary", use_container_width=True, key="ai_run_btn")
+
+    if run_backtest:
         safe_tickers = []
         if safe_type == "Tickers (Yahoo)":
              safe_tickers = [x.strip() for x in safe_tickers_str.split(",") if x.strip()]
         
-        # Handle Risky Tickers
-        if risky_asset_mode == "Manualne Wagi":
-            # risky_tickers_str was constructed from valid keys in the loop above
-            risky_tickers = [x.strip() for x in risky_tickers_str.split(",") if x.strip()]
-            if not risky_tickers:
-                 st.error("Błąd: Lista manualnych tickerów jest pusta! Dodaj przynajmniej jeden ticker w tabeli.")
-                 st.stop()
-        else:
-            risky_tickers = [x.strip() for x in risky_tickers_str.split(",") if x.strip()]
-            
-        with st.container(): # Progress Container
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            def update_progress(pct, msg):
-                 progress_bar.progress(pct)
-                 # Strip percentage from message to act on user feedback
-                 clean_msg = msg.split("(")[0].strip() if "(" in msg else msg
-                 status_text.markdown(f"**{clean_msg}**")
-             
-        # with st.spinner("Pobieranie danych i trenowanie modeli..."): # Removed spinner to rely on progress bar
-        status_ai = StatusManager("Przygotowanie Backtestu...", expanded=False)
-        
-        status_ai.info_data("Pobieranie danych historycznych...")
-        safe_data = pd.DataFrame()
-        base_curr_arg = "PLN" if use_fx_ai else None
-        
-        if safe_tickers:
-            safe_data = load_data(safe_tickers, start_date=start_date, base_currency=base_curr_arg)
-                
-        risky_data = load_data(risky_tickers, start_date=start_date, base_currency=base_curr_arg)
-        
-        # Check if fetch success
-        if risky_data.empty:
-            st.error("Błąd: Brak danych dla ryzykownych aktywów.")
-        else:
-            # Prepare args
-            safe_type_arg = "Ticker" if safe_type == "Tickers (Yahoo)" else "Fixed"
-            rebalance_strat_arg = rebalance_strategy.split(" ")[0]
-            
-            status_ai.info_ai("Obliczanie Reżimów Rynkowych i Symulacja Tradera RL...")
-            
-            results, weight_history, regimes = run_ai_backtest(
-                safe_data, 
-                risky_data, 
-                initial_capital=initial_capital,
-                safe_type=safe_type_arg,
-                safe_fixed_rate=safe_fixed_rate,
-                allocation_mode=allocation_mode,
-                alloc_safe_fixed=alloc_safe_fixed,
-                kelly_params=kelly_params,
-                rebalance_strategy=rebalance_strat_arg,
-                threshold_percent=threshold_percent,
-                progress_callback=update_progress,
-                risky_weights_dict=risky_weights_manual,
-                transaction_costs=trans_costs,
-                risk_params=risk_params,
-                cap_freq=cap_freq
-            )
-            
-            status_ai.info_math("Finalizacja metryk...")
-            
-            # Metrics
-            years = (results.index[-1] - results.index[0]).days / 365.25
-            metrics = calculate_metrics(results['PortfolioValue'].values, years)
-            
-            # Calculate Trade Stats approximation
-            trade_stats = calculate_trade_stats(results['PortfolioValue'])
+        risky_tickers = [x.strip() for x in risky_tickers_str.split(",") if x.strip()]
 
-            # Fetch Benchmark (S&P 500 & 60/40)
-            status_ai.info_data("Pobieranie benchmarku (S&P 500)...")
-            bench_data = load_data(["^GSPC"], start_date=start_date)
-            bench_spy = None
-            bench_6040 = None
-            if not bench_data.empty:
-                bench_prices = bench_data["^GSPC"]
-                # Align indices
-                bench_prices.index = bench_prices.index.tz_localize(None) if bench_prices.index.tz is None else bench_prices.index.tz_convert(None)
-                results_idx = results.index.tz_localize(None) if results.index.tz is None else results.index.tz_convert(None)
-                bench_prices = bench_prices.reindex(results_idx, method='ffill').ffill().bfill()
-                bench_spy = (bench_prices / bench_prices.iloc[0]) * initial_capital
+        def execute_ai_backtest_task():
+            try:
+                # 1. Pobieranie danych
+                st.session_state['ai_progress_msg'] = "Pobieranie danych historycznych..."
+                st.session_state['ai_progress_pct'] = 0.0
                 
-                # 60/40 Portfolio (60% SPY, 40% Bonds at safe_fixed_rate)
-                spy_rets = bench_prices.pct_change().fillna(0)
-                daily_safe = (1 + safe_fixed_rate)**(1/252) - 1
-                b6040_rets = 0.6 * spy_rets + 0.4 * daily_safe
-                bench_6040 = initial_capital * (1 + b6040_rets).cumprod()
+                base_curr_arg = "PLN" if use_fx_ai else None
+                safe_data = pd.DataFrame()
+                if safe_tickers:
+                    safe_data = load_data(safe_tickers, start_date=start_date, base_currency=base_curr_arg)
+                
+                risky_data = load_data(risky_tickers, start_date=start_date, base_currency=base_curr_arg)
+                
+                if risky_data.empty:
+                    raise ValueError(f"Brak danych dla wskazanych aktywów: {risky_tickers}")
 
-            status_ai.success("Backtest zakończony sukcesem!")
-            
-            # Save results and Rerun
-            st.session_state['backtest_results'] = {
-                "results": results,
-                "metrics": metrics,
-                "trade_stats": trade_stats,
-                "risky_mean": risky_data.mean(axis=1),
-                "regimes": regimes,
-                "bench_spy": bench_spy,
-                "bench_6040": bench_6040
-            }
-            # ★ Save raw price data for Efficient Frontier (persists across reruns)
-            st.session_state['backtest_safe_data']  = safe_data
-            st.session_state['backtest_risky_data'] = risky_data
-            st.rerun()
+                # 2. Uruchomienie Backtestu
+                st.session_state['ai_progress_msg'] = "Obliczanie reżimów i symulacja..."
+                
+                safe_type_arg = "Ticker" if safe_type == "Tickers (Yahoo)" else "Fixed"
+                rebalance_strat_arg = rebalance_strategy.split(" ")[0]
+                
+                def _bg_progress(pct, msg):
+                    st.session_state['ai_progress_pct'] = pct
+                    st.session_state['ai_progress_msg'] = msg
+
+                results, weight_history, regimes = run_ai_backtest(
+                    safe_data, risky_data, 
+                    initial_capital=initial_capital,
+                    safe_type=safe_type_arg,
+                    safe_fixed_rate=safe_fixed_rate,
+                    allocation_mode=allocation_mode,
+                    alloc_safe_fixed=alloc_safe_fixed,
+                    kelly_params=kelly_params,
+                    rebalance_strategy=rebalance_strat_arg,
+                    threshold_percent=threshold_percent,
+                    progress_callback=_bg_progress,
+                    risky_weights_dict=risky_weights_manual,
+                    transaction_costs=trans_costs,
+                    risk_params=risk_params,
+                    cap_freq=cap_freq
+                )
+
+                # 3. Metryki i Benchmarki
+                st.session_state['ai_progress_msg'] = "Finalizacja i pobieranie benchmarków..."
+                years_val = (results.index[-1] - results.index[0]).days / 365.25
+                metrics_val = calculate_metrics(results['PortfolioValue'].values, years_val)
+                trade_stats_val = calculate_trade_stats(results['PortfolioValue'])
+
+                bench_data = load_data(["^GSPC"], start_date=start_date)
+                bench_spy = None; bench_6040 = None
+                if not bench_data.empty:
+                    bench_prices = bench_data["^GSPC"]
+                    # Normalize index
+                    if bench_prices.index.tz is not None:
+                        bench_prices.index = bench_prices.index.tz_localize(None)
+                    res_idx = results.index.tz_localize(None) if results.index.tz is not None else results.index
+                    
+                    bench_prices = bench_prices.reindex(res_idx, method='ffill').ffill().bfill()
+                    bench_spy = (bench_prices / bench_prices.iloc[0]) * initial_capital
+                    
+                    spy_rets = bench_prices.pct_change().fillna(0)
+                    daily_safe = (1 + safe_fixed_rate)**(1/252) - 1
+                    b6040_rets = 0.6 * spy_rets + 0.4 * daily_safe
+                    bench_6040 = initial_capital * (1 + b6040_rets).cumprod()
+
+                return {
+                    "backtest_results": {
+                        "results": results, "metrics": metrics_val, "trade_stats": trade_stats_val,
+                        "risky_mean": risky_data.mean(axis=1), "regimes": regimes,
+                        "bench_spy": bench_spy, "bench_6040": bench_6040
+                    },
+                    "safe_data": safe_data,
+                    "risky_data": risky_data
+                }
+            except Exception as e:
+                return e
+
+        from concurrent.futures import ThreadPoolExecutor
+        if 'ai_executor' not in st.session_state:
+            st.session_state['ai_executor'] = ThreadPoolExecutor(max_workers=1)
+        
+        st.session_state['ai_future'] = st.session_state['ai_executor'].submit(execute_ai_backtest_task)
+        st.session_state.pop('backtest_results', None)
+        st.rerun()
+
+    # Async polling for AI Backtest results
+    if 'ai_future' in st.session_state and 'backtest_results' not in st.session_state:
+        future_ai = st.session_state['ai_future']
+        
+        @st.fragment(run_every="2s")
+        def poll_ai_backtest():
+            if future_ai.done():
+                res_obj = future_ai.result()
+                if isinstance(res_obj, Exception):
+                    st.error(f"❌ Błąd krytyczny silnika: {type(res_obj).__name__}")
+                    st.warning(f"Szczegóły: {res_obj}")
+                    st.info("💡 Porada: Spróbuj zmienić zakres dat lub zestaw tickerów. Często błąd wynika z braku danych historycznych dla wybranego okresu.")
+                    st.session_state.pop('ai_future', None)
+                else:
+                    st.session_state['backtest_results'] = res_obj['backtest_results']
+                    st.session_state['backtest_safe_data'] = res_obj['safe_data']
+                    st.session_state['backtest_risky_data'] = res_obj['risky_data']
+                    st.success("Backtest zakończony!")
+                    st.rerun()
+            else:
+                msg = st.session_state.get('ai_progress_msg', "Inicjalizacja...")
+                pct = st.session_state.get('ai_progress_pct', 0.0)
+                st.info(f"⏳ **Intelligent Backtest w toku:** {msg}")
+                st.progress(pct)
+                st.caption("Możesz teraz nawigować po innych stronach — obliczenia trwają w tle.")
+        
+        poll_ai_backtest()
 
     # RENDER RESULTS (Only if state exists)
     if 'backtest_results' in st.session_state:
@@ -1172,7 +1187,10 @@ elif mode == "Intelligent Barbell (Backtest Algorytmiczny)":
                 "initial_capital": initial_capital,
                 "description": f"Pełna historia portfela wypracowana przez system algorytmiczny od {df_custom.index.min().date()}."
             }
-            st.switch_page("pages/3_Stress_Test.py")
+            try:
+                st.switch_page("pages/3_Stress_Test.py")
+            except Exception:
+                st.error("❌ Moduł 'Stress Test' jest ukryty. Przejdź do 'Globalne Ustawienia' i włącz go by przejść dalej.")
 
         st.divider()
 

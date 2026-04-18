@@ -2425,15 +2425,130 @@ with ips_c2:
 
 
 # ═══════════════════════════════════════════════════════════
+# 🆕 SEKCJA 35 — SZUM I NIELINIOWOŚĆ (RYZYKO W SKALI)
+# ═══════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🌀 Sekcja 35 — Inżynieria Ryzyka: Szum Addytywny vs Multiplikatywny")
+st.markdown("<p style='color:#bbb;font-size:14px'>Jak błędy 'współpracują' z układem i dlaczego w nieliniowych systemach małe odchylenia prowadzą do katastrof.</p>", unsafe_allow_html=True)
+
+c35_1, c35_2 = st.columns([3, 2])
+
+with c35_1:
+    # 1. Symulacja Szumu (Addytywny vs Multiplikatywny)
+    n_days = 252
+    t_points = np.linspace(0, 1, n_days)
+    sigma_val = st.slider("Zmienność szumu (σ)", 0.01, 0.50, 0.15, 0.01, key="c35_sigma")
+    drift = 0.05
+    
+    np.random.seed(42)
+    shocks = np.random.normal(0, 1, n_days)
+    
+    # Additive: dX = drift*dt + sigma*dW
+    x_add = np.cumsum(drift/n_days + sigma_val * shocks / np.sqrt(n_days))
+    
+    # Multiplicative: dX = drift*dt + sigma*X*dW (GBM)
+    x_mult = np.exp(np.cumsum((drift - 0.5 * sigma_val**2)/n_days + sigma_val * shocks / np.sqrt(n_days)))
+    
+    fig_noise = go.Figure()
+    fig_noise.add_trace(go.Scatter(x=t_points, y=x_add + 1.0, name="Szum Addytywny (Arytmetyczny)", 
+                         line=dict(color="#3498db", width=2)))
+    fig_noise.add_trace(go.Scatter(x=t_points, y=x_mult, name="Szum Multiplikatywny (Geometryczny)", 
+                         line=dict(color="#00e676", width=2)))
+    
+    fig_noise.update_layout(
+        title="Ewolucja Błędu: Stały (Addytywny) vs Proporcjonalny (Multiplikatywny)",
+        xaxis=dict(title="Czas / Skala Układu", gridcolor="#2a2a3a"),
+        yaxis=dict(title="Wartość X_t", gridcolor="#2a2a3a"),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", family="Inter"),
+        legend=dict(x=0.01, y=0.99), margin=dict(l=40,r=20,t=50,b=40), height=350
+    )
+    st.plotly_chart(fig_noise, use_container_width=True)
+
+with c35_2:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>📉 Typy Błędów Stochastycznych</div>
+    <p style='{NOTE}'>
+    <b>1. Szum Addytywny:</b> Błąd jest niezależny od stanu ($dX_t = f dt + \sigma dW_t$). Błąd po prostu 'dokleja się' do sygnału. Skala problemu nie rośnie liniowo z sukcesem.<br><br>
+    <b>2. Szum Multiplikatywny:</b> Błąd zależy od aktualnego stanu ($dX_t = f dt + \sigma X_t dW_t$). Im większy sygnał, tym większy błąd. To model ryzyka w biznesie i finansach.<br><br>
+    <b style='color:#00e676'>Zasada Skali:</b> Skalując system, nie planuj marginesu błędu jako stałej kwoty, lecz jako % zmienności. Sukces 10x to błędy 10x większe, a nie te same co wcześniej.
+    </p></div>""", unsafe_allow_html=True)
+
+st.markdown("### 🧬 Nieliniowa Transformacja Błędu (Efekt Kwadratu)")
+
+c35_3, c35_4 = st.columns([2, 3])
+
+with c35_3:
+    st.markdown(f"""<div style='{CARD}'>
+    <div style='{H3}'>📐 Rozwinięcie Taylora: (x + ε)²</div>
+    <p style='{NOTE}'>
+    Nawet jeśli błąd na wejściu jest 'grzeczny' (addytywny), nieliniowość układu zmienia go w coś gorszego:<br><br>
+    <center><b style='color:#ffea00'>(x + ε)² = x² + 2xε + ε²</b></center><br>
+    • <b>2xε</b>: Człon multiplikatywny. Wraz ze wzrostem sygnału (x), wpływ tego samego błędu (ε) rośnie wykładniczo!<br><br>
+    • <b>ε²</b>: Zmiana rozkładu. Błąd przestaje być symetryczny. Wypukłość układu (Positive Convexity) sprawia, że szum może nam pomagać, ale wklęsłość (Concavity) sprawia, że szum zabija.
+    </p></div>""", unsafe_allow_html=True)
+
+with c35_4:
+    x_val = st.slider("Skala Sygnału (x)", 1, 100, 10, key="c35_x")
+    err_val = st.slider("Wielkość Błędu (ε)", 0.1, 5.0, 1.0, 0.1, key="c35_e")
+    
+    # Visualization of components
+    labels = ["Wynik Czysty (x²)", "Interakcja (2xε)", "Szum własny (ε²)"]
+    vals = [x_val**2, 2*x_val*err_val, err_val**2]
+    
+    fig_taylor = go.Figure(go.Pie(labels=labels, values=vals, hole=.4,
+                          marker=dict(colors=["#3498db", "#ffea00", "#ff1744"])))
+    fig_taylor.update_layout(
+        title=f"Struktura Wyniku dla x={x_val}, ε={err_val}",
+        paper_bgcolor="rgba(0,0,0,0)", font=dict(color="white", family="Inter"),
+        height=300, margin=dict(l=20,r=20,t=50,b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+    )
+    st.plotly_chart(fig_taylor, use_container_width=True)
+
+# Practical Decision Table
+st.markdown("### 🚦 Life Filtering: Jak reagować na szum?")
+st.markdown(f"""
+<table style='width:100%; border-collapse: collapse; font-family: "Inter", sans-serif; color: #ddd;'>
+    <tr style='background-color: #1a1c28; border-bottom: 2px solid #2a2a3a;'>
+        <th style='padding: 12px; text-align: left;'>Sytuacja</th>
+        <th style='padding: 12px; text-align: left;'>Typ błędu</th>
+        <th style='padding: 12px; text-align: left;'>Strategia Inżynierii Życia</th>
+    </tr>
+    <tr style='border-bottom: 1px solid #2a2a3a;'>
+        <td style='padding: 12px;'>Rutynowe zadania (Liniowe)</td>
+        <td style='color: #3498db;'>Addytywny</td>
+        <td>Skup się na średniej. Pojedynczy błąd nie psuje całości.</td>
+    </tr>
+    <tr style='border-bottom: 1px solid #2a2a3a;'>
+        <td style='padding: 12px;'>Inwestycje / Skalowanie biznesu</td>
+        <td style='color: #00e676;'>Multiplikatywny</td>
+        <td>Skup się na <b>zmienności %</b>. Chroń kapitał przed szumem rosnącym wraz z sukcesem.</td>
+    </tr>
+    <tr style='border-bottom: 1px solid #2a2a3a;'>
+        <td style='padding: 12px;'>Relacje / Reputacja</td>
+        <td style='color: #ff1744;'>Nieliniowy</td>
+        <td>Jeden duży błąd (ε) niszczy funkcję stanu (x²). <b>Precyzja rano > skala wieczorem.</b></td>
+    </tr>
+    <tr style='border-bottom: 1px solid #2a2a3a;'>
+        <td style='padding: 12px;'>Innowacje / R&D</td>
+        <td style='color: #ffea00;'>Wypukły (Convex)</td>
+        <td>Szukaj systemów, gdzie szum działa na korzyść (Opcjonalność). Próbuj wielu tanich rzeczy.</td>
+    </tr>
+</table>
+""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
 # ZAKTUALIZOWANY FOOTER
 # ═══════════════════════════════════════════════════════════
 st.markdown("---")
 st.markdown("""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:16px'>
-Life OS v4.5 · Advanced Quant Platform Ecosystem · 32 Sekcje Naukowe<br>
+Life OS v4.6 · Advanced Quant Platform Ecosystem · 35 Sekcji Naukowych<br>
 Ergodicity (Peters) · RPE (Schultz) · Network Centrality (Burt) · Barbell &amp; Extremistan (Taleb) · Kelly Criterion<br>
 Chronobiology (Panda) · Flow 3D (Csíkszentmihályi) · Fogg Behavior Model · Nudges (Kahneman/Thaler)<br>
 Mechanism Design · IPD (Axelrod/Nowak) · Multi-Armed Bandit · Costly Signaling · Hawkes Processes<br>
-<b>NEW v4.5:</b> Stoic Dichotomy (Epictetus) · Social Hierarchy Biology (Sapolsky) · Shannon/Bayes/Friston<br>
+<b>NEW v4.6:</b> Non-linear Risk Engineering (Ito vs Stratonovich) · Stochastic Noise Scaling · Taylor Expansion Decision Making<br>
 SOC &amp; Edge of Chaos (Per Bak/SFI) · AI Cognitive Surrender (Wharton 2025) · Active Inference (Friston 2022)<br>
 Network Neuroscience (DMN/TPN) · Polyvagal Theory (Porges) · Noise (Kahneman 2021)
 </div>""", unsafe_allow_html=True)

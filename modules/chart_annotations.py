@@ -41,7 +41,12 @@ def add_market_annotations(fig: go.Figure, start_date: str | pd.Timestamp, end_d
     """
     try:
         start_ts = pd.to_datetime(start_date)
+        if getattr(start_ts, 'tzinfo', None) is not None:
+            start_ts = start_ts.tz_localize(None)
+            
         end_ts = pd.to_datetime(end_date)
+        if getattr(end_ts, 'tzinfo', None) is not None:
+            end_ts = end_ts.tz_localize(None)
     except Exception:
         # W przypadku błędu parsowania (np. gdy podano dziwny format osi kategorycznej)
         # rezygnujemy z dodawania adnotacji, by nie wyłożyć całej aplikacji.

@@ -49,7 +49,11 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
             kw["period"] = period
         else:
             kw["period"] = "1y"
-        return tkr.history(**kw)
+        hist = tkr.history(**kw)
+        if not hist.empty:
+            # Force MultiIndex (Attribute, Ticker) Nawet dla pojedynczego tickera
+            hist.columns = pd.MultiIndex.from_product([hist.columns, [tickers[0]]])
+        return hist
         
     kwargs = {"progress": False, "auto_adjust": auto_adjust, "threads": True}
     if start:
@@ -126,9 +130,28 @@ def _fetch_data_cached(tickers_tuple: tuple, start: str, end: str, period: str, 
             isin_map[mapped] = t.strip().upper()
     
     try:
-        logger.info(f"Pobieranie danych rynkowych przez yfinance dla: {mapped_tickers[:3]}...")
+        logger.info(f"Pobieranie danych rynkowych (Yahoo) | Tickers: {mapped_tickers} | Period: {period} | Start: {start} | End: {end}")
         data = _fetch_from_yfinance_sync(mapped_tickers, start, end, period, auto_adjust)
+        
         if not data.empty:
+            # Sprawdź czy wszystkie tickery mają dane
+            if isinstance(data.columns, pd.MultiIndex):
+                # Dla MultiIndex (np. Adj Close, SPY) bierzemy level 1 (Tickers)
+                fetched_tickers = data.columns.get_level_values(1).unique() if data.columns.nlevels > 1 else data.columns
+            else:
+                fetched_tickers = data.columns.unique()
+            
+            missing = [t for t in mapped_tickers if t not in fetched_tickers]
+            if missing:
+                logger.warning(f"yfinance nie zwróciło żadnych kolumn dla: {missing}")
+            
+            logger.info(f"Pobrano pomyślnie {len(data)} wierszy.")
+            
+            # Ensure index is standardized (no timezone, sorted)
+            if data.index.tz is not None:
+                data.index = data.index.tz_localize(None)
+            data.sort_index(inplace=True)
+
             if isin_map and isinstance(data.columns, pd.MultiIndex):
                 new_cols = []
                 for attr, sym in data.columns:
@@ -137,7 +160,9 @@ def _fetch_data_cached(tickers_tuple: tuple, start: str, end: str, period: str, 
                 data.sort_index(axis=1, level=0, inplace=True)
             return data
         else:
-            logger.warning("yfinance zwróciło puste dane. Przełączanie na stooq...")
+            logger.warning(f"yfinance zwrocilo puste dane dla {mapped_tickers}. Sprawdz czy symbole sa poprawne.")
+            logger.info("Przelaczanie na alternatywne zrodla (Stooq)...")
+
     except Exception as e:
         logger.warning(f"Błąd yfinance ({e}). Przełączanie na stooq...")
 
@@ -255,23 +280,46 @@ def fetch_currency_adjusted_data(tickers: List[str], start: str = None, end: str
         logger.warning("Nie udało się pobrać kursu USD/PLN. Zwracam dane bez przeliczenia.")
         return data
         
-    # Ujednolicenie indeksów (częsty problem z dniami wolnymi w różnych krajach)
-    combined = pd.concat([data, usdpln.rename("USDPLN")], axis=1).ffill().dropna()
+    # Ujednolicenie indeksów (Timezone normalization to naive)
+    if data.index.tz is not None:
+        data.index = data.index.tz_localize(None)
+    if usdpln.index.tz is not None:
+        usdpln.index = usdpln.index.tz_localize(None)
     
+    # Przemianowanie USDPLN tak, aby pasowało do struktury MultiIndex (jeśli dotyczy)
+    if isinstance(data.columns, pd.MultiIndex):
+        usdpln_col = ("USDPLN", "")
+        combined = pd.concat([data, usdpln.rename(usdpln_col)], axis=1)
+    else:
+        usdpln_col = "USDPLN"
+        combined = pd.concat([data, usdpln.rename(usdpln_col)], axis=1)
+
+    combined = combined.ffill()
+    
+    # Drop rows where we have no FX data (cannot adjust)
+    combined = combined.dropna(subset=[usdpln_col])
+    
+    if combined.empty:
+        logger.warning("Brak wspólnych danych po połączeniu z kursem USD/PLN. Zwracam oryginalne dane.")
+        return data
+
     # Kopia fragmentu odpowiadającego wyjściowym tickerom
     if isinstance(data.columns, pd.MultiIndex):
-        adjusted_data = combined[data.columns.levels[0]].copy()
-        usdpln_aligned = combined["USDPLN"]
+        adjusted_data = combined[data.columns].copy()
+        usdpln_aligned = combined[usdpln_col] # Series
+        
+        # Valid labels handle
+        level0 = data.columns.get_level_values(0).unique()
         
         for t in tickers:
-            # Zakładamy że wszystko co nie jest .PL/.WA jest w USD
+            # Zakładamy, że wszystko co nie jest .PL/.WA jest w USD
             if not (t.endswith(".PL") or t.endswith(".WA")):
-                for price_col in data.columns.levels[0]:
+                for price_col in level0:
                     if (price_col, t) in data.columns:
                         adjusted_data.loc[:, (price_col, t)] *= usdpln_aligned
     else:
         adjusted_data = combined[data.columns].copy()
-        usdpln_aligned = combined["USDPLN"]
+        usdpln_aligned = combined[usdpln_col]
         t = tickers[0]
         if not (t.endswith(".PL") or t.endswith(".WA")):
             for col in adjusted_data.columns:

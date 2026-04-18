@@ -30,7 +30,7 @@
   "alloc_safe_pct": 0.95,
   "initial_capital": 1000000.0,
   "base_currency": "PLN",
-  "currency_risk_enabled": false,
+  "currency_risk_enabled": true,
   "usd_pln_vol": 0.12,
   "usd_pln_corr": -0.3,
   "bg_refresh_enabled": true,
@@ -45,5 +45,5 @@
   ],
   "ui_mode": "educational",
   "profile_name": "Domyślny",
-  "last_updated": "2026-04-08T10:01:39"
+  "last_updated": "2026-04-13T13:32:13"
 }

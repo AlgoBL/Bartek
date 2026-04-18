@@ -1029,8 +1029,7 @@ def run_ai_backtest(
     vol_target = risk_params.get("vol_target", 0.0) if risk_params else 0.0
 
     if risky_data.empty:
-        st.error("Risky data is empty.")
-        return pd.DataFrame(), [], []
+        raise ValueError("Risky data is empty.")
     risky_tickers = risky_data.columns.tolist()
     
     if safe_type == "Fixed":
@@ -1048,8 +1047,7 @@ def run_ai_backtest(
         safe_tickers = ["FIXED_SAFE"]
     else:
         if safe_data.empty:
-             st.error("Safe data is empty.")
-             return pd.DataFrame(), [], []
+             raise ValueError("Safe data is empty.")
         safe_tickers = safe_data.columns.tolist()
 
     combined_data = pd.concat([safe_data, risky_data], axis=1).dropna()

@@ -1,7 +1,7 @@
 @echo off
-echo Starting Intelligent Barbell App (v9.5 - Optimized)...
+echo Starting Intelligent Barbell App (v9.5 - Optimized) in Browser...
 .\\venv\\Scripts\\streamlit.exe run app.py ^
-    --server.headless true ^
+    --server.headless false ^
     --browser.gatherUsageStats false ^
     --logger.level warning ^
     --server.fileWatcherType none ^

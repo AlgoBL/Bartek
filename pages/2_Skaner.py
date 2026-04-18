@@ -538,13 +538,19 @@ if 'scanner_results' in st.session_state:
                 weight = 100.0 / len(tickers_to_transfer)
                 transfer_data = [{"Ticker": t, "Waga (%)": weight} for t in tickers_to_transfer]
                 st.session_state['transfer_data'] = pd.DataFrame(transfer_data)
-                st.switch_page("pages/1_Symulator.py")
+                try:
+                    st.switch_page("pages/1_Symulator.py")
+                except Exception:
+                    st.error("❌ Moduł 'Symulator Barbell' jest ukryty. Przejdź do 'Globalne Ustawienia' i włącz go by przejść dalej.")
                 
         with btn_col2:
             if st.button(f"⚡ Przenieś ({len(selected_rows)}) do Stress Testów", use_container_width=True):
                 tickers_to_transfer = selected_rows["Ticker"].tolist()
                 st.session_state["st_risky_transfer"] = ", ".join(tickers_to_transfer)
-                st.switch_page("pages/3_Stress_Test.py")
+                try:
+                    st.switch_page("pages/3_Stress_Test.py")
+                except Exception:
+                    st.error("❌ Moduł 'Stress Test' jest ukryty. Przejdź do 'Globalne Ustawienia' i włącz go by przejść dalej.")
 
     # --- Historia Skanów (Wykres Liniowy) ---
     if 'scan_history' in st.session_state and not st.session_state['scan_history'].empty:

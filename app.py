@@ -599,8 +599,11 @@ def home():
 
     if "force_navigate" in st.session_state:
         target = st.session_state.pop("force_navigate")
-        if target == "📉 Symulator": st.switch_page("pages/1_Symulator.py")
-        elif target == "⚡ Stress Test": st.switch_page("pages/3_Stress_Test.py")
+        try:
+            if target == "📉 Symulator": st.switch_page("pages/1_Symulator.py")
+            elif target == "⚡ Stress Test": st.switch_page("pages/3_Stress_Test.py")
+        except Exception:
+            st.error(f"❌ Moduł '{target}' jest ukryty. Przejdź do 'Globalne Ustawienia' i włącz go by przejść dalej.")
 
     with st.spinner(""):
         _prog = st.progress(0, text=t("cc_sync_text"))

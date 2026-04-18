@@ -1,8 +1,5 @@
-
-import yfinance as yf
 import pandas as pd
 import requests
-import feedparser
 import io
 import asyncio
 import aiohttp
@@ -224,14 +221,17 @@ class TheOracle:
     def get_macro_snapshot(self) -> dict:
         """Pobiera snapshot wskaźników (Wrapper z asyncio)."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                raise RuntimeError
+            # Próba pobrania istniejącej pętli (działa w głównym wątku)
+            loop = asyncio.get_running_loop()
+            # Jeśli pętla już działa, musimy użyć thread-safe wywołania lub sub-loopa
+            # Najprostszy sposób w env Streamlit to uruchomienie w osobnym wątku
+            # lub po prostu to_thread (jeśli jesteśmy w async), ale tu jesteśmy w sync.
+            import nest_asyncio
+            nest_asyncio.apply()
+            return loop.run_until_complete(self.get_macro_snapshot_async())
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(self.get_macro_snapshot_async())
+            # Brak działającej pętli (np. w nowym wątku tła)
+            return asyncio.run(self.get_macro_snapshot_async())
 
     def get_crypto_fear_greed(self) -> int | None:
         """Zachowano dla wstecznej kompatybilności."""
@@ -249,6 +249,7 @@ class TheOracle:
                 try:
                     async with session.get(url, timeout=10) as resp:
                         if resp.status == 200:
+                            import feedparser
                             text = await resp.text()
                             return await asyncio.to_thread(feedparser.parse, text)
                 except Exception as e:
