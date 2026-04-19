@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import scipy.stats as stats
 from modules.pairs_trading import perform_cointegration_test
 from modules.styling import apply_styling, scicard
+from modules.ui.widgets import ticker_input
 from modules.i18n import t
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
