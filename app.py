@@ -1225,6 +1225,7 @@ pages = {
     "🌐  Dashboard i Core": [
         st.Page(home, title="Control Center", icon="📡", default=True),
         st.Page("pages/1_Symulator.py", title="Symulator Barbell", icon="📉"),
+        st.Page("pages/28_Doradca.py", title="Doradca AI", icon="🧭"),
         st.Page("pages/2_Skaner.py", title="Skaner Rynku", icon="🔍"),
         st.Page("pages/0_Globalne_Ustawienia.py", title="Globalne Ustawienia", icon="🌐"),
     ],

@@ -151,6 +151,13 @@ class GlobalPortfolio:
     profile_name: str = "Domyślny"
     last_updated: str = ""
 
+    # Ujednolicona tabela aktywów (nowy format, backwards-compatible)
+    # Każdy wiersz: {name, ticker, type, yield_pct, weight, segment}
+    # type: "Obligacje Skarbowe PL" | "ETF" | "Akcja" | "Krypto" | "Surowce" | "Inne"
+    # segment: "Bezpieczny" | "Ryzykowny"
+    # Jeśli pusta lista → budowana automatycznie z safe_rate + risky_assets
+    portfolio_assets: List[Dict] = field(default_factory=list)
+
     # ── Właściwości pomocnicze ──────────────────────────────────────────────
 
     @property
@@ -181,6 +188,96 @@ class GlobalPortfolio:
 
     def total_risky_weight(self) -> float:
         return sum(a["weight"] for a in self.risky_assets)
+
+    @property
+    def all_assets_unified(self) -> List[Dict]:
+        """
+        Zwraca ujednoliconą listę aktywów.
+        Jeśli portfolio_assets jest wypełniony—zwraca go wprost.
+        W przeciwnym razie buduje z legacy pól (safe_rate + risky_assets).
+        """
+        if self.portfolio_assets:
+            return self.portfolio_assets
+        # Buduj z legacy
+        assets = []
+        safe_cap = self.initial_capital * self.alloc_safe_pct
+        risky_cap = self.initial_capital * self.alloc_risky_pct
+        total_safe_w = 100.0
+        if self.safe_type == "fixed":
+            assets.append({
+                "name":      "Obligacje Skarbowe 3Y",
+                "ticker":   "TOS_PL",
+                "type":     "Obligacje Skarbowe PL",
+                "yield_pct": round(self.safe_rate * 100, 4),
+                "weight":   round(self.alloc_safe_pct * 100, 2),
+                "segment":  "Bezpieczny",
+            })
+        else:
+            for tkr in self.safe_tickers:
+                w = round(self.alloc_safe_pct * 100 / max(len(self.safe_tickers), 1), 2)
+                assets.append({
+                    "name":     tkr,
+                    "ticker":  tkr,
+                    "type":    "ETF",
+                    "yield_pct": 0.0,
+                    "weight":  w,
+                    "segment": "Bezpieczny",
+                })
+        total_risky = sum(a["weight"] for a in self.risky_assets) or 1
+        for ra in self.risky_assets:
+            frac = ra["weight"] / total_risky
+            assets.append({
+                "name":     ra["ticker"],
+                "ticker":   ra["ticker"],
+                "type":     ra.get("asset_class", "Inne"),
+                "yield_pct": 0.0,
+                "weight":   round(frac * self.alloc_risky_pct * 100, 2),
+                "segment":  "Ryzykowny",
+            })
+        return assets
+
+    def sync_from_portfolio_assets(self) -> None:
+        """
+        Synchronizuje legacy pola (safe_rate, risky_assets, alloc_safe_pct)
+        na podstawie ujednoliconej tabeli portfolio_assets.
+        Wywoływane po zapisie z nowego edytora.
+        """
+        if not self.portfolio_assets:
+            return
+        safe_rows   = [a for a in self.portfolio_assets if a.get("segment") == "Bezpieczny"]
+        risky_rows  = [a for a in self.portfolio_assets if a.get("segment") == "Ryzykowny"]
+        total_weight= sum(a.get("weight", 0) for a in self.portfolio_assets) or 100.0
+
+        safe_total  = sum(a.get("weight", 0) for a in safe_rows)
+        risky_total = sum(a.get("weight", 0) for a in risky_rows)
+
+        self.alloc_safe_pct = safe_total / total_weight
+
+        # Najbardziej typowy przypadek: jedna obligacja (fixed rate)
+        bond_rows = [a for a in safe_rows
+                     if a.get("type") in ("Obligacje Skarbowe PL", "Obligacje")]
+        if bond_rows:
+            self.safe_type = "fixed"
+            # Średnia ważona oprocentowania obligacji
+            total_bond_w = sum(a.get("weight", 0) for a in bond_rows) or 1
+            self.safe_rate = sum(
+                a.get("yield_pct", 0) / 100.0 * a.get("weight", 0)
+                for a in bond_rows
+            ) / total_bond_w
+        else:
+            self.safe_type = "tickers"
+            self.safe_tickers = [a["ticker"] for a in safe_rows if a.get("ticker")]
+
+        # Ryzykowna część
+        if risky_rows and risky_total > 0:
+            self.risky_assets = [
+                {
+                    "ticker":      a.get("ticker", a.get("name", "??")),
+                    "weight":      round(a.get("weight", 0) / risky_total * 100, 2),
+                    "asset_class": a.get("type", "Inne"),
+                }
+                for a in risky_rows if a.get("ticker") or a.get("name")
+            ]
 
 
 # ─── Funkcje I/O ──────────────────────────────────────────────────────────────
@@ -215,6 +312,7 @@ def load_global_settings() -> GlobalPortfolio:
             ui_mode=data.get("ui_mode", "expert"),
             profile_name=data.get("profile_name", "Domyślny"),
             last_updated=data.get("last_updated", ""),
+            portfolio_assets=data.get("portfolio_assets", []),
         )
         return gs
 
