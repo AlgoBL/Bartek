@@ -545,11 +545,150 @@ def apply_styling() -> str:
         background: linear-gradient(180deg, #08090f 0%, #0b0d18 50%, #0d0f1a 100%) !important;
         border-right: 1px solid rgba(0,230,118,0.10) !important;
     }
-    /* Paddin top dla opcji sidebara */
+    /* Padding top dla opcji sidebara */
     [data-testid="stSidebar"] > div:first-child {
         padding-top: 2rem !important;
     }
-    /* Header for options */
+
+    /* ── UJEDNOLICENIE CZCIONEK SIDEBARA (v10) ─────────────────────
+       Bazowy rozmiar: 13.5px — identyczny z linkami nawigacyjnymi.
+       Wszystkie widgety, nagłówki i etykiety w sidebarze.
+    ────────────────────────────────────────────────────────────── */
+
+    /* Globalna baza dla całego sidebara — kaskada dotrze do wszystkich elementów */
+    [data-testid="stSidebar"] * {
+        font-family: var(--font) !important;
+    }
+
+    /* === NAGŁÓWKI SIDEBARA (h1–h4, ### markdown) ================= */
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4 {
+        font-size: 13.5px !important;
+        font-weight: 700 !important;
+        color: #c8cde0 !important;
+        letter-spacing: 0.3px !important;
+        margin: 8px 0 4px 0 !important;
+        text-transform: none !important;
+        background: none !important;
+        -webkit-text-fill-color: unset !important;
+    }
+
+    /* === ZWYKŁY TEKST / MARKDOWN W SIDEBARZE ===================== */
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] .stMarkdown span {
+        font-size: 13.5px !important;
+        color: #9ca3af !important;
+        line-height: 1.45 !important;
+    }
+
+    /* === ETYKIETY WIDGETÓW (slider, number_input, selectbox, itp.) */
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+    [data-testid="stSidebar"] .stSlider label,
+    [data-testid="stSidebar"] .stSlider [data-testid="stWidgetLabel"] p,
+    [data-testid="stSidebar"] .stNumberInput label,
+    [data-testid="stSidebar"] .stSelectbox label,
+    [data-testid="stSidebar"] .stMultiSelect label,
+    [data-testid="stSidebar"] .stRadio label,
+    [data-testid="stSidebar"] .stCheckbox label,
+    [data-testid="stSidebar"] .stToggle label,
+    [data-testid="stSidebar"] .stTextInput label,
+    [data-testid="stSidebar"] .stTextArea label {
+        font-size: 13.5px !important;
+        color: #9ca3af !important;
+        font-weight: 500 !important;
+    }
+
+    /* === SLIDER — wartości min/max i bieżąca ===================== */
+    [data-testid="stSidebar"] .stSlider [data-testid="stTickBar"] span,
+    [data-testid="stSidebar"] .stSlider [data-testid="stTickBar"] p,
+    [data-testid="stSidebar"] .stSlider [data-testid="stSliderTickBarMin"],
+    [data-testid="stSidebar"] .stSlider [data-testid="stSliderTickBarMax"],
+    [data-testid="stSidebar"] .stSlider span {
+        font-size: 11px !important;
+        color: #6b7280 !important;
+    }
+
+    /* === SELECTBOX / DROPDOWN ===================================== */
+    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] span,
+    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] div,
+    [data-testid="stSidebar"] .stMultiSelect [data-baseweb="select"] span,
+    [data-testid="stSidebar"] .stMultiSelect [data-baseweb="select"] div {
+        font-size: 13.5px !important;
+        color: #c8cde0 !important;
+    }
+
+    /* === RADIO BUTTONS ============================================ */
+    [data-testid="stSidebar"] .stRadio [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] .stRadio span {
+        font-size: 13.5px !important;
+        color: #9ca3af !important;
+    }
+
+    /* === CHECKBOXY I TOGGLE ======================================= */
+    [data-testid="stSidebar"] .stCheckbox span,
+    [data-testid="stSidebar"] .stToggle span,
+    [data-testid="stSidebar"] .stCheckbox [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] .stToggle [data-testid="stMarkdownContainer"] p {
+        font-size: 13.5px !important;
+        color: #9ca3af !important;
+    }
+
+    /* === NUMBER INPUT ============================================= */
+    [data-testid="stSidebar"] .stNumberInput input {
+        font-size: 13.5px !important;
+        color: #e2e4f0 !important;
+    }
+
+    /* === CAPTION (st.caption) ===================================== */
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+    [data-testid="stSidebar"] small,
+    [data-testid="stSidebar"] .stCaption {
+        font-size: 11px !important;
+        color: #6b7280 !important;
+    }
+
+    /* === INFO / WARNING / SUCCESS MESSAGES ======================== */
+    [data-testid="stSidebar"] [data-testid="stNotification"] p,
+    [data-testid="stSidebar"] .stAlert p,
+    [data-testid="stSidebar"] [data-testid="stAlertContentInfo"] p,
+    [data-testid="stSidebar"] [data-testid="stAlertContentWarning"] p,
+    [data-testid="stSidebar"] [data-testid="stAlertContentSuccess"] p,
+    [data-testid="stSidebar"] [data-testid="stAlertContentError"] p {
+        font-size: 13.5px !important;
+    }
+
+    /* === BUTTONY W SIDEBARZE ====================================== */
+    [data-testid="stSidebar"] .stButton > button,
+    [data-testid="stSidebar"] .stButton > button span {
+        font-size: 13.5px !important;
+    }
+
+    /* === EXPANDER W SIDEBARZE ==================================== */
+    [data-testid="stSidebar"] .stExpander summary p,
+    [data-testid="stSidebar"] .stExpander summary span,
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary p {
+        font-size: 13.5px !important;
+        color: #9ca3af !important;
+    }
+
+    /* === TYTUŁ SIDEBARA (st.sidebar.title) ======================== */
+    [data-testid="stSidebar"] [data-testid="stHeading"] h1,
+    [data-testid="stSidebar"] [data-testid="stHeading"] h2 {
+        font-size: 15px !important;
+        font-weight: 800 !important;
+        color: var(--green) !important;
+        background: none !important;
+        -webkit-text-fill-color: unset !important;
+        letter-spacing: 0.5px !important;
+    }
+
+    /* Header for options (custom class) */
     .sidebar-options-header {
         font-size: 10px !important;
         font-weight: 700 !important;
@@ -559,7 +698,8 @@ def apply_styling() -> str:
         margin-bottom: 8px !important;
         opacity: 0.8;
     }
-    /* Navigation group headers — bold, uppercase, spaced */
+
+    /* === LINKI NAWIGACYJNE ======================================== */
     [data-testid="stSidebarNavLink"] {
         border-radius: 8px !important;
         margin: 2px 8px !important;
@@ -579,13 +719,18 @@ def apply_styling() -> str:
         border-left: 3px solid #00e676 !important;
         font-weight: 600 !important;
     }
-    /* Section labels in navigation */
+    /* Separatory sekcji nawigacji */
     [data-testid="stSidebarNavSeparator"] {
         color: rgba(255,255,255,0.3) !important;
         font-size: 10px !important;
         letter-spacing: 1.5px !important;
         text-transform: uppercase !important;
         padding: 12px 14px 4px 14px !important;
+    }
+    /* Tekst wewnątrz linków nawigacyjnych — wyrównaj do 13.5px */
+    [data-testid="stSidebarNavLink"] p,
+    [data-testid="stSidebarNavLink"] span {
+        font-size: 13.5px !important;
     }
 
     /* ═══════════════════════════════════════════════════════════════
