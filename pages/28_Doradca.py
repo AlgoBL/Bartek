@@ -22,7 +22,8 @@ from plotly.subplots import make_subplots
 
 from modules.styling import apply_styling
 from modules.global_settings import get_gs
-from modules.advisor_engine import AdvisorEngine, AdvisorReport
+from modules.advisor_engine import AdvisorEngine, AdvisorReport, _load_cache
+from modules.background_updater import bg_engine
 
 # ── Setup ──────────────────────────────────────────────────────────────────────
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -86,10 +87,23 @@ st.sidebar.markdown(f"""
 """, unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("🔄 Doradca automatycznie pobiera dane makro z Heartbeat Cache. "
-                   "Uruchom silnik w Globalnych Ustawieniach, by mieć świeże dane.")
-if st.sidebar.button("⚙️ Idź do Globalnych Ustawień", use_container_width=True):
+if st.sidebar.button("🔄 Pobierz najnowsze dane makro", type="primary", use_container_width=True):
+    with st.spinner("🌐 Pobieranie aktualnych wskaźników z rynku (Yahoo Finance / FRED)..."):
+        bg_engine.fetch_now_sync()
+        st.toast("✅ Dane makro zaktualizowane!")
+        st.rerun()
+
+st.sidebar.caption("Heartbeat Cache analizuje na ustandaryzowanej lokalnej migawce. "
+                   "Możesz włączyć stałe odświeżanie w tle w Ustawieniach.")
+if st.sidebar.button("⚙️ Idź do Ustawień", use_container_width=True):
     st.switch_page("pages/0_Globalne_Ustawienia.py")
+
+# ── Autostart Heartbeat jeśli brakuje danych ─────────────────────────────────
+m_cache, g_cache = _load_cache()
+if not m_cache:
+    with st.spinner("Pierwsze wywołanie Doradcy — buduję cache rynkowy (szacowany czas: ok 10 s)..."):
+        bg_engine.fetch_now_sync()
+        st.rerun()
 
 # ── Generuj raport ───────────────────────────────────────────────────────────
 with st.spinner("🧠 Analizuję portfel i dane makroekonomiczne..."):

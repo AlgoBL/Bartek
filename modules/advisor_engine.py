@@ -19,11 +19,11 @@ from typing import List, Dict, Optional, Tuple
 # ── Stałe ──────────────────────────────────────────────────────────────────────
 
 SCORE_MAX = 100
-CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "heartbeat_cache.json")
+CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "market_cache.json")
 # fall back ścieżka (w katalogu root projektu)
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 _CACHE_CANDIDATES = [
-    os.path.join(_ROOT, "data", "heartbeat_cache.json"),
+    os.path.join(_ROOT, "data", "market_cache.json"),
     os.path.join(_ROOT, "heartbeat_cache.json"),
 ]
 
