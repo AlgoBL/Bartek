@@ -262,17 +262,22 @@ if mode == MC_MODE:
     
     @st.cache_data(ttl="1h", show_spinner="Pobieranie danych rynkowych dla Kopuły...")
     def get_auto_copula_params():
-        import yfinance as yf
+        from modules.data_provider import fetch_data
         from scipy.stats import rankdata
         try:
-            proxy_df = yf.download(["SPY", "TLT"], period="5y", progress=False)["Close"].pct_change().dropna()
-            if isinstance(proxy_df.columns, pd.MultiIndex):
-                proxy_df.columns = proxy_df.columns.get_level_values(0)
-            if not proxy_df.empty and "SPY" in proxy_df.columns and "TLT" in proxy_df.columns:
-                u = rankdata(proxy_df["SPY"]) / (len(proxy_df) + 1)
-                v = rankdata(proxy_df["TLT"]) / (len(proxy_df) + 1)
-                fit_res = fit_best_copula(u, v)
-                return fit_res["best_family"], fit_res["best_theta"]
+            raw = fetch_data(["SPY", "TLT"], period="5y")
+            if raw is not None and not raw.empty:
+                if isinstance(raw.columns, pd.MultiIndex):
+                    lvl0 = raw.columns.get_level_values(0).unique()
+                    proxy_df = raw["Close"] if "Close" in lvl0 else raw.iloc[:, 0].to_frame()
+                else:
+                    proxy_df = raw
+                if not proxy_df.empty and "SPY" in proxy_df.columns and "TLT" in proxy_df.columns:
+                    returns_df = proxy_df.pct_change().dropna()
+                    u = rankdata(returns_df["SPY"]) / (len(returns_df) + 1)
+                    v = rankdata(returns_df["TLT"]) / (len(returns_df) + 1)
+                    fit_res = fit_best_copula(u, v)
+                    return fit_res["best_family"], fit_res["best_theta"]
         except Exception as e:
             st.sidebar.warning(f"Auto-Fit MLE failed: {e}")
         return "clayton", 2.0
@@ -366,9 +371,13 @@ if mode == MC_MODE:
         from concurrent.futures import ThreadPoolExecutor
 
         def get_executor():
-            if 'mc_executor' not in st.session_state:
-                st.session_state['mc_executor'] = ThreadPoolExecutor(max_workers=2)
-            return st.session_state['mc_executor']
+            """Pobiera lub tworzy executor z prawidłową obsługą lifecycle."""
+            ex = st.session_state.get('mc_executor')
+            # Utwórz nowy jeśli brak lub shutdown
+            if ex is None or getattr(ex, '_shutdown', False):
+                ex = ThreadPoolExecutor(max_workers=2)
+                st.session_state['mc_executor'] = ex
+            return ex
 
         try:
             executor = get_executor()

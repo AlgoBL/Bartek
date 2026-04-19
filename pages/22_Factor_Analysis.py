@@ -55,30 +55,37 @@ with st.sidebar:
     show_midas = st.checkbox("Pokaż GARCH-MIDAS", value=True)
     show_ff5   = st.checkbox("Pokaż Fama-French 5-Factor", value=True)
 
-# ─── DATA LOADING ────────────────────────────────────────────────────────────
-# Parse tickers
-raw_tickers = ticker_input.replace(",", "\n").replace(";", "\n").split("\n")
-tickers = [t.strip().upper() for t in raw_tickers if t.strip()]
-tickers = list(dict.fromkeys(tickers))  # deduplicate preserving order
-
-if len(tickers) < 2:
-    st.warning("⚠️ Wpisz co najmniej 2 tickers.", icon="⚠️")
-    st.stop()
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
+# ─── DATA LOADING ────────────────────────────────────�@st.cache_data(ttl=3600, show_spinner=False)
 def load_returns_data(tickers_tuple: tuple, period_str: str) -> pd.DataFrame:
     """Load price data and compute daily returns."""
     from modules.isin_resolver import ISINResolver
+    from modules.data_provider import fetch_data
     # Transparentne tłumaczenie ISIN → ticker dla każdego elementu krotki
     resolved_map = {t: ISINResolver.resolve(t) for t in tickers_tuple}
     resolved_list = [resolved_map[t] for t in tickers_tuple]
     try:
-        import yfinance as yf
-        raw = yf.download(resolved_list, period=period_str, progress=False, auto_adjust=True)
+        raw = fetch_data(resolved_list, period=period_str)
+        if raw is None or raw.empty:
+            return pd.DataFrame()
         if isinstance(raw.columns, pd.MultiIndex):
-            prices = raw["Close"]
-            # Przywróć oryginalne etykiety (ISIN lub ticker podany przez użytkownika)
+            lvl0 = raw.columns.get_level_values(0).unique()
+            if "Close" in lvl0:
+                prices = raw["Close"].copy()
+            elif "Adj Close" in lvl0:
+                prices = raw["Adj Close"].copy()
+            else:
+                prices = raw.iloc[:, 0].to_frame()
+        else:
+            prices = raw.copy()
+        # Przywroć oryginalne etykiety (ISIN lub ticker podany przez użytkownika)
+        reverse_map = {v: k for k, v in resolved_map.items()}
+        prices.columns = [reverse_map.get(c, c) for c in prices.columns]
+        returns = prices.pct_change().dropna()
+        return returns
+    except Exception as e:
+        from modules.logger import setup_logger
+        setup_logger(__name__).error(f"load_returns_data error: {e}")
+        return pd.DataFrame()ty (ISIN lub ticker podany przez użytkownika)
             reverse_map = {v: k for k, v in resolved_map.items()}
             prices.columns = [reverse_map.get(c, c) for c in prices.columns]
         else:

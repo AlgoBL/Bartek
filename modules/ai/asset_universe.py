@@ -7,7 +7,7 @@ from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-@st.cache_data
+@st.cache_data(ttl=86400)
 def get_sp500_tickers():
     """
     Pobiera aktualną listę tickerów S&P 500 z Wikipedii.
@@ -33,7 +33,7 @@ def get_sp500_tickers():
         # Top 20 liquid stocks (fallback)
         return ['AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'META', 'TSLA', 'BRK-B', 'UNH', 'JNJ', 'JPM', 'XOM', 'V', 'PG', 'MA', 'HD', 'CVX', 'ABBV', 'MRK', 'PEP']
 
-@st.cache_data
+@st.cache_data(ttl=86400)
 def get_global_etfs():
     """
     Zwraca listę TOP 50 Globalnych ETF-ów (US & World).
@@ -99,7 +99,7 @@ def get_global_etfs():
         'UVXY', 'VIXY' # Short-term VIX (Careful!)
     ]
 
-@st.cache_data
+@st.cache_data(ttl=86400)
 def get_top100_etfs():
     """Zwraca 100 najbardziej płynnych ETF-ów."""
     base = get_global_etfs()
@@ -113,7 +113,7 @@ def get_top100_etfs():
     # Unikalne
     return list(set(base + extended))[:100]
 
-@st.cache_data
+@st.cache_data(ttl=86400)
 def get_wig20_tickers():
     """Zwraca komponenty polskiego indeksu WIG20 (Yahoo Finance format)."""
     return [
@@ -123,7 +123,7 @@ def get_wig20_tickers():
         "JSW.WA", "ALR.WA", "BDX.WA", "PEP.WA", "PCO.WA"
     ]
 
-@st.cache_data
+@st.cache_data(ttl=86400)
 def get_stoxx50_tickers():
     """Zwraca główne akcje europejskie (STOXX 50 proxy)."""
     return [
@@ -134,7 +134,7 @@ def get_stoxx50_tickers():
         "ADYEN.AS", "PRX.AS", "INGA.AS", "ABI.BR"
     ]
 
-@st.cache_data
+@st.cache_data(ttl=86400)
 def get_crypto_tickers():
     """Zwraca główne kryptowaluty."""
     return [

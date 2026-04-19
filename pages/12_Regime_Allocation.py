@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import yfinance as yf
+from modules.data_provider import fetch_data
 from modules.styling import apply_styling
 from modules.regime_adaptive_allocation import (
     detect_regime_rule_based, fit_gaussian_mixture_regimes,
@@ -17,12 +17,18 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_data(ticker="SPY", period="5y"):
-    from modules.isin_resolver import ISINResolver
-    ticker = ISINResolver.resolve(ticker)  # transparentne tłumaczenie ISIN → ticker
+    # ISINResolver jest wywoływany automatycznie wewnątrz fetch_data
     try:
-        raw = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+        raw = fetch_data([ticker], period=period)
+        if raw is None or raw.empty:
+            return None
         if isinstance(raw.columns, pd.MultiIndex):
-            closes = raw["Close"]
+            if "Close" in raw.columns.get_level_values(0):
+                closes = raw["Close"]
+            elif "Adj Close" in raw.columns.get_level_values(0):
+                closes = raw["Adj Close"]
+            else:
+                closes = raw.iloc[:, 0]
         elif "Close" in raw.columns:
             closes = raw["Close"]
         else:
@@ -30,7 +36,9 @@ def load_data(ticker="SPY", period="5y"):
         if isinstance(closes, pd.DataFrame):
             closes = closes.iloc[:, 0]
         return closes.squeeze().dropna()
-    except Exception:
+    except Exception as e:
+        from modules.logger import setup_logger
+        setup_logger(__name__).error(f"load_data error ({ticker}): {e}")
         return None
 
 st.markdown("# 🔀 Regime Adaptive Allocation")

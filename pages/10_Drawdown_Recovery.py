@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import yfinance as yf
+from modules.data_provider import fetch_data
 from modules.styling import apply_styling
 from modules.ui.widgets import ticker_input
 from modules.drawdown_recovery_analyzer import (
@@ -16,21 +16,30 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_data(ticker, period="10y"):
-    from modules.isin_resolver import ISINResolver
-    ticker = ISINResolver.resolve(ticker)  # transparentne tłumaczenie ISIN → ticker
+    # ISINResolver jest wywoływany automatycznie wewnątrz fetch_data
     try:
-        raw = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+        raw = fetch_data([ticker], period=period)
+        if raw is None or raw.empty:
+            return None
+        # Wyodrębnij kolumnę Close (fetch_data zwraca MultiIndex)
         if isinstance(raw.columns, pd.MultiIndex):
-            closes = raw["Close"]
+            if "Close" in raw.columns.get_level_values(0):
+                closes = raw["Close"]
+            elif "Adj Close" in raw.columns.get_level_values(0):
+                closes = raw["Adj Close"]
+            else:
+                closes = raw.iloc[:, 0]
         elif "Close" in raw.columns:
             closes = raw["Close"]
         else:
             closes = raw.iloc[:, 0]
-        # Always return 1-D Series
+        # Zawsze zwracaj 1-D Series
         if isinstance(closes, pd.DataFrame):
             closes = closes.iloc[:, 0]
         return closes.dropna()
-    except Exception:
+    except Exception as e:
+        from modules.logger import setup_logger
+        setup_logger(__name__).error(f"load_data error ({ticker}): {e}")
         return None
 
 st.markdown("# 📉 Drawdown Recovery Analyzer")

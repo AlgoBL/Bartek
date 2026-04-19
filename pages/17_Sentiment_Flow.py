@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import yfinance as yf
+from modules.data_provider import fetch_data
 from modules.styling import apply_styling
 from modules.sentiment_flow_tracker import (
     compute_etf_flow_proxy, composite_fear_greed,
@@ -15,13 +15,18 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_etf_data(ticker, period="1y"):
-    from modules.isin_resolver import ISINResolver
-    ticker = ISINResolver.resolve(ticker)  # transparentne tłumaczenie ISIN → ticker
+    # ISINResolver jest wywoływany automatycznie wewnątrz fetch_data
     try:
-        raw = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+        raw = fetch_data([ticker], period=period)
+        if raw is None or raw.empty:
+            return None, None
         def _col(name):
             if isinstance(raw.columns, pd.MultiIndex):
-                col = raw[name]
+                lvl0 = raw.columns.get_level_values(0).unique()
+                if name in lvl0:
+                    col = raw[name]
+                else:
+                    return None
             elif name in raw.columns:
                 col = raw[name]
             else:

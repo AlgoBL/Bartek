@@ -42,7 +42,7 @@ def load_data(tickers, start_date=None, end_date=None, period=None, base_currenc
         # ─── Obsługa struktury danych ──────────────────────────────────────────
         # Normalizacja indeksu na naive (usuwa UTC jezeli jest)
         if data.index.tz is not None:
-             data.index = data.index.tz_localize(None)
+             data.index = data.index.tz_convert(None)
 
         # Wybór odpowiedniej kolumny cenowej (standard: Adj Close > Close)
         # Dzięki poprawce w data_provider, zazwyczaj mamy MultiIndex (Attribute, Ticker)

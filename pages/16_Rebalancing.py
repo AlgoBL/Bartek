@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import yfinance as yf
+from modules.data_provider import fetch_data
 from modules.styling import apply_styling
 from modules.smart_rebalancing_engine import (
     compute_drift, minimum_trade_rebalance, rebalancing_cost_benefit,
@@ -15,12 +15,32 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_data(tickers, period="3y"):
+    # ISINResolver jest wywoływany automatycznie wewnątrz fetch_data
     try:
-        raw = yf.download(tickers, period=period, progress=False, auto_adjust=True)
+        from modules.isin_resolver import ISINResolver
+        resolved = [ISINResolver.resolve(t) for t in tickers]
+        rev_map = {r: o for o, r in zip(tickers, resolved)}
+        
+        raw = fetch_data(resolved, period=period)
+        if raw is None or raw.empty:
+            return None
+        
         if isinstance(raw.columns, pd.MultiIndex):
-            return raw["Close"].dropna(how="all")
-        return raw.dropna(how="all")
-    except Exception:
+            lvl0 = raw.columns.get_level_values(0).unique()
+            if "Close" in lvl0:
+                prices = raw["Close"].copy()
+            elif "Adj Close" in lvl0:
+                prices = raw["Adj Close"].copy()
+            else:
+                prices = raw.iloc[:, 0].to_frame()
+        else:
+            prices = raw.copy()
+        
+        prices.columns = [rev_map.get(c, c) for c in prices.columns]
+        return prices.dropna(how="all")
+    except Exception as e:
+        from modules.logger import setup_logger
+        setup_logger(__name__).error(f"load_data error: {e}")
         return None
 
 st.markdown("# ⚖️ Smart Rebalancing Engine")

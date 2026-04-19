@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import yfinance as yf
+from modules.data_provider import fetch_data
 from modules.styling import apply_styling
 from modules.liquidity_risk_analyzer import (
     amihud_ratio, liquidity_adjusted_var, liquidity_ladder,
@@ -19,14 +19,19 @@ def load_data(tickers, period="2y"):
     # Transparentne tłumaczenie ISIN → ticker dla listy tickerów
     resolved = [ISINResolver.resolve(t) for t in tickers]
     try:
-        raw = yf.download(resolved, period=period, progress=False, auto_adjust=True)
+        raw = fetch_data(resolved, period=period)
+        if raw is None or raw.empty:
+            return None, None
         if isinstance(raw.columns, pd.MultiIndex):
-            closes = raw["Close"]
-            vols   = raw["Volume"]
+            lvl0 = raw.columns.get_level_values(0).unique()
+            closes = raw["Close"] if "Close" in lvl0 else raw.iloc[:, 0].to_frame()
+            vols   = raw["Volume"] if "Volume" in lvl0 else pd.DataFrame()
             # Przywróć oryginalne etykiety
             rev = {r: o for o, r in zip(tickers, resolved)}
-            closes.columns = [rev.get(c, c) for c in closes.columns]
-            vols.columns   = [rev.get(c, c) for c in vols.columns]
+            if isinstance(closes, pd.DataFrame):
+                closes.columns = [rev.get(c, c) for c in closes.columns]
+            if isinstance(vols, pd.DataFrame) and not vols.empty:
+                vols.columns = [rev.get(c, c) for c in vols.columns]
         else:
             closes = raw[["Close"]] if "Close" in raw.columns else raw
             vols   = raw[["Volume"]] if "Volume" in raw.columns else pd.DataFrame()

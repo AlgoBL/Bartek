@@ -2,6 +2,7 @@ import re
 import json
 import os
 import requests
+import time
 from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -55,6 +56,8 @@ class ISINResolver:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={isin}"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         try:
+            # Rate limiting
+            time.sleep(0.5)
             resp = requests.get(url, headers=headers, timeout=5)
             resp.raise_for_status()
             data = resp.json()

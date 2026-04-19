@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-import yfinance as yf
+from modules.data_provider import fetch_data
 from datetime import datetime, timedelta
 
 from modules.styling import apply_styling, module_header
@@ -20,23 +20,35 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_demo_data(tickers, period="2y"):
-    from modules.isin_resolver import ISINResolver
-    # Transparentne tłumaczenie ISIN → ticker
-    resolved = [ISINResolver.resolve(t) for t in tickers]
-    rev_map = {r: o for o, r in zip(tickers, resolved)}
+    # ISINResolver jest wywoływany automatycznie wewnątrz fetch_data
     try:
-        raw = yf.download(resolved, period=period, progress=False, auto_adjust=True)
+        from modules.isin_resolver import ISINResolver
+        resolved = [ISINResolver.resolve(t) for t in tickers]
+        rev_map = {r: o for o, r in zip(tickers, resolved)}
+
+        raw = fetch_data(resolved, period=period)
+        if raw is None or raw.empty:
+            return None, None
+
         if isinstance(raw.columns, pd.MultiIndex):
-            prices = raw["Close"]
-            prices.columns = [rev_map.get(c, c) for c in prices.columns]  # przywróć oryginalne nazwy
+            lvl0 = raw.columns.get_level_values(0).unique()
+            if "Close" in lvl0:
+                prices = raw["Close"].copy()
+            elif "Adj Close" in lvl0:
+                prices = raw["Adj Close"].copy()
+            else:
+                prices = raw.iloc[:, 0].to_frame()
         else:
-            prices = raw[["Close"]] if "Close" in raw.columns else raw
+            prices = raw.copy()
+
+        prices.columns = [rev_map.get(c, c) for c in prices.columns]
         prices = prices.dropna(how="all")
         returns = prices.pct_change().dropna(how="all")
         return prices, returns
     except Exception as e:
         st.error(f"Błąd ładowania danych: {e}")
         return None, None
+
 
 
 # ── Header ──────────────────────────────────────────────────────────────────

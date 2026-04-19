@@ -126,7 +126,7 @@ def backtest_task(
     Celery task: Uruchamia backtest Intelligent Barbell asynchronicznie.
     """
     from modules.simulation import run_ai_backtest
-    import yfinance as yf
+    from modules.data_provider import fetch_data
 
     def progress_cb(pct: float, msg: str):
         self.update_state(
@@ -134,10 +134,10 @@ def backtest_task(
             meta={"progress": round(pct * 100), "message": msg},
         )
 
-    # Pobierz dane
+    # Pobierz dane przez centralny fetch_data (z Stooq fallback, cache, ISIN resolve)
     progress_cb(0.05, "Pobieranie danych historycznych...")
-    safe_data  = yf.download(safe_tickers,  period="3y", auto_adjust=True, progress=False)
-    risky_data = yf.download(risky_tickers, period="3y", auto_adjust=True, progress=False)
+    safe_data  = fetch_data(safe_tickers,  period="3y")
+    risky_data = fetch_data(risky_tickers, period="3y")
 
     progress_cb(0.20, "Uruchamianie backtestu...")
 

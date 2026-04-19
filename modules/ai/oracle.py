@@ -123,20 +123,21 @@ class TheOracle:
                     # Pobieramy ostatni miesiąc by ocenić czy małe spółki nadążają
                     df = await asyncio.to_thread(fetch_data, ["RSP", "SPY"], period="1mo")
                     if df.empty: return out
-                    
+
                     closes = None
                     if isinstance(df.columns, pd.MultiIndex):
-                        if "Close" in df.columns.levels[0]:
+                        # Nowy yfinance: (Price, Ticker) — level 0 to np. 'Close'
+                        lvl0 = df.columns.get_level_values(0).unique().tolist()
+                        if "Close" in lvl0:
                             closes = df["Close"]
-                        elif "Close" in df.columns.levels[1]:
-                            closes = df.xs("Close", axis=1, level=1)
                     elif "Close" in df.columns:
                         closes = df
-                        
-                    if closes is not None and "RSP" in closes.columns and "SPY" in closes.columns:
-                        rsp_ret = (closes["RSP"].iloc[-1] / closes["RSP"].iloc[0]) - 1
-                        spy_ret = (closes["SPY"].iloc[-1] / closes["SPY"].iloc[0]) - 1
-                        out = {"RSP_1M_Return": rsp_ret, "SPY_1M_Return": spy_ret, "Breadth_Momentum": rsp_ret - spy_ret}
+
+                    if closes is not None and isinstance(closes, pd.DataFrame):
+                        if "RSP" in closes.columns and "SPY" in closes.columns:
+                            rsp_ret = (closes["RSP"].iloc[-1] / closes["RSP"].iloc[0]) - 1
+                            spy_ret = (closes["SPY"].iloc[-1] / closes["SPY"].iloc[0]) - 1
+                            out = {"RSP_1M_Return": rsp_ret, "SPY_1M_Return": spy_ret, "Breadth_Momentum": rsp_ret - spy_ret}
                 except Exception as e:
                     logger.warning(f"Błąd Market Breadth: {e}")
                 return out
@@ -147,11 +148,20 @@ class TheOracle:
             async def fetch_bond_vol():
                 try:
                     from modules.data_provider import fetch_data
-                    df = await asyncio.to_thread(fetch_data, "TLT", period="1mo")
+                    df = await asyncio.to_thread(fetch_data, ["TLT"], period="1mo")
                     if not df.empty:
-                        # Obliczamy roczną zmienność z ostatnich 20 dni
-                        rets = df["Close"].pct_change().dropna()
-                        vol = rets.std() * (252 ** 0.5) * 100
+                        # Obsługą nowego MultiIndex (Price, Ticker)
+                        if isinstance(df.columns, pd.MultiIndex):
+                            lvl0 = df.columns.get_level_values(0).unique()
+                            closes = df["Close"] if "Close" in lvl0 else df.iloc[:, 0]
+                            if isinstance(closes, pd.DataFrame):
+                                closes = closes.iloc[:, 0]
+                        elif "Close" in df.columns:
+                            closes = df["Close"]
+                        else:
+                            closes = df.iloc[:, 0]
+                        rets = closes.pct_change().dropna()
+                        vol = float(rets.std()) * (252 ** 0.5) * 100
                         return {"Bond_Vol_Proxy": vol}
                 except Exception as e:
                     logger.warning(f"Błąd Bond Vol Proxy: {e}")
@@ -221,17 +231,19 @@ class TheOracle:
     def get_macro_snapshot(self) -> dict:
         """Pobiera snapshot wskaźników (Wrapper z asyncio)."""
         try:
-            # Próba pobrania istniejącej pętli (działa w głównym wątku)
-            loop = asyncio.get_running_loop()
-            # Jeśli pętla już działa, musimy użyć thread-safe wywołania lub sub-loopa
-            # Najprostszy sposób w env Streamlit to uruchomienie w osobnym wątku
-            # lub po prostu to_thread (jeśli jesteśmy w async), ale tu jesteśmy w sync.
-            import nest_asyncio
-            nest_asyncio.apply()
-            return loop.run_until_complete(self.get_macro_snapshot_async())
-        except RuntimeError:
-            # Brak działającej pętli (np. w nowym wątku tła)
-            return asyncio.run(self.get_macro_snapshot_async())
+            # Próba uruchomienia w nowym wątku aby uniknąć konfliktu z pętlą Streamlit/Tornado
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self.get_macro_snapshot_async())
+                return future.result(timeout=45)
+        except Exception as e:
+            logger.warning(f"get_macro_snapshot error: {e}")
+            # Ostatni fallback: spróbuj bezpośrednio
+            try:
+                return asyncio.run(self.get_macro_snapshot_async())
+            except Exception as e2:
+                logger.error(f"get_macro_snapshot krytyczny błąd: {e2}")
+                return {}
 
     def get_crypto_fear_greed(self) -> int | None:
         """Zachowano dla wstecznej kompatybilności."""
@@ -280,11 +292,10 @@ class TheOracle:
     def get_latest_news_headlines(self, max_items: int = 50) -> list:
         """Agreguje nagłówki z wielu kanałów RSS. (Wrapper z asyncio)."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                raise RuntimeError
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(self.get_latest_news_headlines_async(max_items))
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self.get_latest_news_headlines_async(max_items))
+                return future.result(timeout=30)
+        except Exception as e:
+            logger.warning(f"get_latest_news_headlines error: {e}")
+            return []

@@ -44,16 +44,26 @@ with st.sidebar:
 # ─── DATA GENERATION (fallback: simulated t-distribution) ─────────────────
 @st.cache_data(ttl=1800)
 def load_returns(ticker_sym: str, n: int, seed_val: int) -> pd.Series:
-    from modules.isin_resolver import ISINResolver
-    ticker_sym = ISINResolver.resolve(ticker_sym)  # transparentne tłumaczenie ISIN → ticker
+    # ISINResolver jest wywoływany automatycznie wewnątrz fetch_data
     try:
-        import yfinance as yf
-        data = yf.download(ticker_sym, period=f"{n//252+3}y", progress=False)["Close"]
-        if len(data) > 0:
-            rets = data.pct_change().dropna()
-            if isinstance(rets, pd.DataFrame):
-                rets = rets.iloc[:, 0]
-            return rets.squeeze()
+        from modules.data_provider import fetch_data
+        raw = fetch_data([ticker_sym], period=f"{n//252+3}y")
+        if raw is not None and not raw.empty:
+            if isinstance(raw.columns, pd.MultiIndex):
+                lvl0 = raw.columns.get_level_values(0).unique()
+                col_name = "Close" if "Close" in lvl0 else list(lvl0)[0]
+                data_col = raw[col_name]
+                if isinstance(data_col, pd.DataFrame):
+                    data_col = data_col.iloc[:, 0]
+            elif "Close" in raw.columns:
+                data_col = raw["Close"]
+            else:
+                data_col = raw.iloc[:, 0]
+            if len(data_col) > 0:
+                rets = data_col.pct_change().dropna()
+                if isinstance(rets, pd.DataFrame):
+                    rets = rets.iloc[:, 0]
+                return rets.squeeze()
     except Exception:
         pass
     rng = np.random.default_rng(seed_val)

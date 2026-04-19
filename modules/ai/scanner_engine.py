@@ -61,18 +61,11 @@ def _results_to_df(results: list) -> pd.DataFrame:
 
 def _compute_composite_scores_polars(df: pd.DataFrame) -> pd.Series:
     """
-    Oblicza Composite Barbell Score używając Polars jeśli dostępny.
-    Wraca do score_asset_composite (Pandas/NumPy) w razie błędu.
+    Oblicza Composite Barbell Score.
+    Omijamy round-trip z Polars (pl.from_pandas -> to_pandas), 
+    ponieważ samo score_asset_composite wykorzystuje model ML na Pandas, 
+    więc serializacja traci zysk.
     """
-    if HAS_POLARS and len(df) > 50:
-        try:
-            pl_df = pl.from_pandas(df)
-            # score_asset_composite operuje na Pandas — konwertujemy wynik
-            scores = score_asset_composite(pl_df.to_pandas())
-            return scores
-        except Exception as e:
-            logger.debug(f"Polars composite scores fallback: {e}")
-            pass
     return score_asset_composite(df)
 
 

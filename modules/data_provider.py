@@ -149,7 +149,7 @@ def _fetch_data_cached(tickers_tuple: tuple, start: str, end: str, period: str, 
             
             # Ensure index is standardized (no timezone, sorted)
             if data.index.tz is not None:
-                data.index = data.index.tz_localize(None)
+                data.index = data.index.tz_convert(None)
             data.sort_index(inplace=True)
 
             if isin_map and isinstance(data.columns, pd.MultiIndex):
@@ -282,9 +282,9 @@ def fetch_currency_adjusted_data(tickers: List[str], start: str = None, end: str
         
     # Ujednolicenie indeksów (Timezone normalization to naive)
     if data.index.tz is not None:
-        data.index = data.index.tz_localize(None)
+        data.index = data.index.tz_convert(None)
     if usdpln.index.tz is not None:
-        usdpln.index = usdpln.index.tz_localize(None)
+        usdpln.index = usdpln.index.tz_convert(None)
     
     # Przemianowanie USDPLN tak, aby pasowało do struktury MultiIndex (jeśli dotyczy)
     if isinstance(data.columns, pd.MultiIndex):

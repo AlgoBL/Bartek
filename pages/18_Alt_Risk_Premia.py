@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import yfinance as yf
+from modules.data_provider import fetch_data
 from modules.styling import apply_styling
 from modules.ui.widgets import tickers_area
 from modules.alternative_risk_premia import (
@@ -16,18 +16,33 @@ st.markdown(apply_styling(), unsafe_allow_html=True)
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_data(tickers, period="5y"):
-    from modules.isin_resolver import ISINResolver
-    # Transparentne tłumaczenie ISIN → ticker
-    resolved = [ISINResolver.resolve(t) for t in tickers]
-    rev_map = {r: o for o, r in zip(tickers, resolved)}
+    # ISINResolver jest wywoływany automatycznie wewnątrz fetch_data
     try:
-        raw = yf.download(resolved, period=period, progress=False, auto_adjust=True)
+        from modules.isin_resolver import ISINResolver
+        resolved = [ISINResolver.resolve(t) for t in tickers]
+        rev_map = {r: o for o, r in zip(tickers, resolved)}
+        
+        raw = fetch_data(resolved, period=period)
+        if raw is None or raw.empty:
+            return None
+        
         if isinstance(raw.columns, pd.MultiIndex):
-            rets = raw["Close"].pct_change().dropna(how="all")
-            rets.columns = [rev_map.get(c, c) for c in rets.columns]
-            return rets
-        return raw.pct_change().dropna(how="all")
-    except Exception:
+            lvl0 = raw.columns.get_level_values(0).unique()
+            if "Close" in lvl0:
+                prices = raw["Close"].copy()
+            elif "Adj Close" in lvl0:
+                prices = raw["Adj Close"].copy()
+            else:
+                prices = raw.iloc[:, 0].to_frame()
+        else:
+            prices = raw.copy()
+        
+        prices.columns = [rev_map.get(c, c) for c in prices.columns]
+        rets = prices.pct_change().dropna(how="all")
+        return rets
+    except Exception as e:
+        from modules.logger import setup_logger
+        setup_logger(__name__).error(f"load_data error: {e}")
         return None
 
 st.markdown("# ⚡ Alternative Risk Premia")
