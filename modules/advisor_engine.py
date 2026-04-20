@@ -130,7 +130,8 @@ class AdvisorEngine:
     - geo dict — dane geopolityczne z cache
     """
 
-    def __init__(self, gs=None, macro: dict = None, geo: dict = None):
+    def __init__(self, gs=None, macro: dict = None, geo: dict = None, 
+                 sim_safe_pct: float = None, sim_risky_pct: float = None):
         if gs is None:
             from modules.global_settings import get_gs
             gs = get_gs()
@@ -144,8 +145,56 @@ class AdvisorEngine:
             self.macro = macro
             self.geo   = geo
 
+        # Fazy 1: What-If (Symulowane wagi)
+        self.safe_pct = sim_safe_pct if sim_safe_pct is not None else gs.alloc_safe_pct
+        self.risky_pct = sim_risky_pct if sim_risky_pct is not None else gs.alloc_risky_pct
+
         self._signals: List[AdvisorSignal] = []
+        
+        # Obliczenia korelacji (Faza 2)
+        self.avg_correlation = 0.0
+        self._compute_correlation()
+
         self._build_signals()
+
+    # ── Logika Fazy 2: Korelacje ──────────────────────────────────────────────
+    def _compute_correlation(self):
+        """Pobiera historię 1M/1Y dla części ryzykownej i wylicza średnią korelację."""
+        gs = self.gs
+        tickers = [a["ticker"] for a in getattr(gs, "risky_assets", [])]
+        if len(tickers) < 2:
+            self.avg_correlation = 0.0
+            return
+
+        from modules.data_provider import fetch_data
+        import pandas as pd
+        import numpy as np
+        
+        try:
+            data = fetch_data(tickers, period="1y", auto_adjust=True)
+            if data.empty: return
+            
+            if isinstance(data.columns, pd.MultiIndex):
+                if 'Close' in data.columns.get_level_values(0):
+                    prices = data['Close']
+                else: return
+            else:
+                prices = data
+
+            returns = prices.pct_change().dropna()
+            corr_matrix = returns.corr()
+
+            mask = np.ones(corr_matrix.shape, dtype=bool)
+            np.fill_diagonal(mask, 0)
+            valid_vals = corr_matrix.values[mask]
+            
+            self.avg_correlation = np.nanmean(valid_vals) if len(valid_vals) > 0 else 0.0
+
+        except Exception as e:
+            from modules.logger import setup_logger
+            log = setup_logger(__name__)
+            log.warning(f"Błąd wyliczania korelacji w AdvisorEngine: {e}")
+            self.avg_correlation = 0.0
 
     # ── Budowanie sygnałów ────────────────────────────────────────────────────
 
@@ -178,16 +227,14 @@ class AdvisorEngine:
         ]
 
         # --- Sygnały portfelowe ---
-        safe_pct = gs.alloc_safe_pct
-        risky_pct = gs.alloc_risky_pct
+        safe_pct = self.safe_pct
+        risky_pct = self.risky_pct
         n_risky = len(gs.risky_assets)
-        portfolio_assets = gs.portfolio_assets if hasattr(gs, "portfolio_assets") and gs.portfolio_assets else []
 
-        # Dywersyfikacja: więcej aktywów = lepiej (max 5+)
         div_score = min(n_risky / 5.0, 1.0) * 80 + 10
         self._signals.append(AdvisorSignal(
-            "Liczba aktywów ryzykownych", float(n_risky), 4, 1, "higher_better",
-            "ok" if n_risky >= 3 else ("warn" if n_risky == 2 else "alarm"), 0.08
+            "Liczba i niska korelacja aktywów", float(n_risky) * (1 - self.avg_correlation*0.5), 4, 1.5, "higher_better",
+            "ok" if n_risky >= 3 and self.avg_correlation < 0.7 else ("alarm" if n_risky < 2 or self.avg_correlation > 0.85 else "warn"), 0.08
         ))
 
         # Ekspozycja na ryzyko
@@ -238,11 +285,11 @@ class AdvisorEngine:
         # Protection: wysoka alokacja bezpieczna + niskie VIX = dobra ochrona
         vix = self.macro.get("VIX_1M", 20)
         vix_protection = max(0, 1 - (vix - 10) / 40) * 40 if vix else 20
-        safe_protection = gs.alloc_safe_pct * 50
+        safe_protection = self.safe_pct * 50
         score_protection = min(100, safe_protection + vix_protection + 10)
 
         # Growth: wysoka alokacja ryzykowna + dobry sentyment + dobry macro
-        risky_potential = gs.alloc_risky_pct * 60
+        risky_potential = self.risky_pct * 60
         macro_boost = (macro_score - 50) * 0.3
         score_growth = min(100, max(0, risky_potential + macro_boost + 20))
 
@@ -254,15 +301,16 @@ class AdvisorEngine:
 
         # Radar dimensions
         yc = self.macro.get("Yield_Curve_Spread", 0) or 0
-        radar_safety  = min(100, gs.alloc_safe_pct * 80 + (20 if yc >= 0 else 0))
-        radar_growth  = min(100, gs.alloc_risky_pct * 70 + max(0, macro_score - 50))
+        radar_safety  = min(100, self.safe_pct * 80 + (20 if yc >= 0 else 0))
+        radar_growth  = min(100, self.risky_pct * 70 + max(0, macro_score - 50))
         radar_liquid  = 75.0  # zakładamy dobrą płynność ETF
         n_risky = len(gs.risky_assets)
-        radar_div     = min(100, 15 + n_risky * 17)
+        corr_pen = max(0, self.avg_correlation - 0.4) * 40
+        radar_div     = min(100, max(0, 15 + n_risky * 20 - corr_pen))
         ry = self.macro.get("FRED_Real_Yield_10Y")
         radar_infl    = 70 - (ry * 15 if ry and ry > 0 else 0) if ry is not None else 55
         fx_enabled    = getattr(gs, "currency_risk_enabled", False)
-        radar_fx      = 60 - (20 if fx_enabled else 0) + (gs.alloc_safe_pct * 30)
+        radar_fx      = 60 - (20 if fx_enabled else 0) + (self.safe_pct * 30)
 
         return {
             "protection": round(score_protection, 1),
@@ -323,16 +371,21 @@ class AdvisorEngine:
         if n_risky <= 1:
             actions.append(AdvisorAction(2, "Dywersyfikacja", "🌐", "Niewystarczająca dywersyfikacja",
                 f"Część ryzykowna zawiera tylko {n_risky} aktywo. Dodaj 2–4 nieskorelowane ETF "
-                f"(np. QQQ, GLD, EEM) lub sektory, by obniżyć koncentrację o ~30%.",
+                f"(np. QQQ, GLD, EEM) lub sektory, by obniżyć koncentrację.",
                 0.90, 1))
+        elif self.avg_correlation > 0.8:
+            actions.append(AdvisorAction(2, "Dywersyfikacja", "🧲", "Krytyczne stężenie korelacji!",
+                f"Średnia korelacja rynkowa wynosi ~{self.avg_correlation:.2f}. "
+                f"Twój koszyk ryzykowny nie posiada prawdziwej dywersyfikacji. Zastosuj złoto lub surowce.",
+                0.85, 1))
 
-        if gs.alloc_safe_pct < 0.50 and horizon_months <= 12:
+        if self.safe_pct < 0.50 and horizon_months <= 12:
             actions.append(AdvisorAction(2, "Alokacja", "🔒", "Za mała ochrona dla krótkoterminowego horyzontu",
-                f"Alokacja bezpieczna wynosi {gs.alloc_safe_pct:.0%}. Przy horyzoncie {horizon_months} mies. "
-                f"zalecane minimum to 50–65%. Zwiększ pozycję w TOS lub obligacjach.",
+                f"Alokacja bezpieczna (obecna/symulowana) to {self.safe_pct:.0%}. Przy horyzoncie {horizon_months} mies. "
+                f"zalecane minimum to 50–65%.",
                 0.82, 0))
 
-        if ry is not None and ry > 2.0 and gs.alloc_safe_pct < 0.70:
+        if ry is not None and ry > 2.0 and self.safe_pct < 0.70:
             actions.append(AdvisorAction(2, "Inflacja", "📊", "Wysokie realne stopy — presja na wyceny",
                 f"Realny yield 10Y = {ry:.2f}%. Akcje (zwłaszcza growth) są wyceniane wyżej niż sugeruje "
                 f"model DCF. Preferuj aktywa o niskim duration lub value ETF.",
@@ -351,10 +404,10 @@ class AdvisorEngine:
                 0.65, 0))
 
         # ── Priorytet 3 — Optymalizacje ───────────────────────────────────────
-        if horizon_months >= 24 and gs.alloc_risky_pct < 0.20:
+        if horizon_months >= 24 and self.risky_pct < 0.20:
             actions.append(AdvisorAction(3, "Alokacja", "📈", "Zwiększ ekspozycję dla długiego horyzontu",
-                f"Przy horyzoncie {horizon_months} mies. niska alokacja ryzykowna ({gs.alloc_risky_pct:.0%}) "
-                f"może skutkować stopami poniżej inflacji. Rozważ stopniowe zwiększanie do 20–30%.",
+                f"Przy horyzoncie {horizon_months} mies. niska alokacja ryzykowna ({self.risky_pct:.0%}) "
+                f"może skutkować stratą na inflacji. Rozważ powiększenie do 20-30%.",
                 0.70, 6))
 
         if n_risky > 0:
@@ -435,66 +488,125 @@ class AdvisorEngine:
 
     def _generate_portfolio_assessment(self) -> str:
         gs = self.gs
-        n = len(gs.risky_assets)
-        safe_pct = gs.alloc_safe_pct
+        safe_pct = self.safe_pct
 
         lines = [
-            f"Profil: **{gs.profile_name}** | Kapitał: **{gs.initial_capital:,.0f} PLN**",
-            f"Alokacja: **{safe_pct:.0%} bezpieczna** / **{gs.alloc_risky_pct:.0%} ryzykowna**",
+            f"Wariant kalkulacji: **Alokacja symulowana ({safe_pct:.0%} Bezp., {self.risky_pct:.0%} Ryzykowna)**" if safe_pct != gs.alloc_safe_pct else f"Profil obecny: **{gs.profile_name}**",
+            f"Alokacja zadeklarowana bazowo: **{gs.alloc_safe_pct:.0%} bezpieczna** / **{gs.alloc_risky_pct:.0%} ryzykowna** | Kapitał: {gs.initial_capital:,.0f} PLN",
         ]
         if gs.risky_assets:
             top3 = ", ".join(f"{a['ticker']} ({a['weight']:.0f}%)" for a in gs.risky_assets[:3])
             if len(gs.risky_assets) > 3:
                 top3 += f" +{len(gs.risky_assets)-3} więcej"
             lines.append(f"Aktywa ryzykowne: **{top3}**")
-        if n == 1:
-            lines.append("⚠️ Portfel jednoskładnikowy — brak dywersyfikacji wewnątrz części ryzykownej")
+        if self.avg_correlation > 0.8:
+            lines.append("⚠️ **Krytycznie niska faktyczna dywersyfikacja** – wysoka korelacja oznacza złudną zmienność")
         if safe_pct >= 0.85:
             lines.append("🛡️ Silna ochrona kapitału — Barbell Strategy dobrze skalibrowana")
         return "  \n".join(lines)
 
-    # ── Timeline ───────────────────────────────────────────────────────────────
+    # ── Funkcje Fazy 1 i 3: Rebalancing & Stochastics ─────────────────────────
 
-    def _build_timeline(self, horizon_months: int, scores: Dict[str, float]) -> Tuple[List[str], List[float]]:
-        """Buduje oś czasu z prognozowanymi wartościami portfela."""
-        import math
+    def generate_rebalancing_orders(self) -> List[dict]:
+        """Kalkulator odchyleń portfela do docelowej alokacji (What-If)."""
         gs = self.gs
         cap = gs.initial_capital
-        safe_rate = gs.safe_rate
-        risky_nominal = 0.08  # zakładamy średnią dla aktywów ryzykownych
+        orders = []
+        if cap <= 0: return orders
 
-        # Stopa miesięczna
-        monthly_safe  = (1 + safe_rate) ** (1/12) - 1
-        monthly_risky = (1 + risky_nominal) ** (1/12) - 1
+        # Cel z symulatora (lub domyślnie z GlobalPortfolio)
+        target_safe_pln    = cap * self.safe_pct
+        target_risky_pln   = cap * self.risky_pct
 
-        # Modyfikator makro (VIX, YC)
+        # Obecna wartość z GlobalPortfolio (ta zadeklarowana bazowo)
+        current_safe_pln = cap * gs.alloc_safe_pct
+
+        diff_safe = target_safe_pln - current_safe_pln
+        if abs(diff_safe) > cap * 0.01:
+            orders.append({
+                "asset": "TOS / Detaliczne (Bezpieczna)",
+                "action": "KUP" if diff_safe > 0 else "SPRZEDAJ",
+                "diff_pln": abs(diff_safe),
+                "type": "SAFE"
+            })
+            
+        if gs.risky_assets:
+            total_w = sum([a["weight"] for a in gs.risky_assets])
+            for a in gs.risky_assets:
+                if total_w <= 0: continue
+                target_pln = target_risky_pln * (a["weight"] / total_w)
+                orders.append({
+                    "asset": a.get("name", a["ticker"]),
+                    "action": "DOCELOWA POZYCJA",
+                    "diff_pln": target_pln,
+                    "target_pct": (a["weight"]/total_w)*gs.alloc_risky_pct*100,
+                    "type": "RISK"
+                })
+
+        orders.sort(key=lambda x: x["diff_pln"], reverse=True)
+        return orders
+
+    def _build_stochastic_timeline(self, horizon_months: int) -> Dict[str, List[float]]:
+        """Symulacja Fan-Chart (Monte Carlo) portfela."""
+        import numpy as np
+        
+        cap = self.gs.initial_capital
+        monthly_safe = (1 + self.gs.safe_rate) ** (1/12) - 1
         vix = self.macro.get("VIX_1M", 20) or 20
-        macro_mod = 1.0 - max(0, (vix - 20) / 100)
-
-        labels, values = [], []
-        current = cap
-
-        for m in range(1, horizon_months + 1):
-            safe_return  = current * gs.alloc_safe_pct * monthly_safe
-            risky_return = current * gs.alloc_risky_pct * monthly_risky * macro_mod
-            current += safe_return + risky_return
-
-            if m == 1 or m % max(1, horizon_months // 10) == 0 or m == horizon_months:
-                if m <= 12:
-                    labels.append(f"M{m}")
-                else:
-                    labels.append(f"Y{m//12}" if m % 12 == 0 else f"M{m}")
-                values.append(round(current, 0))
-
-        return labels, values
-
-    # ── Główna metoda ─────────────────────────────────────────────────────────
+        annual_vol = np.clip(vix / 100.0, 0.08, 0.8)
+        monthly_vol = annual_vol / np.sqrt(12)
+        
+        expected_annual_ret = 0.09 + (self._compute_macro_score() - 50) * 0.001
+        m_ret = expected_annual_ret / 12
+        
+        paths = 500
+        horizon = max(horizon_months, 1)
+        
+        safe_arr = np.zeros(horizon+1)
+        safe_arr[0] = cap * self.safe_pct
+        for m in range(1, horizon+1): safe_arr[m] = safe_arr[m-1] * (1 + monthly_safe)
+            
+        risky_start = cap * self.risky_pct
+        risky_sims = np.zeros((paths, horizon+1))
+        risky_sims[:, 0] = risky_start
+        
+        for m in range(1, horizon+1):
+            shocks = np.random.normal(m_ret - 0.5 * monthly_vol**2, monthly_vol, paths)
+            risky_sims[:, m] = risky_sims[:, m-1] * np.exp(shocks)
+            
+        total_sims = risky_sims + safe_arr
+        
+        labels, indices = [], []
+        for m in range(1, horizon+1):
+            if m == 1 or m % max(1, horizon // 10) == 0 or m == horizon:
+                labels.append(f"M{m}" if m <= 12 else (f"Y{m//12}" if m % 12 == 0 else f"M{m}"))
+                indices.append(m)
+                
+        p10 = np.percentile(total_sims, 10, axis=0)
+        p50 = np.percentile(total_sims, 50, axis=0)
+        p90 = np.percentile(total_sims, 90, axis=0)
+        
+        return {
+            "labels": labels,
+            "p10": [p10[i] for i in indices],
+            "p50": [p50[i] for i in indices],
+            "p90": [p90[i] for i in indices],
+            "conservative": [safe_arr[i] + (risky_start if risky_start > 0 else 0) for i in indices],
+            "max_drawdown": self._estimate_dd(annual_vol)
+        }
+        
+    def _estimate_dd(self, vol: float) -> str:
+        p_vol = vol * self.risky_pct
+        if p_vol < 0.05: return "< 5%"
+        if p_vol < 0.10: return "~ 10-15%"
+        if p_vol < 0.20: return "~ 15-25%"
+        return "> 30% (KRYTYCZNE)"
 
     def generate_report(self, horizon_months: int = 12) -> AdvisorReport:
         """Generuje kompletny raport doradczy."""
         scores = self.compute_scores()
         actions = self.generate_actions(horizon_months)
-        labels, values = self._build_timeline(horizon_months, scores)
+        timeline_data = self._build_stochastic_timeline(horizon_months)
 
         alerts = []
         for sig in self._signals:
@@ -522,7 +634,9 @@ class AdvisorEngine:
             headline=self._generate_headline(scores),
             market_context=self._generate_market_context(),
             portfolio_assessment=self._generate_portfolio_assessment(),
-            timeline_labels=labels,
-            timeline_values=values,
+            timeline_labels=timeline_data["labels"],
+            timeline_values=timeline_data["p50"],
         )
+        report.timeline_full_data = timeline_data
+        report.rebalancing_orders = self.generate_rebalancing_orders()
         return report

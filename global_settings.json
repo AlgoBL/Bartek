@@ -36,6 +36,12 @@
   "bg_refresh_enabled": true,
   "bg_refresh_interval_minutes": 4,
   "language": "pl",
+  "ret_current_age": 53,
+  "ret_target_age": 65,
+  "ret_monthly_contribution": 10000.0,
+  "ret_monthly_expense": 5000.0,
+  "ret_inflation_rate": 0.025,
+  "ret_swr_rate": 0.04,
   "visible_modules": [
     "Symulator Barbell",
     "Skaner Rynku",
@@ -49,5 +55,6 @@
   ],
   "ui_mode": "educational",
   "profile_name": "Domyślny",
-  "last_updated": "2026-04-19T13:49:30"
+  "last_updated": "2026-04-20T10:27:43",
+  "portfolio_assets": []
 }

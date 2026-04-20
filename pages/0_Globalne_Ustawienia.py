@@ -70,10 +70,11 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 # ZAKŁADKI
 # ══════════════════════════════════════════════════════════════════════════════
-tab_portfolio, tab_tech, tab_preview, tab_profiles, tab_isin = st.tabs([
+tab_portfolio, tab_tech, tab_preview, tab_ret, tab_profiles, tab_isin = st.tabs([
     "💼 Mój Portfel",
     "⚙️ Ustawienia Techniczne",
     "📊 Podgląd & Analiza",
+    "🏖️ Emerytura & FIRE",
     "🎯 Profile Presetów",
     "🔍 Odkrywca ISIN",
 ])
@@ -612,7 +613,84 @@ with tab_preview:
         st.dataframe(pd.DataFrame(prop_data), use_container_width=True, hide_index=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ZAKŁADKA 4 — PROFILE PRESETÓW
+# ZAKŁADKA 4 — EMERYTURA / FIRE (NOWA)
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_ret:
+    st.markdown("### 🏖️ Parametry Emerytalne (FIRE)")
+    st.caption("Ustawienia dla modułów planowania finansowego, decumulacji, SWR oraz symulacji wieku emerytalnego.")
+
+    ret_c1, ret_c2 = st.columns(2)
+    with ret_c1:
+        st.markdown(f"<p class='{_SEC}'>Wiek i Czas</p>", unsafe_allow_html=True)
+        new_curr_age = st.number_input(
+            "Obecny wiek (Lata)", min_value=18, max_value=100, value=gs.ret_current_age, step=1
+        )
+        new_target_age = st.number_input(
+            "Docelowy wiek emerytury / FIRE (Lata)", min_value=new_curr_age, max_value=120, value=max(gs.ret_target_age, new_curr_age), step=1
+        )
+        years_to_fire = new_target_age - new_curr_age
+        st.info(f"⏳ Czas do emerytury (akumulacja): **{years_to_fire} lat**")
+
+        st.markdown(f"<p class='{_SEC}'>Przepływy Miesięczne</p>", unsafe_allow_html=True)
+        new_monthly_contrib = st.number_input(
+            "Miesięczne wpłaty do portfela (PLN)", min_value=0.0, value=float(gs.ret_monthly_contribution), step=500.0, format="%.2f"
+        )
+        new_monthly_exp = st.number_input(
+            "Miesięczne zapotrzebowanie / Wydatki na emeryturze (PLN)", min_value=0.0, value=float(gs.ret_monthly_expense), step=500.0, format="%.2f"
+        )
+
+    with ret_c2:
+        st.markdown(f"<p class='{_SEC}'>Zmienne Ekonomiczne</p>", unsafe_allow_html=True)
+        new_inflation = st.slider(
+            "Szacowana Długoterminowa Inflacja (%)", min_value=0.0, max_value=15.0, value=gs.ret_inflation_rate*100, step=0.1
+        ) / 100.0
+        new_swr = st.slider(
+            "Safe Withdrawal Rate (SWR) (%)", min_value=1.0, max_value=10.0, value=gs.ret_swr_rate*100, step=0.1,
+            help="Zalecany standard to 4%. Oznacza jaki procent zgromadzonego kapitału rocznie (skorygowany o inflację) jest bezpiecznie wypłacany przez lata emerytury bez ryzyka bankructwa."
+        ) / 100.0
+        
+        needed_capital = (new_monthly_exp * 12) / (new_swr if new_swr > 0 else 0.04)
+        st.success(f"🎯 Szacowany potrzebny kapitał docelowy (wg SWR): **{needed_capital:,.0f} PLN**")
+
+    st.markdown("---")
+    if st.button("💾 Zapisz Parametry Emerytury", type="primary"):
+        # Budujemy kopię, by nie nadpisać niechcący tabel
+        new_gs = GlobalPortfolio(
+            safe_type=gs.safe_type,
+            safe_rate=gs.safe_rate,
+            safe_tickers=gs.safe_tickers,
+            risky_assets=gs.risky_assets,
+            alloc_safe_pct=gs.alloc_safe_pct,
+            initial_capital=gs.initial_capital,
+            base_currency=gs.base_currency,
+            currency_risk_enabled=gs.currency_risk_enabled,
+            usd_pln_vol=gs.usd_pln_vol,
+            usd_pln_corr=gs.usd_pln_corr,
+            bg_refresh_enabled=gs.bg_refresh_enabled,
+            bg_refresh_interval_minutes=gs.bg_refresh_interval_minutes,
+            language=gs.language,
+            visible_modules=gs.visible_modules,
+            ui_mode=gs.ui_mode,
+            profile_name=gs.profile_name,
+            portfolio_assets=gs.portfolio_assets,
+            ret_current_age=new_curr_age,
+            ret_target_age=new_target_age,
+            ret_monthly_contribution=new_monthly_contrib,
+            ret_monthly_expense=new_monthly_exp,
+            ret_inflation_rate=new_inflation,
+            ret_swr_rate=new_swr,
+        )
+        ok = save_global_settings(new_gs)
+        set_gs(new_gs)
+        force_apply_gs_to_session(new_gs)
+        if ok:
+            st.toast("✅ Parametry FIRE zapisane i spropagowane na wszystkie moduły!", icon="✅")
+            st.rerun()
+        else:
+            st.error("❌ Błąd zapisu danych.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ZAKŁADKA 5 — PROFILE PRESETÓW
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_profiles:
     st.markdown("### 🎯 Gotowe Profile Portfela")
@@ -679,7 +757,7 @@ with tab_profiles:
                     st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ZAKŁADKA 5 — ODKRYWCA ISIN
+# ZAKŁADKA 6 — ODKRYWCA ISIN
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_isin:
     st.markdown("### 🔍 Wyszukiwarka i Weryfikacja ISIN")

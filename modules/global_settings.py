@@ -130,6 +130,14 @@ class GlobalPortfolio:
 
     # Język interfejsu / Interface language
     language: str = "pl"  # "pl" | "en"
+    
+    # ── Parametry Emerytury / FIRE ──
+    ret_current_age: int = 30
+    ret_target_age: int = 65
+    ret_monthly_contribution: float = 1000.0
+    ret_monthly_expense: float = 5000.0
+    ret_inflation_rate: float = 0.025
+    ret_swr_rate: float = 0.04
 
     # Personalizacja Menu (Visible Modules)
     visible_modules: List[str] = field(default_factory=lambda: [
@@ -313,6 +321,12 @@ def load_global_settings() -> GlobalPortfolio:
             profile_name=data.get("profile_name", "Domyślny"),
             last_updated=data.get("last_updated", ""),
             portfolio_assets=data.get("portfolio_assets", []),
+            ret_current_age=int(data.get("ret_current_age", 30)),
+            ret_target_age=int(data.get("ret_target_age", 65)),
+            ret_monthly_contribution=float(data.get("ret_monthly_contribution", 1000.0)),
+            ret_monthly_expense=float(data.get("ret_monthly_expense", 5000.0)),
+            ret_inflation_rate=float(data.get("ret_inflation_rate", 0.025)),
+            ret_swr_rate=float(data.get("ret_swr_rate", 0.04)),
         )
         return gs
 
@@ -404,6 +418,21 @@ def apply_gs_to_session(gs: Optional[GlobalPortfolio] = None) -> None:
 
     # ── Emerytura ───────────────────────────────────────────────────────────
     _set_default("rem_initial_capital", gs.initial_capital)
+    _set_default("_s.ret_current_age", gs.ret_current_age)
+    _set_default("_s.ret_target_age", gs.ret_target_age)
+    _set_default("_s.ret_monthly_contribution", gs.ret_monthly_contribution)
+    _set_default("_s.ret_monthly_expense", gs.ret_monthly_expense)
+    _set_default("_s.ret_inflation_rate", gs.ret_inflation_rate)
+    _set_default("_s.ret_swr_rate", gs.ret_swr_rate)
+    
+    # Aliasy stricte dla modułu 4_Emerytura
+    _set_default("_s.rem_age", gs.ret_current_age)
+    _set_default("_s.rem_ret_age", gs.ret_target_age)
+    _set_default("_s.rem_mcon", int(gs.ret_monthly_contribution))
+    _set_default("_s.rem_me", int(gs.ret_monthly_expense))
+    _set_default("_s.rem_inf", float(gs.ret_inflation_rate * 100))
+    _set_default("_s.rem_flex_pct", float(gs.ret_swr_rate * 100))
+    _set_default("_s.rem_cap", float(gs.initial_capital))
 
     # ── Wealth Optimizer ────────────────────────────────────────────────────
     _set_default("_gs_wealth_total", gs.initial_capital)
@@ -443,6 +472,22 @@ def force_apply_gs_to_session(gs: Optional[GlobalPortfolio] = None) -> None:
     st.session_state["_s.st_cap"]   = int(gs.initial_capital)
 
     st.session_state["rem_initial_capital"] = gs.initial_capital
+    st.session_state["_s.ret_current_age"] = gs.ret_current_age
+    st.session_state["_s.ret_target_age"] = gs.ret_target_age
+    st.session_state["_s.ret_monthly_contribution"] = gs.ret_monthly_contribution
+    st.session_state["_s.ret_monthly_expense"] = gs.ret_monthly_expense
+    st.session_state["_s.ret_inflation_rate"] = gs.ret_inflation_rate
+    st.session_state["_s.ret_swr_rate"] = gs.ret_swr_rate
+
+    # Aliasy stricte dla modułu 4_Emerytura
+    st.session_state["_s.rem_age"] = gs.ret_current_age
+    st.session_state["_s.rem_ret_age"] = gs.ret_target_age
+    st.session_state["_s.rem_mcon"] = int(gs.ret_monthly_contribution)
+    st.session_state["_s.rem_me"] = int(gs.ret_monthly_expense)
+    st.session_state["_s.rem_inf"] = float(gs.ret_inflation_rate * 100)
+    st.session_state["_s.rem_flex_pct"] = float(gs.ret_swr_rate * 100)
+    st.session_state["_s.rem_cap"] = float(gs.initial_capital)
+    
     st.session_state["_gs_wealth_total"]    = gs.initial_capital
 
 

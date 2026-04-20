@@ -76,13 +76,26 @@ hor_label = f"{horizon} mies." if horizon < 12 else (
     f"{horizon//12} rok" if horizon == 12 else
     f"{horizon//12} lata {horizon%12} mies." if horizon%12 else f"{horizon//12} lat"
 )
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🧪 What-If (Symulator)")
+st.sidebar.caption("Suwaki zmieniają analizę tymczasowo, **nie psując portfela globalnego**.")
+sim_safe_raw = st.sidebar.slider(
+    "Alokacja Bezpieczna (%)",
+    min_value=0, max_value=100,
+    value=int(gs.alloc_safe_pct*100)
+)
+sim_safe_pct = sim_safe_raw / 100.0
+sim_risky_pct = 1.0 - sim_safe_pct
+
 st.sidebar.markdown(f"""
 <div style="background:rgba(0,204,255,0.08);border:1px solid rgba(0,204,255,0.2);
             border-radius:8px;padding:10px;font-size:12px;color:#94a3b8;">
 ⏱️ Wybrany horyzont: <b style="color:{C_CYAN}">{hor_label}</b><br>
 📌 Profil: <b>{gs.profile_name}</b><br>
 💰 Kapitał: <b>{gs.initial_capital:,.0f} PLN</b><br>
-🔒 Bezpieczna: <b>{gs.alloc_safe_pct:.0%}</b> | ⚡ Ryzykowna: <b>{gs.alloc_risky_pct:.0%}</b>
+🔒 Bezpieczna (Sim): <b style="color:{C_BLUE}">{sim_safe_pct:.0%}</b><br>
+⚡ Ryzykowna (Sim): <b style="color:{C_RED}">{sim_risky_pct:.0%}</b>
 </div>
 """, unsafe_allow_html=True)
 
@@ -108,7 +121,7 @@ if not m_cache:
 # ── Generuj raport ───────────────────────────────────────────────────────────
 with st.spinner("🧠 Analizuję portfel i dane makroekonomiczne..."):
     try:
-        engine = AdvisorEngine(gs=gs)
+        engine = AdvisorEngine(gs=gs, sim_safe_pct=sim_safe_pct, sim_risky_pct=sim_risky_pct)
         report = engine.generate_report(horizon_months=horizon)
         data_ok = True
     except Exception as e:
@@ -329,44 +342,47 @@ if report.alerts:
     st.markdown("<br>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SEKCJA 4 — TIMELINE PORTFELA
+# SEKCJA 4 — TIMELINE PORTFELA (MONTE CARLO)
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown(f"## 📈 Prognozowany Rozwój Portfela — {hor_label}")
+st.markdown(f"## 📈 Prognoza Stochastyczna (Monte Carlo) — {hor_label}")
 st.caption(
-    "⚠️ Prognoza bazuje na historycznych stopach zwrotu części bezpiecznej (TOS) i ryzykownej (~8% nom.). "
-    "Nie jest gwarancją przyszłych wyników."
+    "⚠️ Symulacja z uwzględnieniem szumu Gaussa (parametryzowana przez VIX). "
+    "Prezentuje zakresy: optymistyczny (P90), bazowy (P50) oraz pesymistyczny (P10)."
 )
 
-if report.timeline_labels and report.timeline_values:
+if hasattr(report, "timeline_full_data") and report.timeline_full_data:
+    fd = report.timeline_full_data
     cap_start = gs.initial_capital
-    cap_end   = report.timeline_values[-1]
+    cap_end = fd["p50"][-1] if fd["p50"] else cap_start
     total_ret = (cap_end / cap_start - 1) * 100 if cap_start > 0 else 0
 
-    # Dwa warianty: portfel zbalansowany + portfel konserwatywny (100% TOS)
-    tl_labels = report.timeline_labels
-    tl_values = report.timeline_values
-
-    # Wariant konserwatywny (tylko TOS)
-    monthly_safe = (1 + gs.safe_rate) ** (1/12) - 1
-    n_points = len(tl_values)
-    # Szacuj miesiące dla każdego punktu
-    _months = np.linspace(1, horizon, n_points, dtype=int)
-    conservative = [cap_start * (1 + monthly_safe) ** int(m) for m in _months]
-
     fig_tl = go.Figure()
-    # Fill between
+    
+    # Obszar ufności (P10 do P90)
     fig_tl.add_trace(go.Scatter(
-        x=tl_labels, y=conservative,
-        fill=None, mode="lines", line=dict(color=C_BLUE, width=1, dash="dot"),
-        name=f"Tylko TOS ({gs.safe_rate*100:.2f}%)"
+        x=fd["labels"] + fd["labels"][::-1],
+        y=fd["p90"] + fd["p10"][::-1],
+        fill="toself",
+        fillcolor="rgba(0, 204, 255, 0.15)",
+        line=dict(color="rgba(255,255,255,0)"),
+        hoverinfo="skip",
+        name="Przedział ufności (P10-P90)"
     ))
+
+    # Tylko TOS (Conservative)
     fig_tl.add_trace(go.Scatter(
-        x=tl_labels, y=tl_values,
-        fill="tonexty", fillcolor="rgba(0,204,255,0.08)",
+        x=fd["labels"], y=fd["conservative"],
+        fill=None, mode="lines", line=dict(color=C_BLUE, width=2, dash="dot"),
+        name=f"Bezpieczna alokacja / TOS"
+    ))
+    
+    # Scenariusz bazowy P50
+    fig_tl.add_trace(go.Scatter(
+        x=fd["labels"], y=fd["p50"],
         mode="lines+markers",
         line=dict(color=C_CYAN, width=3),
         marker=dict(size=6, color=C_CYAN, line=dict(color="white", width=1)),
-        name="Twój Portfel Barbell",
+        name="Wariant Bazowy (P50)",
     ))
 
     # Linia startowa
@@ -378,7 +394,7 @@ if report.timeline_labels and report.timeline_values:
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(10,11,20,0.6)",
-        height=350,
+        height=380,
         yaxis_title="Wartość portfela (PLN)",
         xaxis_title="Horyzont",
         legend=dict(orientation="h", y=1.05, x=0),
@@ -390,12 +406,11 @@ if report.timeline_labels and report.timeline_values:
 
     # KPI timeline
     tl_k1, tl_k2, tl_k3, tl_k4 = st.columns(4)
-    tl_k1.metric("💰 Wartość końcowa", f"{cap_end:,.0f} PLN")
-    tl_k2.metric("📈 Całkowity zwrot", f"{total_ret:+.1f}%")
-    tl_k3.metric("📊 Zwrot roczny (CAGR)",
-                 f"{((cap_end/cap_start)**(12/max(horizon,1))-1)*100:+.2f}%")
-    diff = cap_end - conservative[-1]
-    tl_k4.metric("⚡ Przewaga nad TOS", f"{diff:+,.0f} PLN")
+    tl_k1.metric("💰 Średnia E[X]", f"{cap_end:,.0f} PLN")
+    tl_k2.metric("📉 Max Drawdown", fd.get("max_drawdown", "?"))
+    diff = cap_end - (fd["conservative"][-1] if fd["conservative"] else cap_start)
+    tl_k3.metric("⚡ Zysk ponad infl/TOS", f"{diff:+,.0f} PLN")
+    tl_k4.metric("💥 P10 (Pesymizm)", f"{fd['p10'][-1]:,.0f} PLN")
 
 st.divider()
 
@@ -521,6 +536,43 @@ with summary_c2:
         height=250, margin=dict(t=5, b=5, l=5, r=5), showlegend=False,
     )
     st.plotly_chart(fig_mini_pie, use_container_width=True)
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SEKCJA 8 — ASYSTENT REBALANCINGU (NOWA)
+# ══════════════════════════════════════════════════════════════════════════════
+if hasattr(report, "rebalancing_orders") and report.rebalancing_orders:
+    st.markdown("## ⚖️ Asystent Transakcji (Rebalancing)")
+    st.caption("Konkretne zlecenia generowane wg docelowej struktury. Doprowadź swój portfel do idealnych wag.")
+    
+    for order in report.rebalancing_orders:
+        action = order["action"]
+        asset = order["asset"]
+        diff = order["diff_pln"]
+        t = order["type"]
+        
+        bcolor = C_GREEN if "KUP" in action else (C_RED if "SPRZED" in action else C_CYAN)
+        
+        # Opcjonalny tag dla ryzykownych
+        target_span = ""
+        if "target_pct" in order:
+            target_span = f'<span style="float:right;color:#6b7280;font-size:12px;">Cel: {order["target_pct"]:.1f}% kapitału</span>'
+            
+        st.markdown(f"""
+        <div style="background:rgba(255,255,255,0.02); border-left:4px solid {bcolor}; 
+                    padding:10px 16px; margin-bottom:8px; border-radius:6px; display:flex; 
+                    justify-content:space-between; align-items:center;">
+            <div>
+                <b style="color:{bcolor};">{action}</b>
+                <span style="color:#d1d5db; margin-left:10px; font-size:15px;">{asset}</span>
+            </div>
+            <div>
+                <span style="font-weight:700; color:white;">{diff:,.0f} PLN</span>
+                <br>{target_span}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
