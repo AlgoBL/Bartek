@@ -12,6 +12,7 @@ from modules.regime_adaptive_allocation import (
 from modules.i18n import t
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
+from modules.ui.widgets import ticker_input
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
