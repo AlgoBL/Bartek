@@ -8,27 +8,36 @@ from modules.logger import setup_logger
 logger = setup_logger(__name__)
 
 # ─── FRED darmowe dane makroekonomiczne (bez klucza API) ────────────────────
+# Słownik: {Nazwa: (FRED_ID, Opcjonalne_Parametry)}
 FRED_SERIES = {
-    "Credit_Spread_BAA_AAA": "BAA10Y",   # Spread korporacyjny BBB-10Y
-    "Initial_Jobless_Claims": "IC4WSA",  # Wnioski o zasiłek
-    "ISM_Manufacturing_PMI":  "MANEMP",  # Proxy PMI
-    "M2_YoY_Growth":          "M2SL&units=pc1", # M2 Podaż pieniądza (% zmiana r/r)
-    "TED_Spread":             "TEDRATE", # Ryzyko kredytowe bankowe
-    "HY_Spread":              "BAMLH0A0HYM2", # High Yield Option-Adjusted Spread
-    "Real_Yield_10Y":         "DFII10",  # 10Y Real Yield (TIPS)
-    "Financial_Stress_Index": "STLFSI4", # St. Louis Fed Financial Stress Index
+    "Credit_Spread_BAA_AAA": ("BAA10Y", ""),   # Spread korporacyjny BBB-10Y
+    "Initial_Jobless_Claims": ("IC4WSA", ""),  # Wnioski o zasiłek
+    "ISM_Manufacturing_PMI":  ("MANEMP", ""),  # Proxy PMI
+    "M2_YoY_Growth":          ("M2SL", "&units=pc1"), # M2 Podaż pieniądza (% zmiana r/r)
+    "TED_Spread":             ("TEDRATE", ""), # Ryzyko kredytowe bankowe
+    "HY_Spread":              ("BAMLH0A0HYM2", ""), # High Yield Option-Adjusted Spread
+    "Real_Yield_10Y":         ("DFII10", ""),  # 10Y Real Yield (TIPS)
+    "Financial_Stress_Index": ("STLFSI4", ""), # St. Louis Fed Financial Stress Index
 }
 
-async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_id: str) -> tuple[str, float | None, float | None]:
+async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_data: tuple) -> tuple[str, float | None, float | None]:
     """Pobiera ostatnią wartość serii FRED asynchronicznie (aiohttp)."""
+    series_id, params = series_data
     try:
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-        async with session.get(url, timeout=8) as resp:
-            resp.raise_for_status()
+        # Próba pobrania CSV bezpośrednio (id musi być pierwszym parametrem)
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}{params}"
+        async with session.get(url, timeout=10) as resp:
+            if resp.status != 200:
+                # Cichy powrót jeśli FRED ma kaprysy
+                return series_id, None, None
+            
             text = await resp.text()
             df = pd.read_csv(io.StringIO(text), parse_dates=["observation_date"])
             df = df.replace(".", float("nan")).dropna()
             
+            if df.empty:
+                return series_id, None, None
+                
             val = float(df.iloc[-1, 1])
             pct = 0.0
             if len(df) > 1:
@@ -38,7 +47,8 @@ async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_id: st
             
             return series_id, val, pct
     except Exception as e:
-        logger.warning(f"Błąd pobierania FRED ({series_id}): {e}")
+        # Zmieniamy na debug/info, żeby nie zaśmiecać Awarii, bo FRED często resetuje połączenia
+        logger.debug(f"FRED Fetch Notice ({series_id}): {e}")
         return series_id, None, None
 
 

@@ -25,7 +25,7 @@ def _load_finbert_resource():
         try:
             from modules.logger import setup_logger
             _logger = setup_logger(__name__)
-            _logger.warning(f"Błąd ładowania FinBERT: {e}. Fallback do VADER.")
+            _logger.info(f"Brak FinBERT (lub GPU): {e}. Fallback do szybkiego VADER.")
         except:
             pass
         return None, "vader"

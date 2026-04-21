@@ -70,13 +70,14 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 # ZAKŁADKI
 # ══════════════════════════════════════════════════════════════════════════════
-tab_portfolio, tab_tech, tab_preview, tab_ret, tab_profiles, tab_isin = st.tabs([
+tab_portfolio, tab_tech, tab_preview, tab_ret, tab_profiles, tab_isin, tab_diag = st.tabs([
     "💼 Mój Portfel",
     "⚙️ Ustawienia Techniczne",
     "📊 Podgląd & Analiza",
     "🏖️ Emerytura & FIRE",
     "🎯 Profile Presetów",
     "🔍 Odkrywca ISIN",
+    "🛠️ Awarie & Diagnoza",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -807,3 +808,95 @@ with tab_isin:
                 else:
                     st.error(f"Nie znaleziono Tickera dla: **{isin_query.upper()}**. "
                              f"Użyj ręcznie oficjalnego skrótu (np. CSPX.AS).")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ZAKŁADKA 7 — DIAGNOSTYKA I AWARIE
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_diag:
+    st.markdown("### 🛠️ Centrum Ostrzegania i Analizy Błędów")
+    st.caption("Prywatne zaplecze diagnostyczne. Wykrywa crashe ratując aplikacje i odczytuje logi.")
+
+    from modules.diagnostics import get_recent_errors, mark_error_resolved, run_health_check
+
+    col_h1, col_h2 = st.columns([1, 2])
+    with col_h1:
+        st.markdown(f"<p class='{_SEC}'>Radary Połączeń</p>", unsafe_allow_html=True)
+        if st.button("🔄 Przetestuj Trasy API", use_container_width=True):
+            with st.spinner("Odpytywanie serwerów aktywów (Yahoo, Stooq)..."):
+                hb = run_health_check()
+                st.session_state["_diag_hb"] = hb
+                st.rerun()
+
+        hb_results = st.session_state.get("_diag_hb")
+        if hb_results:
+            for source, res in hb_results.items():
+                if res["status"] == "ok":
+                    st.success(f"**{source.upper()}**: 🟢 Online ({res['time_ms']} ms)")
+                else:
+                    st.error(f"**{source.upper()}**: 🔴 OFFLINE ({res['error']})")
+    
+    with col_h2:
+        st.markdown(f"<p class='{_SEC}'>Monitor Aktywnych Zdarzeń</p>", unsafe_allow_html=True)
+        errors = get_recent_errors()
+        active_errs = [e for e in errors if not e.get("resolved")]
+        
+        if not active_errs:
+            st.info("✅ Środowisko pracuje perfekcyjnie. Brak wykrytych awarii oprogramowania w tle.")
+        else:
+            st.warning(f"⚠️ Wykryto {len(active_errs)} niezażegnanych awarii lub błędów.")
+
+    st.markdown("---")
+    if active_errs:
+        st.markdown(f"#### 📥 Zbiorczy Raport Naprawczy (Dla AI)")
+        st.caption("Zaznacz odpowiednie bloki błędów na liście poniżej, by wygenerować scalony raport. (Przy braku zaznaczenia skopiują się automatycznie wszystkie). Kliknij ikonę `📋 Kopiuj` w prawym górnym rogu czarnego pola, by skopiować całość do schowka.")
+        
+        selected_errs = []
+        
+        for idx, err in enumerate(active_errs):
+            col_check, col_info = st.columns([0.05, 0.95])
+            with col_check:
+                st.write("")
+                st.write("")
+                # Używamy label_visibility aby checkbox był samą kontrolką
+                is_checked = st.checkbox("Dodaj", key=f"sel_{err['id']}", label_visibility="collapsed")
+                if is_checked:
+                    selected_errs.append(err)
+            
+            with col_info:
+                with st.expander(f"🛑 [AWARIA] {err['timestamp']} | Lokalizacja: {err.get('module', 'Nieznany')} (linia {err.get('line', '?')})", expanded=(idx==0)):
+                    st.markdown(f"**Raport Systemowy:** `{err['message']}`")
+                    
+                    # Przetłumaczenie dla człowieka
+                    st.markdown("##### 🩺 Objawy i Zastosowanie")
+                    if "sys" in err.get('module', '') or "excepthook" in err.get('module', ''):
+                        st.error("Aplikacja wpadła w błąd krytyczny i wymagała twardego przerwania. Obowiązkowo poinformuj o tym opiekuna (AI).")
+                    elif "Yahoo" in err['message'] or "RemoteDataError" in str(err.get("exc_text", "")):
+                        st.warning("Yahoo Finance odrzuciło nasze żądanie. Najprawdopodobniej giełda ma chwilową usterkę serwerów lub przekroczyliśmy limity.")
+                    elif "Index" in str(err.get("exc_text", "")) or "MultiIndex" in str(err.get("exc_text", "")):
+                        st.info("Wewnętrzny kolaps danych. Algorytmy próbowały połączyć niepasujące tabele dat aktywów. Użyj modułu naprawy u AI.")
+                    else:
+                        st.info("Złamano asynchroniczny wątek w tle (Zostałeś obroniony przed crashem całego systemu). Usterka zapisana do konsultacji.")
+
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button("✅ Oznacz incydent jako Rozwiązany", key=f"resolve_{err['id']}", use_container_width=True):
+                            mark_error_resolved(err['id'])
+                            st.toast("Incydent usunięty z monitora głównego i przeniesiony do kwarantanny", icon="🧹")
+                            st.rerun()
+
+        # Budowanie wyjścia dla AI
+        errs_to_report = selected_errs if selected_errs else active_errs
+        
+        st.markdown(f"**Gotowy kod do wklejenia w AI (Błędy: {len(errs_to_report)} zawarte):**")
+        merged_prompt = "Proszę o naprawę następujących błędów z systemu diagnostycznego:\n\n"
+        for e in errs_to_report:
+            merged_prompt += f"--- AWARIA: {e['timestamp']} ---\n"
+            merged_prompt += f"Moduł: {e.get('file', 'N/A')}:{e.get('line', 'N/A')}\n"
+            merged_prompt += f"Typ: {e['severity']}\n"
+            merged_prompt += f"Wiadomość API: {e['message']}\n"
+            if e.get("exc_text"):
+                merged_prompt += f"Traceback:\n{e['exc_text']}\n"
+            merged_prompt += "\n"
+        
+        st.code(merged_prompt, language="markdown")
+
