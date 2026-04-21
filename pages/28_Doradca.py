@@ -540,6 +540,56 @@ with summary_c2:
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SEKCJA 7.5 — INTELIGENTNA EMERYTURA FIRE & BARBELL
+# ══════════════════════════════════════════════════════════════════════════════
+if hasattr(report, "ret_readiness_score"):
+    st.markdown("## 🎯 Inteligentna Emerytura (FIRE) & Barbell Integration")
+    st.caption("Zaawansowana ocena szans na udaną emeryturę (uwzględnia stochastyczną zmienność wycen CAPE i zoptymalizowany Glide Path).")
+
+    rc1, rc2, rc3 = st.columns(3)
+    
+    with rc1:
+        c_readiness = _score_color(report.ret_readiness_score)
+        st.plotly_chart(_gauge_fig(report.ret_readiness_score, "🔥 Readiness Score", c_readiness), use_container_width=True)
+        st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Twój ustandaryzowany wynik gotowości FIRE z Barbell</div>", unsafe_allow_html=True)
+
+    with rc2:
+        c_prob = _score_color(report.ret_success_prob * 100)
+        st.plotly_chart(_gauge_fig(report.ret_success_prob * 100, "🎲 Szansa Sukcesu (P50)", c_prob), use_container_width=True)
+        st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Prognoza przetrwania kapitału z uwzgl. podatków (IKE/Zwykłe)</div>", unsafe_allow_html=True)
+        
+    with rc3:
+        st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+        st.metric("Skorygowany SWR (wg CAPE)", f"{report.ret_adjusted_swr*100:.2f}%")
+        st.metric("Lat do wolności fin. (FIRE)", f"{report.ret_years_to_fire:.1f} lat" if report.ret_years_to_fire < 90 else "Niedościgły cel")
+    
+    st.markdown(f"""
+    <div style="background:rgba(255,100,50,0.08);border:1px solid rgba(255,100,50,0.2);
+                border-left:3px solid rgba(255,100,50,0.8);border-radius:10px;
+                padding:14px 16px;margin-bottom:10px;margin-top:10px;">
+        <span style="font-size:14px;color:#d1d5db;">💡 {report.ret_assessment}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Opcjonalny min-wykres dla trajektorii jeśli mamy dane
+    if hasattr(report, "ret_timeline_labels") and report.ret_timeline_labels:
+        fig_r_tl = go.Figure()
+        fig_r_tl.add_trace(go.Scatter(
+            x=report.ret_timeline_labels, y=report.ret_timeline_values,
+            mode="lines+markers", line=dict(color="#ff6432", width=2, dash="dot"),
+            name="Majątek na Emeryturze (P50)"
+        ))
+        fig_r_tl.update_layout(
+            template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            height=180, margin=dict(t=10, b=10, l=10, r=10), showlegend=False,
+            yaxis=dict(gridcolor="rgba(255,255,255,0.05)"), xaxis=dict(gridcolor="rgba(255,255,255,0.05)")
+        )
+        st.plotly_chart(fig_r_tl, use_container_width=True)
+
+    st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+
 # SEKCJA 8 — ASYSTENT REBALANCINGU (NOWA)
 # ══════════════════════════════════════════════════════════════════════════════
 if hasattr(report, "rebalancing_orders") and report.rebalancing_orders:

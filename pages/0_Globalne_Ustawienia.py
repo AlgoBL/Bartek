@@ -619,66 +619,81 @@ with tab_ret:
     st.markdown("### 🏖️ Parametry Emerytalne (FIRE)")
     st.caption("Ustawienia dla modułów planowania finansowego, decumulacji, SWR oraz symulacji wieku emerytalnego.")
 
-    ret_c1, ret_c2 = st.columns(2)
+    st.markdown("#### 1. Wiek i Czas")
+    ret_c1, ret_c2, ret_c3 = st.columns(3)
     with ret_c1:
-        st.markdown(f"<p class='{_SEC}'>Wiek i Czas</p>", unsafe_allow_html=True)
-        new_curr_age = st.number_input(
-            "Obecny wiek (Lata)", min_value=18, max_value=100, value=gs.ret_current_age, step=1
-        )
-        new_target_age = st.number_input(
-            "Docelowy wiek emerytury / FIRE (Lata)", min_value=new_curr_age, max_value=120, value=max(gs.ret_target_age, new_curr_age), step=1
-        )
-        years_to_fire = new_target_age - new_curr_age
-        st.info(f"⏳ Czas do emerytury (akumulacja): **{years_to_fire} lat**")
-
-        st.markdown(f"<p class='{_SEC}'>Przepływy Miesięczne</p>", unsafe_allow_html=True)
-        new_monthly_contrib = st.number_input(
-            "Miesięczne wpłaty do portfela (PLN)", min_value=0.0, value=float(gs.ret_monthly_contribution), step=500.0, format="%.2f"
-        )
-        new_monthly_exp = st.number_input(
-            "Miesięczne zapotrzebowanie / Wydatki na emeryturze (PLN)", min_value=0.0, value=float(gs.ret_monthly_expense), step=500.0, format="%.2f"
-        )
-
+        new_curr_age = st.number_input("Obecny wiek (Lata)", 18, 100, gs.ret_current_age, 1)
     with ret_c2:
-        st.markdown(f"<p class='{_SEC}'>Zmienne Ekonomiczne</p>", unsafe_allow_html=True)
-        new_inflation = st.slider(
-            "Szacowana Długoterminowa Inflacja (%)", min_value=0.0, max_value=15.0, value=gs.ret_inflation_rate*100, step=0.1
-        ) / 100.0
-        new_swr = st.slider(
-            "Safe Withdrawal Rate (SWR) (%)", min_value=1.0, max_value=10.0, value=gs.ret_swr_rate*100, step=0.1,
-            help="Zalecany standard to 4%. Oznacza jaki procent zgromadzonego kapitału rocznie (skorygowany o inflację) jest bezpiecznie wypłacany przez lata emerytury bez ryzyka bankructwa."
-        ) / 100.0
-        
-        needed_capital = (new_monthly_exp * 12) / (new_swr if new_swr > 0 else 0.04)
-        st.success(f"🎯 Szacowany potrzebny kapitał docelowy (wg SWR): **{needed_capital:,.0f} PLN**")
+        new_target_age = st.number_input("Docelowy wiek FIRE (Lata)", new_curr_age, 120, max(gs.ret_target_age, new_curr_age), 1)
+    with ret_c3:
+        new_life_exp = st.number_input("Zakładana Długowieczność (Lata)", new_target_age, 120, max(gs.ret_life_expectancy, new_target_age), 1)
+
+    st.markdown("#### 2. Przepływy Miesięczne i Rynek")
+    f_c1, f_c2 = st.columns(2)
+    with f_c1:
+        new_monthly_contrib = st.number_input("Miesięczne wpłaty do portfela (PLN)", 0.0, value=float(gs.ret_monthly_contribution), step=500.0)
+        new_monthly_exp = st.number_input("Wydatki na emeryturze (PLN)", 0.0, value=float(gs.ret_monthly_expense), step=500.0)
+        new_expected_return = st.slider("Oczekiwany Zwrot Portfela (%)", 0.0, 20.0, float(gs.ret_expected_return*100), 0.5) / 100.0
+        new_expected_vol = st.slider("Zmienność Portfela (Vol) (%)", 0.0, 40.0, float(gs.ret_expected_vol*100), 0.5) / 100.0
+    with f_c2:
+        new_inflation = st.slider("Szacowana Inflacja (%)", 0.0, 15.0, float(gs.ret_inflation_rate*100), 0.1) / 100.0
+        new_swr = st.slider("Zakładany bazowy SWR (%)", 1.0, 10.0, float(gs.ret_swr_rate*100), 0.1) / 100.0
+        new_cape = st.number_input("CAPE Shillera (dla portfela ryzykownych)", 5.0, 50.0, float(gs.ret_cape_ratio), 1.0)
+        new_med_inf = st.slider("Inflacja Medyczna p.a. (%)", 0.0, 15.0, float(gs.ret_medical_inflation*100), 0.1) / 100.0
+
+    st.markdown("#### 3. ZUS, PPK i Podatki")
+    z_c1, z_c2 = st.columns(2)
+    with z_c1:
+        new_zus = st.number_input("ZUS / Inne Stałe Świadczenie (PLN/m-c)", 0, 20000, value=int(gs.ret_zus_monthly), step=100)
+        new_ppk = st.number_input("Kapitał w PPK / OFE / X1 (PLN)", 0, 1000000, value=int(gs.ret_ppk_capital), step=1000)
+    with z_c2:
+        tax_opts = ["IKE/IKZE (0% Belki)", "Konto Zwykłe (Belka 19%)", "Fundusz Akumulujący (Belka przy umorzeniu)"]
+        new_tax = st.selectbox("Reżim Podatkowy (Dla konta poza ZUS/PPK)", tax_opts, index=tax_opts.index(gs.ret_tax_regime) if gs.ret_tax_regime in tax_opts else 0)
+        pit_opts = [0, 12, 19, 32]
+        new_pit = st.selectbox("Stawka PIT dla świadczeń stałych (%)", pit_opts, index=pit_opts.index(gs.ret_pit_bracket) if gs.ret_pit_bracket in pit_opts else 3)
+
+    st.markdown("#### 4. Modele Stochastyczne i Opcje Zaawansowane")
+    adv_c1, adv_c2 = st.columns(2)
+    with adv_c1:
+        new_stoch_inf = st.toggle("Inflacja Stochastyczna (Model CIR)", value=gs.ret_stochastic_inflation)
+        new_stoch_life = st.toggle("Stochastyczna Długowieczność (Lee-Carter)", value=gs.ret_stochastic_life)
+        gender_opts = ["Mężczyzna", "Kobieta", "Płeć Mieszana"]
+        new_gender = st.selectbox("Płeć dla modelu śmiertelności", gender_opts, index=gender_opts.index(gs.ret_gender) if gs.ret_gender in gender_opts else 2)
+        new_en_contrib = st.toggle("Uwzględnij miesięczne wpłaty do momentu FIRE", value=gs.ret_enable_contributions)
+        new_cdr = st.toggle("Kontynuuj dopłaty także na emeryturze", value=gs.ret_contrib_during_retirement)
+    with adv_c2:
+        strat_opts = ["constant", "guardrails", "flexible"]
+        val_strat = gs.ret_withdrawal_strategy if gs.ret_withdrawal_strategy in strat_opts else "constant"
+        new_strat = st.selectbox("Strategia Wypłat", strat_opts, index=strat_opts.index(val_strat))
+        new_floor = st.number_input("Zabezpieczenie. Ochrona dochodu - Floor (PLN / rocznie)", 0, 500000, value=int(gs.ret_floor_amount), step=5000)
+        new_smile = st.toggle("Krzywa wydatków (Blanchett's Spending Smile)", value=gs.ret_use_spending_smile)
+        new_glide = st.toggle("Redukcja zmienności z wiekiem (Pfau Glide Path)", value=gs.ret_use_glide_path)
 
     st.markdown("---")
     if st.button("💾 Zapisz Parametry Emerytury", type="primary"):
         # Budujemy kopię, by nie nadpisać niechcący tabel
         new_gs = GlobalPortfolio(
-            safe_type=gs.safe_type,
-            safe_rate=gs.safe_rate,
-            safe_tickers=gs.safe_tickers,
-            risky_assets=gs.risky_assets,
-            alloc_safe_pct=gs.alloc_safe_pct,
-            initial_capital=gs.initial_capital,
-            base_currency=gs.base_currency,
-            currency_risk_enabled=gs.currency_risk_enabled,
-            usd_pln_vol=gs.usd_pln_vol,
-            usd_pln_corr=gs.usd_pln_corr,
-            bg_refresh_enabled=gs.bg_refresh_enabled,
-            bg_refresh_interval_minutes=gs.bg_refresh_interval_minutes,
-            language=gs.language,
-            visible_modules=gs.visible_modules,
-            ui_mode=gs.ui_mode,
-            profile_name=gs.profile_name,
-            portfolio_assets=gs.portfolio_assets,
-            ret_current_age=new_curr_age,
-            ret_target_age=new_target_age,
-            ret_monthly_contribution=new_monthly_contrib,
-            ret_monthly_expense=new_monthly_exp,
-            ret_inflation_rate=new_inflation,
-            ret_swr_rate=new_swr,
+            safe_type=gs.safe_type, safe_rate=gs.safe_rate, safe_tickers=gs.safe_tickers,
+            risky_assets=gs.risky_assets, alloc_safe_pct=gs.alloc_safe_pct,
+            initial_capital=gs.initial_capital, base_currency=gs.base_currency,
+            currency_risk_enabled=gs.currency_risk_enabled, usd_pln_vol=gs.usd_pln_vol,
+            usd_pln_corr=gs.usd_pln_corr, bg_refresh_enabled=gs.bg_refresh_enabled,
+            bg_refresh_interval_minutes=gs.bg_refresh_interval_minutes, language=gs.language,
+            visible_modules=gs.visible_modules, ui_mode=gs.ui_mode,
+            profile_name=gs.profile_name, portfolio_assets=gs.portfolio_assets,
+            
+            ret_current_age=new_curr_age, ret_target_age=new_target_age,
+            ret_monthly_contribution=new_monthly_contrib, ret_monthly_expense=new_monthly_exp,
+            ret_inflation_rate=new_inflation, ret_swr_rate=new_swr,
+            ret_stochastic_inflation=new_stoch_inf, ret_life_expectancy=new_life_exp,
+            ret_stochastic_life=new_stoch_life, ret_gender=new_gender,
+            ret_expected_return=new_expected_return, ret_expected_vol=new_expected_vol,
+            ret_enable_contributions=new_en_contrib, ret_contrib_during_retirement=new_cdr,
+            ret_withdrawal_strategy=new_strat, ret_floor_amount=new_floor,
+            ret_zus_monthly=new_zus, ret_ppk_capital=new_ppk,
+            ret_tax_regime=new_tax, ret_pit_bracket=new_pit,
+            ret_use_spending_smile=new_smile, ret_use_glide_path=new_glide,
+            ret_cape_ratio=new_cape, ret_medical_inflation=new_med_inf
         )
         ok = save_global_settings(new_gs)
         set_gs(new_gs)

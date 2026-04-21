@@ -138,6 +138,26 @@ class GlobalPortfolio:
     ret_monthly_expense: float = 5000.0
     ret_inflation_rate: float = 0.025
     ret_swr_rate: float = 0.04
+    
+    ret_stochastic_inflation: bool = True
+    ret_life_expectancy: int = 95
+    ret_stochastic_life: bool = True
+    ret_gender: str = "Płeć Mieszana"
+    ret_expected_return: float = 0.07
+    ret_expected_vol: float = 0.15
+    ret_enable_contributions: bool = False
+    ret_contrib_during_retirement: bool = False
+    ret_withdrawal_strategy: str = "constant — Stała kwota"
+    ret_floor_amount: int = 0
+    ret_zus_monthly: int = 2500
+    ret_ppk_capital: int = 0
+    ret_tax_regime: str = "IKE/IKZE (0% Belki)"
+    ret_pit_bracket: int = 32
+    ret_use_spending_smile: bool = True
+    ret_use_glide_path: bool = False
+    ret_cape_ratio: float = 33.0
+    ret_medical_inflation: float = 0.05
+
 
     # Personalizacja Menu (Visible Modules)
     visible_modules: List[str] = field(default_factory=lambda: [
@@ -327,6 +347,24 @@ def load_global_settings() -> GlobalPortfolio:
             ret_monthly_expense=float(data.get("ret_monthly_expense", 5000.0)),
             ret_inflation_rate=float(data.get("ret_inflation_rate", 0.025)),
             ret_swr_rate=float(data.get("ret_swr_rate", 0.04)),
+            ret_stochastic_inflation=bool(data.get("ret_stochastic_inflation", True)),
+            ret_life_expectancy=int(data.get("ret_life_expectancy", 95)),
+            ret_stochastic_life=bool(data.get("ret_stochastic_life", True)),
+            ret_gender=str(data.get("ret_gender", "Płeć Mieszana")),
+            ret_expected_return=float(data.get("ret_expected_return", 0.07)),
+            ret_expected_vol=float(data.get("ret_expected_vol", 0.15)),
+            ret_enable_contributions=bool(data.get("ret_enable_contributions", False)),
+            ret_contrib_during_retirement=bool(data.get("ret_contrib_during_retirement", False)),
+            ret_withdrawal_strategy=str(data.get("ret_withdrawal_strategy", "constant — Stała kwota")),
+            ret_floor_amount=int(data.get("ret_floor_amount", 0)),
+            ret_zus_monthly=int(data.get("ret_zus_monthly", 2500)),
+            ret_ppk_capital=int(data.get("ret_ppk_capital", 0)),
+            ret_tax_regime=str(data.get("ret_tax_regime", "IKE/IKZE (0% Belki)")),
+            ret_pit_bracket=int(data.get("ret_pit_bracket", 32)),
+            ret_use_spending_smile=bool(data.get("ret_use_spending_smile", True)),
+            ret_use_glide_path=bool(data.get("ret_use_glide_path", False)),
+            ret_cape_ratio=float(data.get("ret_cape_ratio", 33.0)),
+            ret_medical_inflation=float(data.get("ret_medical_inflation", 0.05)),
         )
         return gs
 
@@ -418,14 +456,8 @@ def apply_gs_to_session(gs: Optional[GlobalPortfolio] = None) -> None:
 
     # ── Emerytura ───────────────────────────────────────────────────────────
     _set_default("rem_initial_capital", gs.initial_capital)
-    _set_default("_s.ret_current_age", gs.ret_current_age)
-    _set_default("_s.ret_target_age", gs.ret_target_age)
-    _set_default("_s.ret_monthly_contribution", gs.ret_monthly_contribution)
-    _set_default("_s.ret_monthly_expense", gs.ret_monthly_expense)
-    _set_default("_s.ret_inflation_rate", gs.ret_inflation_rate)
-    _set_default("_s.ret_swr_rate", gs.ret_swr_rate)
     
-    # Aliasy stricte dla modułu 4_Emerytura
+    # Aliasy stricte dla modułu 4_Emerytura (tworzą default properties)
     _set_default("_s.rem_age", gs.ret_current_age)
     _set_default("_s.rem_ret_age", gs.ret_target_age)
     _set_default("_s.rem_mcon", int(gs.ret_monthly_contribution))
@@ -433,6 +465,26 @@ def apply_gs_to_session(gs: Optional[GlobalPortfolio] = None) -> None:
     _set_default("_s.rem_inf", float(gs.ret_inflation_rate * 100))
     _set_default("_s.rem_flex_pct", float(gs.ret_swr_rate * 100))
     _set_default("_s.rem_cap", float(gs.initial_capital))
+    
+    _set_default("_s.rem_stoch_inf", gs.ret_stochastic_inflation)
+    _set_default("_s.rem_life", gs.ret_life_expectancy)
+    _set_default("_s.rem_stoch_life", gs.ret_stochastic_life)
+    _set_default("_s.rem_gender", gs.ret_gender)
+    _set_default("_s.rem_ret", float(gs.ret_expected_return * 100))
+    _set_default("_s.rem_vol", float(gs.ret_expected_vol * 100))
+    _set_default("_s.rem_contrib_en", gs.ret_enable_contributions)
+    _set_default("_s.rem_cdr", gs.ret_contrib_during_retirement)
+    _set_default("_s.rem_strat", gs.ret_withdrawal_strategy)
+    _set_default("_s.rem_floor", gs.ret_floor_amount)
+    _set_default("_s.rem_zus", gs.ret_zus_monthly)
+    _set_default("_s.rem_ppk", gs.ret_ppk_capital)
+    _set_default("_s.rem_tax", gs.ret_tax_regime)
+    _set_default("_s.rem_pit", gs.ret_pit_bracket)
+    _set_default("_s.rem_smile", gs.ret_use_spending_smile)
+    _set_default("_s.rem_glide", gs.ret_use_glide_path)
+    _set_default("_s.rem_cape", gs.ret_cape_ratio)
+    _set_default("_s.rem_med", float(gs.ret_medical_inflation * 100))
+
 
     # ── Wealth Optimizer ────────────────────────────────────────────────────
     _set_default("_gs_wealth_total", gs.initial_capital)
@@ -479,16 +531,36 @@ def force_apply_gs_to_session(gs: Optional[GlobalPortfolio] = None) -> None:
     st.session_state["_s.ret_inflation_rate"] = gs.ret_inflation_rate
     st.session_state["_s.ret_swr_rate"] = gs.ret_swr_rate
 
-    # Aliasy stricte dla modułu 4_Emerytura
-    st.session_state["_s.rem_age"] = gs.ret_current_age
-    st.session_state["_s.rem_ret_age"] = gs.ret_target_age
-    st.session_state["_s.rem_mcon"] = int(gs.ret_monthly_contribution)
-    st.session_state["_s.rem_me"] = int(gs.ret_monthly_expense)
-    st.session_state["_s.rem_inf"] = float(gs.ret_inflation_rate * 100)
-    st.session_state["_s.rem_flex_pct"] = float(gs.ret_swr_rate * 100)
-    st.session_state["_s.rem_cap"] = float(gs.initial_capital)
+    # Aliasy stricte dla modułu 4_Emerytura (zarówno _s.* jak i bez)
+    for prefix in ["_s.", ""]:
+        st.session_state[f"{prefix}rem_age"] = gs.ret_current_age
+        st.session_state[f"{prefix}rem_ret_age"] = gs.ret_target_age
+        st.session_state[f"{prefix}rem_mcon"] = int(gs.ret_monthly_contribution)
+        st.session_state[f"{prefix}rem_me"] = int(gs.ret_monthly_expense)
+        st.session_state[f"{prefix}rem_inf"] = float(gs.ret_inflation_rate * 100)
+        st.session_state[f"{prefix}rem_flex_pct"] = float(gs.ret_swr_rate * 100)
+        st.session_state[f"{prefix}rem_cap"] = float(gs.initial_capital)
+        st.session_state[f"{prefix}rem_stoch_inf"] = gs.ret_stochastic_inflation
+        st.session_state[f"{prefix}rem_life"] = gs.ret_life_expectancy
+        st.session_state[f"{prefix}rem_stoch_life"] = gs.ret_stochastic_life
+        st.session_state[f"{prefix}rem_gender"] = gs.ret_gender
+        st.session_state[f"{prefix}rem_ret"] = float(gs.ret_expected_return * 100)
+        st.session_state[f"{prefix}rem_vol"] = float(gs.ret_expected_vol * 100)
+        st.session_state[f"{prefix}rem_contrib_en"] = gs.ret_enable_contributions
+        st.session_state[f"{prefix}rem_cdr"] = gs.ret_contrib_during_retirement
+        st.session_state[f"{prefix}rem_strat"] = "constant — Stała kwota" if gs.ret_withdrawal_strategy.startswith("const") else ("guardrails — Klinger 2006" if gs.ret_withdrawal_strategy.startswith("guard") else "flexible — % portfela")
+        st.session_state[f"{prefix}rem_floor"] = gs.ret_floor_amount
+        st.session_state[f"{prefix}rem_zus"] = gs.ret_zus_monthly
+        st.session_state[f"{prefix}rem_ppk"] = gs.ret_ppk_capital
+        st.session_state[f"{prefix}rem_tax"] = gs.ret_tax_regime
+        st.session_state[f"{prefix}rem_pit"] = gs.ret_pit_bracket
+        st.session_state[f"{prefix}rem_smile"] = gs.ret_use_spending_smile
+        st.session_state[f"{prefix}rem_glide"] = gs.ret_use_glide_path
+        st.session_state[f"{prefix}rem_cape"] = gs.ret_cape_ratio
+        st.session_state[f"{prefix}rem_med"] = float(gs.ret_medical_inflation * 100)
     
     st.session_state["_gs_wealth_total"]    = gs.initial_capital
+
 
 
 def gs_sidebar_badge() -> None:

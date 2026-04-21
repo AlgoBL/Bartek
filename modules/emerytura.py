@@ -696,9 +696,12 @@ def render_emerytura_module():
     life_expectancy = st.sidebar.slider("Max Horyzont (lat)", retirement_age + 5, 110, value=_saved("rem_life", 95), key="rem_life", on_change=_save, args=("rem_life",))
     stoch_life = st.sidebar.checkbox("Stoch. Długowieczność (Lee-Carter)", value=_saved("rem_stoch_life", True), key="rem_stoch_life", on_change=_save, args=("rem_stoch_life",), help="Model generuje scenariusze wieku śmierci biorąc pod uwagę płeć i ciągły wzrost długowieczności (Lee-Carter).")
 
-    gender_label = st.sidebar.selectbox("Płeć (Długowieczność)", ["Mieszana", "Kobieta", "Mężczyzna"], index=["Mieszana", "Kobieta", "Mężczyzna"].index(_saved("rem_gender", "Mieszana")), key="rem_gender", on_change=_save, args=("rem_gender",))
-    gender_map = {"Mieszana": "mixed", "Kobieta": "female", "Mężczyzna": "male"}
-    gender = gender_map[gender_label]
+    gender_opts = ["Płeć Mieszana", "Kobieta", "Mężczyzna"]
+    val = _saved("rem_gender", "Płeć Mieszana")
+    safe_idx = gender_opts.index(val) if val in gender_opts else 0
+    gender_label = st.sidebar.selectbox("Płeć (Długowieczność)", gender_opts, index=safe_idx, key="rem_gender", on_change=_save, args=("rem_gender",))
+    gender_map = {"Płeć Mieszana": "mixed", "Kobieta": "female", "Mężczyzna": "male", "Mieszana": "mixed"}
+    gender = gender_map.get(gender_label, "mixed")
 
     st.sidebar.markdown("### 📈 Rynek")
     ret_return = st.sidebar.slider("Oczekiwany Zwrot (%)", -5.0, 20.0, value=_saved("rem_ret", 7.0), step=0.5, key="rem_ret", on_change=_save, args=("rem_ret",)) / 100.0
@@ -711,7 +714,13 @@ def render_emerytura_module():
 
     st.sidebar.markdown("### 🧮 Strategia Wypłat")
     _strat_opts = ["constant — Stała kwota", "guardrails — Klinger 2006", "flexible — % portfela"]
-    withdrawal_strategy_label = st.sidebar.selectbox("Strategia Wypłat", _strat_opts, index=_strat_opts.index(_saved("rem_strat", _strat_opts[0])), key="rem_strat", on_change=_save, args=("rem_strat",))
+    val_strat = _saved("rem_strat", _strat_opts[0])
+    if val_strat == "constant": val_strat = _strat_opts[0]
+    elif val_strat == "guardrails": val_strat = _strat_opts[1]
+    elif val_strat == "flexible": val_strat = _strat_opts[2]
+    
+    safe_idx_strat = _strat_opts.index(val_strat) if val_strat in _strat_opts else 0
+    withdrawal_strategy_label = st.sidebar.selectbox("Strategia Wypłat", _strat_opts, index=safe_idx_strat, key="rem_strat", on_change=_save, args=("rem_strat",))
     withdrawal_strategy = withdrawal_strategy_label.split(" ")[0]
 
     flexible_pct = 0.04
@@ -748,12 +757,14 @@ def render_emerytura_module():
         key="rem_tax", on_change=_save, args=("rem_tax",),
         help="IKE/IKZE: 0% podatku od zysku. Konto zwykłe: 19% Belki od zysku corocznie. Fundusz: podatek przy umorzeniu."
     )
-    pit_bracket_pct = st.sidebar.slider(
-        "Stawka PIT (% dla IKZE)", 12, 32,
-        value=_saved("rem_pit", 32),
-        step=8,
+    pit_opts = [0, 12, 19, 32]
+    pit_val = _saved("rem_pit", 32)
+    pit_safe_idx = pit_opts.index(pit_val) if pit_val in pit_opts else 3
+    pit_bracket_pct = st.sidebar.selectbox(
+        "Stawka PIT (% dla IKZE)", pit_opts,
+        index=pit_safe_idx,
         key="rem_pit", on_change=_save, args=("rem_pit",),
-        help="Stawka PIT potrzebna do obliczenia korzyści IKZE (odliczenie od podatku). Próg 12% lub 32%."
+        help="Stawka PIT potrzebna do obliczenia korzyści IKZE (odliczenie od podatku)."
     )
 
     st.sidebar.markdown("### 🔬 Model Zaawansowany")

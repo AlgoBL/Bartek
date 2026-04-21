@@ -16,6 +16,10 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 
+import numpy as np
+from modules.emerytura import run_mc_retirement, retirement_readiness_score, cape_adjusted_swr, compute_survival_curve
+
+
 # ── Stałe ──────────────────────────────────────────────────────────────────────
 
 SCORE_MAX = 100
@@ -117,6 +121,15 @@ class AdvisorReport:
     timeline_labels: List[str] = field(default_factory=list)
     timeline_values: List[float] = field(default_factory=list)
 
+    # Dane emerytalne FIRE (Inteligentny moduł)
+    ret_readiness_score: float = 0.0
+    ret_success_prob: float = 0.0
+    ret_adjusted_swr: float = 0.0
+    ret_years_to_fire: float = 0.0
+    ret_assessment: str = ""
+    ret_timeline_labels: List[str] = field(default_factory=list)
+    ret_timeline_values: List[float] = field(default_factory=list)
+
 
 # ── Główna klasa ───────────────────────────────────────────────────────────────
 
@@ -154,6 +167,8 @@ class AdvisorEngine:
         # Obliczenia korelacji (Faza 2)
         self.avg_correlation = 0.0
         self._compute_correlation()
+
+        self.ret_metrics = self._compute_retirement_metrics()
 
         self._build_signals()
 
@@ -195,6 +210,75 @@ class AdvisorEngine:
             log = setup_logger(__name__)
             log.warning(f"Błąd wyliczania korelacji w AdvisorEngine: {e}")
             self.avg_correlation = 0.0
+
+    # ── Metryki Emerytalne (FIRE) ─────────────────────────────────────────────
+    def _compute_retirement_metrics(self) -> dict:
+        """Kalkulacje oparte na emerytura.py (lite MC 500 sims)."""
+        gs = self.gs
+
+        init_cap = gs.initial_capital
+        annual_expenses = gs.ret_monthly_expense * 12
+        annual_contrib = gs.ret_monthly_contribution * 12
+
+        vix = self.macro.get("VIX_1M", 20) or 20
+        base_vol = np.clip(vix / 100.0, 0.08, 0.8)
+        macro_score = self._compute_macro_score()
+        base_return = 0.08 + (macro_score - 50) * 0.001
+
+        vol = base_vol * self.risky_pct + 0.05 * self.safe_pct
+        ret = base_return * self.risky_pct + gs.safe_rate * self.safe_pct
+
+        # Oblicz CAPE adjusted SWR
+        cape = self.macro.get("CAPE", 30.0) # zakładamy 30 jeśli brak
+        adj_swr = cape_adjusted_swr(cape, base_swr=gs.ret_swr_rate)
+
+        years_to_retire = max(0, gs.ret_target_age - gs.ret_current_age)
+        horizon = min(max(years_to_retire + 30, 40), 60) # stały horyzont ok 40-60 lat
+
+        try:
+            wealth_matrix, _ = run_mc_retirement(
+                init_cap=init_cap, annual_expenses=annual_expenses, annual_contrib=annual_contrib,
+                ret_return=ret, ret_vol=vol, horizon=horizon, n_sims=500,
+                years_to_retirement=years_to_retire, inflation_base=gs.ret_inflation_rate,
+                stochastic_inflation=gs.ret_stochastic_inflation, enable_contributions=gs.ret_enable_contributions,
+                contrib_during_retirement=gs.ret_contrib_during_retirement, 
+                withdrawal_strategy=gs.ret_withdrawal_strategy.split(" ")[0],
+                use_glide_path=gs.ret_use_glide_path, tax_regime=gs.ret_tax_regime,
+                use_spending_smile=gs.ret_use_spending_smile,
+                zus_monthly=gs.ret_zus_monthly, floor_amount=gs.ret_floor_amount,
+                medical_inflation_rate=gs.ret_medical_inflation
+            )
+            survival = compute_survival_curve(wealth_matrix)
+            success_prob = float(survival[-1]) if len(survival) > 0 else 0.0
+            p50_wealth = np.percentile(wealth_matrix, 50, axis=0)
+        except Exception:
+            success_prob = 0.5
+            p50_wealth = np.zeros(horizon+1)
+
+        zus_annual = 2500 * 12 # typowy ZUS
+        zus_cov = min(1.0, zus_annual / (annual_expenses if annual_expenses>0 else 1.0))
+
+        cur_swr = annual_expenses / (init_cap if init_cap > 0 else 1.0)
+        fire_number = (annual_expenses - zus_annual) / adj_swr if (annual_expenses - zus_annual) > 0 else 0
+        cap_vs_fire = init_cap / fire_number if fire_number > 0 else 1.0
+
+        years_to_fire = (fire_number - init_cap) / (annual_contrib + init_cap*ret) if (annual_contrib + init_cap*ret) > 0 else 99
+        years_to_fire = float(np.clip(years_to_fire, 0, 99))
+
+        readiness = retirement_readiness_score(success_prob, cur_swr, zus_cov, years_to_fire, cap_vs_fire)
+
+        tl_labels = [f"Wiek {gs.ret_current_age + i}" for i in range(0, horizon+1, 5)]
+        tl_values = [p50_wealth[i] for i in range(0, horizon+1, 5)]
+
+        return {
+            "readiness": readiness,
+            "success_prob": success_prob,
+            "adj_swr": adj_swr,
+            "years_to_fire": years_to_fire,
+            "tl_labels": tl_labels,
+            "tl_values": tl_values,
+        }
+
 
     # ── Budowanie sygnałów ────────────────────────────────────────────────────
 
@@ -434,6 +518,19 @@ class AdvisorEngine:
                 f"Rozważ strategię stopniowego (DCA) zwiększania ekspozycji na akcje.",
                 0.65, 12))
 
+        # ── Emerytura ─────────────────────────────────────────────────────────
+        ret_r = self.ret_metrics.get("readiness", 50.0)
+        if ret_r < 40:
+            actions.append(AdvisorAction(1, "Emerytura", "🔥", "Krytycznie niska gotowość emerytalna",
+                f"Twój wskaźnik Readiness to {ret_r}/100. Prawdopodobieństwo sukcesu wynosi tylko {self.ret_metrics.get('success_prob', 0):.0%}. "
+                f"Zwiększ wpłaty miesięczne w module Ustawień lub przemyśl opóźnienie przejścia na emeryturę o kilka lat.",
+                0.90, horizon_months=24))
+        elif ret_r < 65:
+            actions.append(AdvisorAction(2, "Emerytura", "⚠️", "Wymagana optymalizacja podatkowa SWR",
+                f"SWR skorygowany o CAPE wynosi {self.ret_metrics.get('adj_swr', 0.04):.1%}. Twój plan posiada luki, a portfel może nie przetrwać całej emerytury. "
+                f"Zaleca się zminimalizowanie narzutu podatkowego (wykorzystaj limity IKE/IKZE) oraz obniżenie prognozowanego poziomu konsumpcji.",
+                0.78, horizon_months=12))
+
         if not actions:
             actions.append(AdvisorAction(3, "Portfel", "✅", "Portfel w dobrej kondycji",
                 "Na podstawie dostępnych danych makroekonomicznych i struktury portfela "
@@ -636,6 +733,13 @@ class AdvisorEngine:
             portfolio_assessment=self._generate_portfolio_assessment(),
             timeline_labels=timeline_data["labels"],
             timeline_values=timeline_data["p50"],
+            ret_readiness_score=self.ret_metrics.get("readiness", 50.0),
+            ret_success_prob=self.ret_metrics.get("success_prob", 0.0),
+            ret_adjusted_swr=self.ret_metrics.get("adj_swr", 0.04),
+            ret_years_to_fire=self.ret_metrics.get("years_to_fire", 0.0),
+            ret_timeline_labels=self.ret_metrics.get("tl_labels", []),
+            ret_timeline_values=self.ret_metrics.get("tl_values", []),
+            ret_assessment=f"Zaktualizowany bezpieczny poziom wypłat (SWR - uwzględniający wyceny CAPE) wynosi **{self.ret_metrics.get('adj_swr', 0.04):.2%}**. Szansa na przetrwanie kapitału przez całą emeryturę (w wariancie bazowym) to **{self.ret_metrics.get('success_prob', 0)*100:.0f}%**."
         )
         report.timeline_full_data = timeline_data
         report.rebalancing_orders = self.generate_rebalancing_orders()
