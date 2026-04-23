@@ -134,7 +134,7 @@ def backtest_task(
             meta={"progress": round(pct * 100), "message": msg},
         )
 
-    # Pobierz dane przez centralny fetch_data (z Stooq fallback, cache, ISIN resolve)
+    # Pobierz dane przez centralny fetch_data (cache, ISIN resolve)
     progress_cb(0.05, "Pobieranie danych historycznych...")
     safe_data  = fetch_data(safe_tickers,  period="3y")
     risky_data = fetch_data(risky_tickers, period="3y")

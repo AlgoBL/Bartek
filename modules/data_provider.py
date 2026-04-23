@@ -8,29 +8,8 @@ from modules.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-def translate_ticker_for_stooq(ticker: str) -> str:
-    """Konwertuje ticker Yahoo Finance na format zgodny ze Stooq.pl."""
-    t = ticker.upper()
-    
-    # Indeksy
-    if t == "^GSPC": return "^SPX"
-    if t == "^NDX": return "^NDQ"
-    if t == "^DJI": return "^DJI"
-    if t.startswith("^"): return t
-    
-    # Giełda Papierów Wartościowych w Warszawie (GPW)
-    if t.endswith(".WA"):
-        return t.replace(".WA", ".PL")
-        
-    # Krypto
-    if "-USD" in t:
-        return t.replace("-USD", ".V") # np. BTC.V na stooq (czasami)
-        
-    # Akcje zagraniczne (US) - dodajemy .US jeśli nie ma sufiksu
-    if "." not in t:
-        return f"{t}.US"
-        
-    return t
+
+# ─── YFINANCE ROBUST FETCH ────────────────────────────────────────────────────
 
 import threading
 _YF_LOCK = threading.Lock()
@@ -38,7 +17,7 @@ _YF_LOCK = threading.Lock()
 def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = None, period: str = None, auto_adjust: bool = True) -> pd.DataFrame:
     # Zabezpieczenie na wyścigi wątków (thread-safety) we wbudowanym module cacheującym YFinance
     if len(tickers) == 1:
-        # History jest bezpieczne wielowątkowo
+        # History jest bezpieczne wielowątkowo i bardziej stabilne dla pojedyńczych tickerów
         tkr = yf.Ticker(tickers[0])
         kw = {"auto_adjust": auto_adjust}
         if start:
@@ -49,9 +28,19 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
             kw["period"] = period
         else:
             kw["period"] = "1y"
-        hist = tkr.history(**kw)
+            
+        # Retry logic for reliability
+        hist = pd.DataFrame()
+        for attempt in range(2):
+            try:
+                hist = tkr.history(**kw)
+                if not hist.empty: break
+            except Exception:
+                import time
+                time.sleep(1)
+        
         if not hist.empty:
-            # Force MultiIndex (Attribute, Ticker) Nawet dla pojedynczego tickera
+            # Force MultiIndex (Attribute, Ticker) Nawet dla pojedynczego tickera dla spójności
             hist.columns = pd.MultiIndex.from_product([hist.columns, [tickers[0]]])
         return hist
         
@@ -67,7 +56,11 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
 
     # Wymuszenie sekwencyjnego logowania w yfinance globals
     with _YF_LOCK:
-        data = yf.download(tickers, **kwargs)
+        try:
+            data = yf.download(tickers, **kwargs)
+        except Exception as e:
+            logger.error(f"Krytyczny błąd yf.download: {e}")
+            data = pd.DataFrame()
     return data
 
 
@@ -127,9 +120,8 @@ def _fetch_data_cached(tickers_tuple: tuple, start: str, end: str, period: str, 
 
 def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = None, period: str = None, auto_adjust: bool = True) -> pd.DataFrame:
     """
-    Kluczowy system pobierania danych. Próbuje pobrać poprzez YFinance, 
-    a następnie w wypadku błędu za pośrednictwem Stooq.pl.
-    Zwraca ujednolicony pd.DataFrame.
+    Główny system pobierania danych. Wykorzystuje Yahoo Finance z automatycznym
+    rozpoznawaniem ISIN i cache'owaniem wyników.
     """
     if isinstance(tickers, str):
         tickers_tuple = (tickers,)
@@ -140,7 +132,7 @@ def fetch_data(tickers: Union[str, List[str]], start: str = None, end: str = Non
 
 
 async def fetch_ticker_async(ticker: str, period: str = "5d") -> tuple[str, float | None, float | None]:
-    """Asynchroniczne pobieranie ceny zamknięcia. Yahoo -> StooqFallback"""
+    """Asynchroniczne pobieranie ceny zamknięcia (Yahoo)."""
     from modules.isin_resolver import ISINResolver
     mapped_ticker = ISINResolver.resolve(ticker)
     

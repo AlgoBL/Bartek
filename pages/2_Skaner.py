@@ -92,7 +92,7 @@ try:
     from tasks import scan_task, get_task_status, is_celery_available
     _celery_ok = is_celery_available()
 except Exception as e:
-    logger.info(f"Opcjonalne Celery niedostępne: {e}")
+    logger.debug(f"Opcjonalne Celery niedostępne: {e}")
     _celery_ok = False
     scan_task = None
 

@@ -12,8 +12,8 @@ logger = setup_logger(__name__)
 FRED_SERIES = {
     "Credit_Spread_BAA_AAA": ("BAA10Y", ""),   # Spread korporacyjny BBB-10Y
     "Initial_Jobless_Claims": ("IC4WSA", ""),  # Wnioski o zasiłek
-    "ISM_Manufacturing_PMI":  ("MANEMP", ""),  # Proxy PMI
-    "M2_YoY_Growth":          ("M2SL", "&units=pc1"), # M2 Podaż pieniądza (% zmiana r/r)
+    "ISM_Manufacturing_PMI":  ("MANEMP", ""),  # Manufacturing Employment
+    "M2_YoY_Growth":          ("M2SL", "units=pc1"), # M2 Money Supply (% change YoY)
     "TED_Spread":             ("TEDRATE", ""), # Ryzyko kredytowe bankowe
     "HY_Spread":              ("BAMLH0A0HYM2", ""), # High Yield Option-Adjusted Spread
     "Real_Yield_10Y":         ("DFII10", ""),  # 10Y Real Yield (TIPS)
@@ -24,25 +24,29 @@ async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_data: 
     """Pobiera ostatnią wartość serii FRED asynchronicznie (aiohttp)."""
     series_id, params = series_data
     try:
-        # Próba pobrania CSV bezpośrednio (id musi być pierwszym parametrem)
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}{params}"
+        # Build URL properly
+        params_str = f"&{params}" if params else ""
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}{params_str}"
+        
         async with session.get(url, timeout=10) as resp:
             if resp.status != 200:
-                # Cichy powrót jeśli FRED ma kaprysy
                 return series_id, None, None
             
             text = await resp.text()
+            if not text or "observation_date" not in text:
+                return series_id, None, None
+                
             df = pd.read_csv(io.StringIO(text), parse_dates=["observation_date"])
             df = df.replace(".", float("nan")).dropna()
             
-            if df.empty:
+            if df.empty or df.shape[1] < 2:
                 return series_id, None, None
                 
             val = float(df.iloc[-1, 1])
             pct = 0.0
             if len(df) > 1:
                 prev = float(df.iloc[-2, 1])
-                if prev != 0:
+                if prev != 0 and not np.isnan(prev):
                     pct = round(((val / prev) - 1) * 100, 2)
             
             return series_id, val, pct
@@ -107,9 +111,9 @@ class TheOracle:
                     async with session.get(url, timeout=5) as resp:
                         if resp.status == 200:
                             data = await resp.json()
-                            return "Crypto_FearGreed", int(data["data"][0]["value"])
+                        return "Crypto_FearGreed", int(data["data"][0]["value"])
                 except Exception as e:
-                    logger.warning(f"Błąd API Fear&Greed: {e}")
+                    logger.debug(f"Błąd API Fear&Greed: {e}")
                 return "Crypto_FearGreed", None
                 
             crypto_task = asyncio.create_task(fetch_crypto())
@@ -120,7 +124,7 @@ class TheOracle:
                     from modules.vanguard_math import compute_gex_and_skew
                     return await asyncio.to_thread(compute_gex_and_skew, "SPY")
                 except Exception as e:
-                    logger.warning(f"Błąd options GEX: {e}")
+                    logger.debug(f"Błąd options GEX: {e}")
                     return {}
                     
             options_task = asyncio.create_task(fetch_options_gex())
@@ -149,7 +153,7 @@ class TheOracle:
                             spy_ret = (closes["SPY"].iloc[-1] / closes["SPY"].iloc[0]) - 1
                             out = {"RSP_1M_Return": rsp_ret, "SPY_1M_Return": spy_ret, "Breadth_Momentum": rsp_ret - spy_ret}
                 except Exception as e:
-                    logger.warning(f"Błąd Market Breadth: {e}")
+                    logger.debug(f"Błąd Market Breadth: {e}")
                 return out
                 
             breadth_task = asyncio.create_task(fetch_breadth())
@@ -174,7 +178,7 @@ class TheOracle:
                         vol = float(rets.std()) * (252 ** 0.5) * 100
                         return {"Bond_Vol_Proxy": vol}
                 except Exception as e:
-                    logger.warning(f"Błąd Bond Vol Proxy: {e}")
+                    logger.debug(f"Błąd Bond Vol Proxy: {e}")
                 return {}
                 
             bond_vol_task = asyncio.create_task(fetch_bond_vol())
@@ -275,7 +279,7 @@ class TheOracle:
                             text = await resp.text()
                             return await asyncio.to_thread(feedparser.parse, text)
                 except Exception as e:
-                    logger.warning(f"Błąd parsowania RSS ({url}): {e}")
+                    logger.debug(f"Błąd parsowania RSS ({url}): {e}")
                 return None
                 
             tasks = [fetch_feed(url) for url in self.news_feeds]

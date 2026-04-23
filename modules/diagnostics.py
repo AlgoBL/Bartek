@@ -2,7 +2,6 @@ import time
 import os
 import json
 import yfinance as yf
-import pandas_datareader.data as web
 from functools import wraps
 from modules.logger import setup_logger, AWARIE_JSON_PATH
 
@@ -36,7 +35,7 @@ def mark_error_resolved(error_id):
         log.error(f"Nie udało się zaktualizować statusu błędu w kwarantannie: {e}")
 
 def run_health_check():
-    """Wysyła "żółte karteczki" do serwerów zewnętrznych by zbadać gdzie leży wina przyczyna zerwania połączeń."""
+    """Wysyła zapytania testowe do zewnętrznych serwerów danych."""
     results = {}
     
     # 1. Yahoo Ping
@@ -48,8 +47,6 @@ def run_health_check():
     except Exception as e:
         results["yahoo"] = {"status": "fail", "time_ms": int((time.time() - start) * 1000), "error": str(e)}
         log.warning(f"Health Check: Brak połączenia z Yahoo Finance: {e}")
-
-    # Usunięto wadliwy radar Stooq. Pozostawiono tylko główny Yahoo.
         
     return results
 

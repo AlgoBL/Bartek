@@ -822,7 +822,7 @@ with tab_diag:
     with col_h1:
         st.markdown(f"<p class='{_SEC}'>Radary Połączeń</p>", unsafe_allow_html=True)
         if st.button("🔄 Przetestuj Trasy API", use_container_width=True):
-            with st.spinner("Odpytywanie serwerów aktywów (Yahoo, Stooq)..."):
+            with st.spinner("Odpytywanie serwerów aktywów (Yahoo Finance)..."):
                 hb = run_health_check()
                 st.session_state["_diag_hb"] = hb
                 st.rerun()

@@ -285,7 +285,7 @@ def compute_gex_and_skew(ticker_symbol: str = "SPY") -> dict:
         }
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning(f"Błąd przy obliczaniu GEX dla {ticker_symbol}: {e}")
+        logging.getLogger(__name__).debug(f"Błąd przy obliczaniu GEX dla {ticker_symbol}: {e}")
         return {}
 
 
