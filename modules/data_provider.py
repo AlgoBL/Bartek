@@ -93,7 +93,7 @@ def _fetch_data_cached(tickers_tuple: tuple, start: str, end: str, period: str, 
             
             missing = [t for t in mapped_tickers if t not in fetched_tickers]
             if missing:
-                logger.warning(f"yfinance nie zwróciło żadnych kolumn dla: {missing}")
+                logger.debug(f"yfinance nie zwróciło żadnych kolumn dla: {missing}")
             
             logger.info(f"Pobrano pomyślnie {len(data)} wierszy.")
             

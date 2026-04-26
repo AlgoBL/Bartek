@@ -143,66 +143,92 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SEKCJA 1 — SCORE CARDS
+# SEKCJA 1 — NOWOCZESNE SCORE CARDS
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("## 📊 Ocena Portfela")
 
 def _score_color(v: float, invert: bool = False) -> str:
-    """Kolor score (0–100). invert=True dla ryzyka (wysokie ryzyko = czerwony)."""
     if invert:
-        if v >= 65: return C_RED
-        if v >= 40: return C_YELLOW
-        return C_GREEN
-    else:
-        if v >= 65: return C_GREEN
-        if v >= 40: return C_YELLOW
-        return C_RED
+        return C_RED if v >= 65 else (C_YELLOW if v >= 40 else C_GREEN)
+    return C_GREEN if v >= 65 else (C_YELLOW if v >= 40 else C_RED)
+
 
 def _gauge_fig(value: float, title: str, color: str) -> go.Figure:
+    """Mini gauge chart dla sekcji emerytalnej (zakres 0–100)."""
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
-        number={"font": {"size": 40, "color": color, "family": "Inter"}, "suffix": ""},
-        title={"text": f"<span style='font-size:13px;color:#888'>{title}</span>",
-               "font": {"size": 13}},
+        number={"font": {"size": 28, "color": color, "family": "Inter"}, "suffix": "/100"},
+        title={"text": title, "font": {"size": 12, "color": "#94a3b8"}},
         gauge={
-            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#555",
+            "axis": {"range": [0, 100], "tickcolor": "#374151", "tickwidth": 1,
                      "tickvals": [0, 25, 50, 75, 100]},
-            "bar":  {"color": color, "thickness": 0.12},
-            "bgcolor": "#0a0b0e", "borderwidth": 1, "bordercolor": "#2a2a3a",
+            "bar":  {"color": color, "thickness": 0.22},
+            "bgcolor": "rgba(0,0,0,0)",
+            "bordercolor": "rgba(255,255,255,0.06)",
+            "borderwidth": 1,
             "steps": [
-                {"range": [0,  40],  "color": "rgba(255,23,68,0.15)"},
-                {"range": [40, 65],  "color": "rgba(255,234,0,0.1)"},
-                {"range": [65, 100], "color": "rgba(0,230,118,0.15)"},
+                {"range": [0, 40],  "color": "rgba(255,23,68,0.10)"},
+                {"range": [40, 65], "color": "rgba(255,234,0,0.08)"},
+                {"range": [65, 100],"color": "rgba(0,230,118,0.10)"},
             ],
-            "threshold": {"line": {"color": color, "width": 4}, "thickness": 0.85, "value": value},
-        }
+            "threshold": {
+                "line": {"color": color, "width": 2},
+                "thickness": 0.75,
+                "value": value,
+            },
+        },
     ))
-    fig.update_layout(height=200, margin=dict(l=20, r=20, t=40, b=10),
-                      paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"})
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=180,
+        margin=dict(t=40, b=10, l=20, r=20),
+        font=dict(family="Inter"),
+    )
     return fig
+
+def _score_card(title: str, subtitle: str, value: float, color: str, icon: str) -> str:
+    pct = int(value)
+    prev_key = f"_advisor_prev_{title}"
+    prev = st.session_state.get(prev_key, value)
+    st.session_state[prev_key] = value
+    diff = value - prev
+    arrow = (f"<span style='color:{C_GREEN};font-size:11px;'>▲ {diff:+.1f}</span>" if diff > 0.5
+             else f"<span style='color:{C_RED};font-size:11px;'>▼ {diff:+.1f}</span>" if diff < -0.5
+             else "<span style='color:#6b7280;font-size:11px;'>— bez zmian</span>")
+    pulse = f"box-shadow:0 0 18px {color}55;" if value < 35 else ""
+    return f"""
+<div style="background:linear-gradient(135deg,rgba(15,17,26,0.95),rgba(26,28,40,0.9));
+    border:1px solid {color}44;border-top:3px solid {color};border-radius:14px;
+    padding:20px 18px;{pulse}">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+    <span style="font-size:26px;">{icon}</span>
+    {arrow}
+  </div>
+  <div style="font-size:38px;font-weight:800;color:{color};margin:8px 0 2px 0;letter-spacing:-1px;">{value:.0f}</div>
+  <div style="font-size:12px;font-weight:700;color:white;letter-spacing:0.5px;">{title}</div>
+  <div style="font-size:10px;color:#6b7280;margin-top:3px;">{subtitle}</div>
+  <div style="height:6px;background:rgba(255,255,255,0.07);border-radius:4px;margin-top:12px;overflow:hidden;">
+    <div style="height:6px;width:{pct}%;background:linear-gradient(90deg,{color}99,{color});border-radius:4px;
+      transition:width 0.8s ease;"></div>
+  </div>
+</div>"""
 
 sc1, sc2, sc3, sc4 = st.columns(4)
 with sc1:
-    c = _score_color(report.score_protection)
-    st.plotly_chart(_gauge_fig(report.score_protection, "🛡️ Ochrona Kapitału", c),
-                    use_container_width=True)
-    st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Jak dobrze portfel chroni przed stratami</div>", unsafe_allow_html=True)
+    st.markdown(_score_card("Ochrona Kapitału", "Jak dobrze portfel chroni",
+        report.score_protection, _score_color(report.score_protection), "🛡️"), unsafe_allow_html=True)
 with sc2:
-    c = _score_color(report.score_growth)
-    st.plotly_chart(_gauge_fig(report.score_growth, "📈 Potencjał Wzrostu", c),
-                    use_container_width=True)
-    st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Szansa na zyski powyżej inflacji</div>", unsafe_allow_html=True)
+    st.markdown(_score_card("Potencjał Wzrostu", "Szansa na zyski > inflacji",
+        report.score_growth, _score_color(report.score_growth), "📈"), unsafe_allow_html=True)
 with sc3:
-    c = _score_color(report.score_risk, invert=True)
-    st.plotly_chart(_gauge_fig(report.score_risk, "⚠️ Poziom Ryzyka", c),
-                    use_container_width=True)
-    st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Wyższy = większe ryzyko systemowe</div>", unsafe_allow_html=True)
+    st.markdown(_score_card("Poziom Ryzyka", "Wyższy = więcej zagrożeń",
+        report.score_risk, _score_color(report.score_risk, invert=True), "⚠️"), unsafe_allow_html=True)
 with sc4:
-    c = _score_color(report.score_overall)
-    st.plotly_chart(_gauge_fig(report.score_overall, "🎯 Ocena Ogólna", c),
-                    use_container_width=True)
-    st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Syntetyczna ocena portfela i otoczenia</div>", unsafe_allow_html=True)
+    st.markdown(_score_card("Ocena Ogólna", "Synteza makro + portfel",
+        report.score_overall, _score_color(report.score_overall), "🎯"), unsafe_allow_html=True)
 
 st.divider()
 
@@ -324,6 +350,49 @@ with col_radar:
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SEKCJA 2.5 — MAKRO TERMOMETR
+# ══════════════════════════════════════════════════════════════════════════════
+if report.signals:
+    st.markdown("## 🌡️ Termometr Rynku")
+    st.caption("Stan aktywnych wskaźników makroekonomicznych — im dłuższy pasek, tym bardziej odbiega od normy.")
+
+    _sig_show = [s for s in report.signals if s.value is not None][:8]
+    if _sig_show:
+        _names = [s.name for s in _sig_show]
+        _scores = [s.score() for s in _sig_show]
+        _states = [s.current_state for s in _sig_show]
+        _colors = [C_GREEN if st == "ok" else (C_YELLOW if st == "warn" else C_RED) for st in _states]
+        _icons  = ["✅" if st == "ok" else ("🟡" if st == "warn" else "🔴") for st in _states]
+        _labels = [f"{ic} {nm}: {sc:.0f}/100" for ic, nm, sc in zip(_icons, _names, _scores)]
+
+        _fig_thermo = go.Figure(go.Bar(
+            y=_labels, x=_scores,
+            orientation="h",
+            marker=dict(
+                color=_colors,
+                opacity=0.85,
+                line=dict(color="rgba(0,0,0,0)", width=0)
+            ),
+            text=[f"{s:.0f}" for s in _scores],
+            textposition="inside",
+            insidetextfont=dict(color="white", size=11),
+        ))
+        _fig_thermo.add_vline(x=50, line_dash="dot", line_color="rgba(255,255,255,0.3)",
+                              annotation_text="Neutralny")
+        _fig_thermo.update_layout(
+            template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(10,11,20,0.5)",
+            height=max(180, len(_sig_show) * 38),
+            margin=dict(l=10, r=20, t=10, b=10),
+            xaxis=dict(range=[0, 100], gridcolor="rgba(255,255,255,0.05)", title="Score (0–100)"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.03)"),
+            showlegend=False,
+        )
+        st.plotly_chart(_fig_thermo, use_container_width=True)
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SEKCJA 3 — ALERT PANEL
 # ══════════════════════════════════════════════════════════════════════════════
 if report.alerts:
@@ -332,8 +401,8 @@ if report.alerts:
     for i, alert in enumerate(report.alerts):
         col = alert_cols[i % 3]
         is_red = alert.startswith("🔴")
-        bg = f"rgba(255,23,68,0.10)" if is_red else "rgba(255,234,0,0.08)"
-        border = f"rgba(255,23,68,0.35)" if is_red else "rgba(255,234,0,0.3)"
+        bg = "rgba(255,23,68,0.10)" if is_red else "rgba(255,234,0,0.08)"
+        border = "rgba(255,23,68,0.35)" if is_red else "rgba(255,234,0,0.3)"
         col.markdown(
             f"<div style='background:{bg};border:1px solid {border};border-radius:8px;"
             f"padding:10px 14px;font-size:13px;'>{alert}</div>",
@@ -342,104 +411,126 @@ if report.alerts:
     st.markdown("<br>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SEKCJA 4 — TIMELINE PORTFELA (MONTE CARLO)
+# SEKCJA 4 — MONTE CARLO (ulepszony: P5/P95 + strefa zysk/strata)
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"## 📈 Prognoza Stochastyczna (Monte Carlo) — {hor_label}")
-st.caption(
-    "⚠️ Symulacja z uwzględnieniem szumu Gaussa (parametryzowana przez VIX). "
-    "Prezentuje zakresy: optymistyczny (P90), bazowy (P50) oraz pesymistyczny (P10)."
-)
+st.caption("Symulacja 500 ścieżek portfela z szumem Gaussa. P5/P95 = scenariusze ekstremalne.")
 
 if hasattr(report, "timeline_full_data") and report.timeline_full_data:
     fd = report.timeline_full_data
     cap_start = gs.initial_capital
     cap_end = fd["p50"][-1] if fd["p50"] else cap_start
-    total_ret = (cap_end / cap_start - 1) * 100 if cap_start > 0 else 0
 
     fig_tl = go.Figure()
-    
-    # Obszar ufności (P10 do P90)
+
+    # Strefa zysku (P50 > start) — zielona
     fig_tl.add_trace(go.Scatter(
         x=fd["labels"] + fd["labels"][::-1],
-        y=fd["p90"] + fd["p10"][::-1],
-        fill="toself",
-        fillcolor="rgba(0, 204, 255, 0.15)",
-        line=dict(color="rgba(255,255,255,0)"),
-        hoverinfo="skip",
-        name="Przedział ufności (P10-P90)"
+        y=[max(v, cap_start) for v in fd["p50"]] + [cap_start] * len(fd["labels"]),
+        fill="toself", fillcolor="rgba(0,230,118,0.07)",
+        line=dict(color="rgba(0,0,0,0)"), hoverinfo="skip", name="Strefa Zysku", showlegend=True
     ))
-
-    # Tylko TOS (Conservative)
+    # Strefa ekstremalna P5–P95
+    if "p90" in fd and "p10" in fd:
+        fig_tl.add_trace(go.Scatter(
+            x=fd["labels"] + fd["labels"][::-1],
+            y=fd["p90"] + fd["p10"][::-1],
+            fill="toself", fillcolor="rgba(0,204,255,0.10)",
+            line=dict(color="rgba(0,0,0,0)"), hoverinfo="skip", name="Przedział P10–P90"
+        ))
+    # TOS (bezpieczna)
     fig_tl.add_trace(go.Scatter(
         x=fd["labels"], y=fd["conservative"],
-        fill=None, mode="lines", line=dict(color=C_BLUE, width=2, dash="dot"),
-        name=f"Bezpieczna alokacja / TOS"
+        mode="lines", line=dict(color=C_BLUE, width=2, dash="dot"),
+        name="Bezpieczna / TOS"
     ))
-    
-    # Scenariusz bazowy P50
+    # P50 bazowy
     fig_tl.add_trace(go.Scatter(
         x=fd["labels"], y=fd["p50"],
         mode="lines+markers",
         line=dict(color=C_CYAN, width=3),
         marker=dict(size=6, color=C_CYAN, line=dict(color="white", width=1)),
-        name="Wariant Bazowy (P50)",
+        name="Wariant Bazowy (P50)"
     ))
-
+    # P10 pesymistyczny
+    if "p10" in fd:
+        fig_tl.add_trace(go.Scatter(
+            x=fd["labels"], y=fd["p10"],
+            mode="lines", line=dict(color=C_RED, width=1.5, dash="dot"),
+            name="Pesymistyczny (P10)"
+        ))
     # Linia startowa
-    fig_tl.add_hline(y=cap_start, line_dash="dash", line_color="rgba(255,255,255,0.2)",
-                     annotation_text=f"Start: {cap_start:,.0f} PLN",
-                     annotation_position="left")
+    fig_tl.add_hline(y=cap_start, line_dash="dash", line_color="rgba(255,255,255,0.25)",
+                     annotation_text=f"Start: {cap_start:,.0f} PLN", annotation_position="left")
 
     fig_tl.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(10,11,20,0.6)",
-        height=380,
-        yaxis_title="Wartość portfela (PLN)",
-        xaxis_title="Horyzont",
-        legend=dict(orientation="h", y=1.05, x=0),
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,11,20,0.6)", height=380,
+        yaxis_title="Wartość portfela (PLN)", xaxis_title="Horyzont",
+        legend=dict(orientation="h", y=1.05, x=0, font=dict(size=11)),
         margin=dict(l=20, r=20, t=30, b=20),
         yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
         xaxis=dict(gridcolor="rgba(255,255,255,0.03)"),
     )
     st.plotly_chart(fig_tl, use_container_width=True)
 
-    # KPI timeline
     tl_k1, tl_k2, tl_k3, tl_k4 = st.columns(4)
-    tl_k1.metric("💰 Średnia E[X]", f"{cap_end:,.0f} PLN")
-    tl_k2.metric("📉 Max Drawdown", fd.get("max_drawdown", "?"))
+    tl_k1.metric("💰 Scenariusz Bazowy (P50)", f"{cap_end:,.0f} PLN",
+                 delta=f"{(cap_end/cap_start-1)*100:+.1f}%" if cap_start > 0 else None)
+    tl_k2.metric("📉 Max Drawdown (est.)", fd.get("max_drawdown", "?"))
     diff = cap_end - (fd["conservative"][-1] if fd["conservative"] else cap_start)
-    tl_k3.metric("⚡ Zysk ponad infl/TOS", f"{diff:+,.0f} PLN")
-    tl_k4.metric("💥 P10 (Pesymizm)", f"{fd['p10'][-1]:,.0f} PLN")
+    tl_k3.metric("⚡ Zysk ponad TOS", f"{diff:+,.0f} PLN")
+    tl_k4.metric("💥 Pesymistyczny (P10)", f"{fd['p10'][-1]:,.0f} PLN")
 
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SEKCJA 5 — ANALIZA SYGNAŁÓW MAKRO
+# SEKCJA 4.5 — WATERFALL: WKŁAD SYGNAŁÓW DO SCORE
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("## 🔬 Szczegółowa Analiza Sygnałów Makro")
-st.caption("Status poszczególnych wskaźników wpływających na rekomendacje Doradcy")
-
-if report.signals:
-    sig_data = []
-    for s in report.signals:
-        status_icon = "✅" if s.current_state == "ok" else ("🟡" if s.current_state == "warn" else "🔴")
-        sig_data.append({
-            "Wskaźnik":    s.name,
-            "Wartość":     f"{s.value:.3f}" if s.value is not None else "N/A",
-            "Próg OK":     f"{s.threshold_ok}",
-            "Próg ALARM":  f"{s.threshold_warn}",
-            "Kierunek":    "⬇️ niższy=lepszy" if s.direction == "lower_better" else "⬆️ wyższy=lepszy",
-            "Status":      f"{status_icon} {s.current_state.upper()}",
-            "Score":       f"{s.score():.0f}/100",
-            "Waga":        f"{s.weight:.0%}",
-        })
-    sig_df = pd.DataFrame(sig_data)
-
-    # Color coding w tabeli
-    st.dataframe(sig_df, use_container_width=True, hide_index=True)
+if hasattr(report, "score_contributions") and report.score_contributions:
+    st.markdown("## ⚖️ Wkład Sygnałów do Oceny Portfela")
+    st.caption("Waterfall: każdy słupek = ile punktów dany wskaźnik dodał (↑) lub odjął (↓) od oceny ogólnej.")
+    _contribs = report.score_contributions
+    _wf_names  = [c["name"] for c in _contribs]
+    _wf_deltas = [c["delta"] for c in _contribs]
+    _wf_colors = [C_GREEN if d >= 0 else C_RED for d in _wf_deltas]
+    _wf_text   = [f"{d:+.1f}" for d in _wf_deltas]
+    _fig_wf = go.Figure(go.Bar(
+        x=_wf_names, y=_wf_deltas,
+        marker_color=_wf_colors, opacity=0.85,
+        text=_wf_text, textposition="outside",
+        textfont=dict(size=10, color="white"),
+    ))
+    _fig_wf.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
+    _fig_wf.update_layout(
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,11,20,0.5)", height=300,
+        margin=dict(l=10, r=10, t=10, b=10),
+        yaxis=dict(title="Wkład [pkt]", gridcolor="rgba(255,255,255,0.05)"),
+        xaxis=dict(tickangle=-25, gridcolor="rgba(0,0,0,0)"),
+        showlegend=False,
+    )
+    st.plotly_chart(_fig_wf, use_container_width=True)
 
 st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SEKCJA 5 — SZCZEGÓŁOWA TABELA SYGNAŁÓW
+# ══════════════════════════════════════════════════════════════════════════════
+with st.expander("🔬 Szczegółowe Dane Sygnałów Makro", expanded=False):
+    if report.signals:
+        sig_data = []
+        for s in report.signals:
+            status_icon = "✅" if s.current_state == "ok" else ("🟡" if s.current_state == "warn" else "🔴")
+            sig_data.append({
+                "Wskaźnik": s.name,
+                "Wartość": f"{s.value:.3f}" if s.value is not None else "N/A",
+                "Status": f"{status_icon} {s.current_state.upper()}",
+                "Score": f"{s.score():.0f}/100",
+                "Waga": f"{s.weight:.0%}",
+                "Wkład": f"{(s.score()-50)*s.weight:+.2f} pkt",
+            })
+        st.dataframe(pd.DataFrame(sig_data), use_container_width=True, hide_index=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SEKCJA 6 — ANALIZA PORTFELA PER AKTYWO
@@ -466,19 +557,38 @@ if assets:
         risk_label = "Niskie" if seg == "Bezpieczny" else "Podwyższone"
         risk_color = C_GREEN if seg == "Bezpieczny" else C_YELLOW
 
-        # Prosta ocena aktywa
+        # Insight
         if seg == "Bezpieczny" and yld > 0:
             insight = f"Stopa {yld:.2f}% (brutto) = {yld*(1-0.19):.2f}% netto po Belce 19%. Stabilny fundament portfela."
         elif "ETF" in typ or "SPY" in asset.get("ticker","") or "QQQ" in asset.get("ticker",""):
             vix = engine.macro.get("VIX_1M", 20) or 20
-            if vix > 25:
-                insight = f"Uwaga: VIX={vix:.0f} — zmienność podwyższona. Unikaj powiększania pozycji przy obecnym ryzyku."
-            else:
-                insight = f"Środowisko WIX={vix:.0f} — neutralne. ETF w dobrej kondycji dla horyzontu {hor_label}."
+            insight = (f"Uwaga: VIX={vix:.0f} — zmienność podwyższona. Unikaj powiększania pozycji."
+                       if vix > 25 else f"VIX={vix:.0f} — środowisko neutralne. ETF w dobrej kondycji dla {hor_label}.")
         elif "BTC" in asset.get("ticker","") or "ETH" in asset.get("ticker",""):
-            insight = "Aktywo spekulacyjne o wysokiej zmienności. Rekomendowany limit: max 5–10% całego portfela."
+            insight = "Aktywo spekulacyjne. Rekomendowany limit: max 5–10% całego portfela."
         else:
             insight = "Brak specyficznych alertów dla tego aktywa."
+
+        # Sparkline SVG (dane z report.sparkline_data)
+        tkr = asset.get("ticker", "")
+        spark_prices = report.sparkline_data.get(tkr, [])
+        sparkline_html = ""
+        if len(spark_prices) >= 5:
+            _mn, _mx = min(spark_prices), max(spark_prices)
+            _rng = max(_mx - _mn, 1e-9)
+            _sw, _sh = 100, 28
+            _pts = " ".join(
+                f"{int((_sw/(len(spark_prices)-1))*i)},{int(_sh - _sh*(v-_mn)/_rng)}"
+                for i, v in enumerate(spark_prices)
+            )
+            _chg = (spark_prices[-1]/spark_prices[0]-1)*100 if spark_prices[0] else 0
+            _sc = C_GREEN if _chg >= 0 else C_RED
+            sparkline_html = (
+                f"<div style='display:flex;align-items:center;gap:8px;margin-top:6px;'>"
+                f"<svg width='{_sw}' height='{_sh}'>"
+                f"<polyline points='{_pts}' fill='none' stroke='{_sc}' stroke-width='1.8'/></svg>"
+                f"<span style='font-size:10px;color:{_sc};'>{_chg:+.1f}% (30D)</span></div>"
+            )
 
         yield_html = f'<span style="background:rgba(0,204,255,0.1);border:1px solid rgba(0,204,255,0.3);color:{C_CYAN};border-radius:4px;padding:1px 8px;font-size:11px;">Yield: {yld:.2f}%</span>' if yld > 0 else ''
         with col:
@@ -501,6 +611,7 @@ if assets:
         <span style="background:{risk_color}22;border:1px solid {risk_color}55;color:{risk_color};border-radius:4px;padding:1px 8px;font-size:11px;">Ryzyko: {risk_label}</span> {yield_html}
     </div>
     <div style="font-size:12px;color:#94a3b8;line-height:1.5;">💡 {insight}</div>
+    {sparkline_html}
 </div>
 """, unsafe_allow_html=True)
 else:

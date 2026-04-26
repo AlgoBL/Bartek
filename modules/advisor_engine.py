@@ -121,6 +121,12 @@ class AdvisorReport:
     timeline_labels: List[str] = field(default_factory=list)
     timeline_values: List[float] = field(default_factory=list)
 
+    # Wkłady poszczególnych sygnałów do score (waterfall)
+    score_contributions: List[Dict] = field(default_factory=list)
+
+    # Sparkline data per-asset (ticker -> list of close prices)
+    sparkline_data: Dict[str, List[float]] = field(default_factory=dict)
+
     # Dane emerytalne FIRE (Inteligentny moduł)
     ret_readiness_score: float = 0.0
     ret_success_prob: float = 0.0
@@ -338,6 +344,21 @@ class AdvisorEngine:
             "M2 Money Supply YoY", safe("FRED_M2_YoY_Growth"), 2, -2, "higher_better",
             self._state(safe("FRED_M2_YoY_Growth"), 2, -2, "higher_better"), 0.04
         ))
+
+        # --- Dodatkowe sygnały makro ---
+        unemployment = safe("FRED_Unemployment_Rate")
+        if unemployment is not None:
+            self._signals.append(AdvisorSignal(
+                "Bezrobocie (USA)", unemployment, 5.0, 7.5, "lower_better",
+                self._state(unemployment, 5.0, 7.5, "lower_better"), 0.04
+            ))
+
+        pce = safe("FRED_PCE_YoY")
+        if pce is not None:
+            self._signals.append(AdvisorSignal(
+                "PCE Inflacja YoY", pce, 2.5, 4.5, "lower_better",
+                self._state(pce, 2.5, 4.5, "lower_better"), 0.04
+            ))
 
     @staticmethod
     def _state(val, ok_thresh, warn_thresh, direction: str) -> str:
@@ -602,6 +623,56 @@ class AdvisorEngine:
             lines.append("🛡️ Silna ochrona kapitału — Barbell Strategy dobrze skalibrowana")
         return "  \n".join(lines)
 
+    # ── Kontrybucje do score (Waterfall) ─────────────────────────────────────
+
+    def compute_score_contributions(self) -> List[Dict]:
+        """Zwraca listę wkładów każdego sygnału do score_overall (dla waterfall chart)."""
+        macro_score = self._compute_macro_score()
+        contributions = []
+        for sig in self._signals:
+            sc = sig.score()        # 0–100
+            delta = (sc - 50.0) * sig.weight  # Wkład: dodatni = pomaga, ujemny = szkodzi
+            contributions.append({
+                "name": sig.name,
+                "score": sc,
+                "weight": sig.weight,
+                "delta": round(delta, 2),
+                "state": sig.current_state,
+                "category": "Makro" if sig.name in (
+                    "VIX", "Yield Curve (10Y-3M)", "HY Spread", "TED Spread",
+                    "Financial Stress (FCI)", "GEX (Gamma Exposure)",
+                    "Breadth Momentum", "M2 Money Supply YoY",
+                    "Bezrobocie (USA)", "PCE Inflacja YoY"
+                ) else "Portfel",
+            })
+        contributions.sort(key=lambda x: x["delta"], reverse=True)
+        return contributions
+
+    # ── Sparklines 30D per aktywo ─────────────────────────────────────────────
+
+    def fetch_sparklines(self, tickers: List[str]) -> Dict[str, List[float]]:
+        """Pobiera 30-dniowe ceny zamknięcia dla listy tickerów (lazy, opcjonalne)."""
+        if not tickers:
+            return {}
+        try:
+            from modules.data_provider import fetch_data
+            import pandas as pd
+            data = fetch_data(tickers, period="1mo", auto_adjust=True)
+            result: Dict[str, List[float]] = {}
+            if data.empty:
+                return result
+            if isinstance(data.columns, pd.MultiIndex):
+                prices = data.get("Close", data)
+            else:
+                prices = data
+            for tkr in tickers:
+                if tkr in prices.columns:
+                    vals = prices[tkr].dropna().tolist()
+                    result[tkr] = [round(v, 2) for v in vals[-30:]]
+            return result
+        except Exception:
+            return {}
+
     # ── Funkcje Fazy 1 i 3: Rebalancing & Stochastics ─────────────────────────
 
     def generate_rebalancing_orders(self) -> List[dict]:
@@ -699,18 +770,26 @@ class AdvisorEngine:
         if p_vol < 0.20: return "~ 15-25%"
         return "> 30% (KRYTYCZNE)"
 
-    def generate_report(self, horizon_months: int = 12) -> AdvisorReport:
+    def generate_report(self, horizon_months: int = 12, fetch_sparklines: bool = True) -> AdvisorReport:
         """Generuje kompletny raport doradczy."""
         scores = self.compute_scores()
         actions = self.generate_actions(horizon_months)
         timeline_data = self._build_stochastic_timeline(horizon_months)
+        contributions = self.compute_score_contributions()
 
         alerts = []
         for sig in self._signals:
             if sig.current_state == "alarm":
-                alerts.append(f"🔴 {sig.name}: wartość krytyczna")
+                alerts.append(f"🔴 {sig.name}: wartość krytyczna ({sig.value:.2f})" if sig.value is not None else f"🔴 {sig.name}: wartość krytyczna")
             elif sig.current_state == "warn":
-                alerts.append(f"🟡 {sig.name}: podwyższona czujność")
+                alerts.append(f"🟡 {sig.name}: podwyższona czujność ({sig.value:.2f})" if sig.value is not None else f"🟡 {sig.name}: podwyższona czujność")
+
+        # Sparklines (opcjonalne — nie blokuje raportu przy błędzie)
+        sparklines: Dict[str, List[float]] = {}
+        if fetch_sparklines:
+            risky_tickers = [a["ticker"] for a in getattr(self.gs, "risky_assets", [])]
+            if risky_tickers:
+                sparklines = self.fetch_sparklines(risky_tickers[:6])  # max 6 tickerów
 
         report = AdvisorReport(
             horizon_months=horizon_months,
@@ -733,6 +812,8 @@ class AdvisorEngine:
             portfolio_assessment=self._generate_portfolio_assessment(),
             timeline_labels=timeline_data["labels"],
             timeline_values=timeline_data["p50"],
+            score_contributions=contributions,
+            sparkline_data=sparklines,
             ret_readiness_score=self.ret_metrics.get("readiness", 50.0),
             ret_success_prob=self.ret_metrics.get("success_prob", 0.0),
             ret_adjusted_swr=self.ret_metrics.get("adj_swr", 0.04),

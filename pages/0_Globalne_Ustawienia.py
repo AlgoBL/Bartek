@@ -814,89 +814,216 @@ with tab_isin:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_diag:
     st.markdown("### 🛠️ Centrum Ostrzegania i Analizy Błędów")
-    st.caption("Prywatne zaplecze diagnostyczne. Wykrywa crashe ratując aplikacje i odczytuje logi.")
+    st.caption("Zaawansowane centrum diagnostyczne — wykrywa błędy, monitoruje połączenia, generuje raporty dla AI.")
 
-    from modules.diagnostics import get_recent_errors, mark_error_resolved, run_health_check
+    from modules.diagnostics import (
+        get_recent_errors, get_error_stats, get_error_timeline,
+        mark_error_resolved, clear_all_resolved, deduplicate_errors,
+        run_health_check_extended,
+    )
 
-    col_h1, col_h2 = st.columns([1, 2])
-    with col_h1:
-        st.markdown(f"<p class='{_SEC}'>Radary Połączeń</p>", unsafe_allow_html=True)
-        if st.button("🔄 Przetestuj Trasy API", use_container_width=True):
-            with st.spinner("Odpytywanie serwerów aktywów (Yahoo Finance)..."):
-                hb = run_health_check()
-                st.session_state["_diag_hb"] = hb
-                st.rerun()
+    # ── KPI Dashboard ─────────────────────────────────────────────────────────
+    _stats = get_error_stats()
+    d_k1, d_k2, d_k3, d_k4 = st.columns(4)
+    _crit_count = _stats["by_severity"].get("CRITICAL", 0) + _stats["by_severity"].get("FATAL", 0)
+    _warn_count = _stats["by_severity"].get("WARNING", 0)
+    _err_count  = _stats["by_severity"].get("ERROR", 0)
+    d_k1.metric("🔴 Krytyczne", _crit_count)
+    d_k2.metric("🟠 Błędy", _err_count)
+    d_k3.metric("🟡 Ostrzeżenia", _warn_count)
+    d_k4.metric("✅ Aktywnych łącznie", _stats["active"],
+                delta=f"+{_stats['errors_last_hour']} w ost. godz." if _stats["errors_last_hour"] > 0 else None,
+                delta_color="inverse")
 
-        hb_results = st.session_state.get("_diag_hb")
-        if hb_results:
-            for source, res in hb_results.items():
-                if res["status"] == "ok":
-                    st.success(f"**{source.upper()}**: 🟢 Online ({res['time_ms']} ms)")
-                else:
-                    st.error(f"**{source.upper()}**: 🔴 OFFLINE ({res['error']})")
-    
-    with col_h2:
-        st.markdown(f"<p class='{_SEC}'>Monitor Aktywnych Zdarzeń</p>", unsafe_allow_html=True)
-        errors = get_recent_errors()
-        active_errs = [e for e in errors if not e.get("resolved")]
-        
-        if not active_errs:
-            st.info("✅ Środowisko pracuje perfekcyjnie. Brak wykrytych awarii oprogramowania w tle.")
+    st.markdown("")
+
+    # ── Error Timeline Chart 24h ──────────────────────────────────────────────
+    with st.expander("📈 Histogram Błędów (ostatnie 24h)", expanded=True):
+        _timeline = get_error_timeline(hours=24)
+        if any(t["total"] > 0 for t in _timeline):
+            _fig_tl = go.Figure()
+            _fig_tl.add_trace(go.Bar(
+                x=[t["hour"] for t in _timeline],
+                y=[t.get("CRITICAL", 0) + t.get("ERROR", 0) for t in _timeline],
+                name="Błędy / Krytyczne", marker_color="rgba(255,23,68,0.75)",
+            ))
+            _fig_tl.add_trace(go.Bar(
+                x=[t["hour"] for t in _timeline],
+                y=[t.get("WARNING", 0) for t in _timeline],
+                name="Ostrzeżenia", marker_color="rgba(255,200,0,0.65)",
+            ))
+            _avg = sum(t["total"] for t in _timeline) / max(len(_timeline), 1)
+            if _avg > 0:
+                _fig_tl.add_hline(y=_avg, line_dash="dot", line_color="rgba(255,255,255,0.3)",
+                                  annotation_text=f"Śr.: {_avg:.1f}")
+            _fig_tl.update_layout(
+                barmode="stack", template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(10,11,20,0.5)",
+                height=220, margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", y=1.1, font=dict(size=11)),
+                xaxis=dict(gridcolor="rgba(255,255,255,0.03)"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.06)", title="Liczba błędów"),
+            )
+            st.plotly_chart(_fig_tl, use_container_width=True)
         else:
-            st.warning(f"⚠️ Wykryto {len(active_errs)} niezażegnanych awarii lub błędów.")
+            st.success("✅ Brak błędów w ostatnich 24 godzinach — system działa stabilnie.")
 
     st.markdown("---")
-    if active_errs:
-        st.markdown(f"#### 📥 Zbiorczy Raport Naprawczy (Dla AI)")
-        st.caption("Zaznacz odpowiednie bloki błędów na liście poniżej, by wygenerować scalony raport. (Przy braku zaznaczenia skopiują się automatycznie wszystkie). Kliknij ikonę `📋 Kopiuj` w prawym górnym rogu czarnego pola, by skopiować całość do schowka.")
-        
-        selected_errs = []
-        
-        for idx, err in enumerate(active_errs):
-            col_check, col_info = st.columns([0.05, 0.95])
-            with col_check:
-                st.write("")
-                st.write("")
-                # Używamy label_visibility aby checkbox był samą kontrolką
-                is_checked = st.checkbox("Dodaj", key=f"sel_{err['id']}", label_visibility="collapsed")
-                if is_checked:
-                    selected_errs.append(err)
-            
-            with col_info:
-                with st.expander(f"🛑 [AWARIA] {err['timestamp']} | Lokalizacja: {err.get('module', 'Nieznany')} (linia {err.get('line', '?')})", expanded=(idx==0)):
-                    st.markdown(f"**Raport Systemowy:** `{err['message']}`")
-                    
-                    # Przetłumaczenie dla człowieka
-                    st.markdown("##### 🩺 Objawy i Zastosowanie")
-                    if "sys" in err.get('module', '') or "excepthook" in err.get('module', ''):
-                        st.error("Aplikacja wpadła w błąd krytyczny i wymagała twardego przerwania. Obowiązkowo poinformuj o tym opiekuna (AI).")
-                    elif "Yahoo" in err['message'] or "RemoteDataError" in str(err.get("exc_text", "")):
-                        st.warning("Yahoo Finance odrzuciło nasze żądanie. Najprawdopodobniej giełda ma chwilową usterkę serwerów lub przekroczyliśmy limity.")
-                    elif "Index" in str(err.get("exc_text", "")) or "MultiIndex" in str(err.get("exc_text", "")):
-                        st.info("Wewnętrzny kolaps danych. Algorytmy próbowały połączyć niepasujące tabele dat aktywów. Użyj modułu naprawy u AI.")
-                    else:
-                        st.info("Złamano asynchroniczny wątek w tle (Zostałeś obroniony przed crashem całego systemu). Usterka zapisana do konsultacji.")
 
-                    col_btn1, col_btn2 = st.columns(2)
-                    with col_btn1:
-                        if st.button("✅ Oznacz incydent jako Rozwiązany", key=f"resolve_{err['id']}", use_container_width=True):
-                            mark_error_resolved(err['id'])
-                            st.toast("Incydent usunięty z monitora głównego i przeniesiony do kwarantanny", icon="🧹")
-                            st.rerun()
+    # ── Health Check (3 źródła) ───────────────────────────────────────────────
+    col_hc, col_hc_res = st.columns([1, 2])
+    with col_hc:
+        st.markdown(f"<p class='{_SEC}'>🌐 Health Check Połączeń</p>", unsafe_allow_html=True)
+        if st.button("🔄 Sprawdź wszystkie źródła danych", use_container_width=True, type="primary",
+                     key="diag_health_btn"):
+            with st.spinner("Odpytywanie: Yahoo Finance, FRED API, Cache..."):
+                _hb = run_health_check_extended()
+                st.session_state["_diag_hb"] = _hb
+                st.rerun()
+    with col_hc_res:
+        _hb_results = st.session_state.get("_diag_hb", {})
+        if _hb_results:
+            for _key, _res in _hb_results.items():
+                _label = _res.get("label", _key.upper())
+                _t_ms  = _res.get("time_ms", 0)
+                if _res["status"] == "ok":
+                    _extra = f" · {_res.get('age_minutes','')} min temu" if "age_minutes" in _res else f" · {_t_ms} ms"
+                    st.success(f"🟢 **{_label}**: Online{_extra}")
+                elif _res["status"] == "warn":
+                    st.warning(f"🟡 **{_label}**: Nieświeży ({_res.get('age_minutes','?')} min) — uruchom Heartbeat Engine")
+                else:
+                    st.error(f"🔴 **{_label}**: OFFLINE — {_res.get('error','Brak połączenia')}")
+        else:
+            st.info("Kliknij przycisk, by sprawdzić dostępność zewnętrznych źródeł danych.")
 
-        # Budowanie wyjścia dla AI
-        errs_to_report = selected_errs if selected_errs else active_errs
-        
-        st.markdown(f"**Gotowy kod do wklejenia w AI (Błędy: {len(errs_to_report)} zawarte):**")
-        merged_prompt = "Proszę o naprawę następujących błędów z systemu diagnostycznego:\n\n"
-        for e in errs_to_report:
-            merged_prompt += f"--- AWARIA: {e['timestamp']} ---\n"
-            merged_prompt += f"Moduł: {e.get('file', 'N/A')}:{e.get('line', 'N/A')}\n"
-            merged_prompt += f"Typ: {e['severity']}\n"
-            merged_prompt += f"Wiadomość API: {e['message']}\n"
-            if e.get("exc_text"):
-                merged_prompt += f"Traceback:\n{e['exc_text']}\n"
-            merged_prompt += "\n"
-        
-        st.code(merged_prompt, language="markdown")
+    st.markdown("---")
+
+    # ── Bulk Actions ──────────────────────────────────────────────────────────
+    _errors_all  = get_recent_errors(limit=200)
+    _active_errs = [e for e in _errors_all if not e.get("resolved")]
+
+    ba_c1, ba_c2, ba_c3 = st.columns(3)
+    with ba_c1:
+        if st.button("🧹 Wyczyść Wszystkie Rozwiązane", use_container_width=True):
+            _n = clear_all_resolved()
+            st.toast(f"Usunięto {_n} rozwiązanych wpisów", icon="🧹")
+            st.rerun()
+    with ba_c2:
+        if st.button("🔁 Deduplikuj Błędy", use_container_width=True):
+            _n = deduplicate_errors()
+            st.toast(f"Scalono {_n} duplikatów", icon="🔁")
+            st.rerun()
+    with ba_c3:
+        if _active_errs:
+            import io as _io_diag, csv as _csv_diag
+            _buf = _io_diag.StringIO()
+            _flds = ["timestamp","severity","category","module","file","line","message","count"]
+            _writer = _csv_diag.DictWriter(_buf, fieldnames=_flds, extrasaction="ignore")
+            _writer.writeheader()
+            for _e in _active_errs:
+                _writer.writerow({k: _e.get(k, "") for k in _flds})
+            st.download_button("📥 Eksport CSV", _buf.getvalue(),
+                               file_name="awarie_export.csv", mime="text/csv",
+                               use_container_width=True)
+
+    st.markdown("")
+
+    # ── Filtry ────────────────────────────────────────────────────────────────
+    _f1, _f2 = st.columns(2)
+    _all_sev = sorted({e.get("severity", "WARNING") for e in _active_errs}) or ["WARNING"]
+    _all_cat = sorted({e.get("category", "Wewnętrzny") for e in _active_errs}) or ["Wewnętrzny"]
+    with _f1:
+        _sel_sev = st.multiselect("Filtruj Severity", _all_sev, default=_all_sev, key="diag_sev_filter")
+    with _f2:
+        _sel_cat = st.multiselect("Filtruj Kategorię", _all_cat, default=_all_cat, key="diag_cat_filter")
+
+    _filtered = [
+        e for e in _active_errs
+        if e.get("severity", "WARNING") in (_sel_sev or _all_sev)
+        and e.get("category", "Wewnętrzny") in (_sel_cat or _all_cat)
+    ]
+
+    st.markdown(f"**📋 Lista Aktywnych Zdarzeń** ({len(_filtered)} z {len(_active_errs)} aktywnych)")
+
+    if not _filtered:
+        st.info("✅ Brak aktywnych błędów spełniających kryteria filtrów.")
+    else:
+        _SEV_C = {"CRITICAL": "#ff1744", "FATAL": "#d50000", "ERROR": "#ff6d00", "WARNING": "#ffea00"}
+        _CAT_I = {
+            "Yahoo Finance": "📊", "FRED API": "🏦", "Dane / Struktura": "🗂️",
+            "Asynchroniczność": "⚡", "Celery Worker": "⚙️", "AI / ML": "🤖",
+            "Sieć": "🌐", "Krytyczny Crash": "💥", "Wewnętrzny": "🔧",
+        }
+        _sel_list = []
+
+        for _idx, _err in enumerate(_filtered[:30]):
+            _sev  = _err.get("severity", "WARNING")
+            _cat  = _err.get("category", "Wewnętrzny")
+            _cnt  = _err.get("count", 1)
+            _sc   = _SEV_C.get(_sev, "#94a3b8")
+            _ci   = _CAT_I.get(_cat, "🔧")
+
+            _cc, _ccard = st.columns([0.04, 0.96])
+            with _cc:
+                st.write("")
+                if st.checkbox("", key=f"sel_{_err['id']}", label_visibility="collapsed"):
+                    _sel_list.append(_err)
+            with _ccard:
+                with st.expander(
+                    f"{_ci} **{_cat}** · {_sev} · {_err['timestamp']} · `{_err.get('module','?')}` L{_err.get('line','?')}"
+                    + (f" · ×{_cnt}" if _cnt > 1 else ""),
+                    expanded=(_idx == 0)
+                ):
+                    st.markdown(
+                        f"<div style='border-left:3px solid {_sc};padding:8px 14px;"
+                        f"background:rgba(0,0,0,0.2);border-radius:6px;font-size:13px;color:#d1d5db;'>"
+                        f"{_err['message']}</div>", unsafe_allow_html=True
+                    )
+                    if _err.get("exc_text"):
+                        st.code(_err["exc_text"][:800], language="python")
+                    if _cnt > 1:
+                        st.caption(f"🔁 Ten błąd wystąpił **{_cnt}×** · Ostatni: {_err.get('last_seen', _err['timestamp'])}")
+                    if st.button("✅ Rozwiąż", key=f"resolve_{_err['id']}"):
+                        mark_error_resolved(_err["id"])
+                        st.toast("Incydent przeniesiony do archiwum", icon="✅")
+                        st.rerun()
+
+        st.markdown("---")
+        # ── AI Report Generator ───────────────────────────────────────────────
+        st.markdown("#### 📤 Generator Raportu dla AI")
+        st.caption("Zaznacz błędy powyżej lub kliknij poniżej — następnie skopiuj wygenerowany prompt.")
+        _rc1, _rc2 = st.columns(2)
+        with _rc1:
+            _pick_crit = st.button("🔴 Wszystkie CRITICAL/ERROR", use_container_width=True)
+        with _rc2:
+            _pick_all = st.button("📋 Wszystkie widoczne", use_container_width=True)
+
+        _rpt = _sel_list
+        if _pick_crit:
+            _rpt = [e for e in _filtered if e.get("severity") in ("CRITICAL","FATAL","ERROR")]
+        elif _pick_all:
+            _rpt = _filtered
+        if not _rpt:
+            _rpt = _sel_list
+
+        if _rpt:
+            _mp = f"Proszę o naprawę następujących {len(_rpt)} błędów z systemu diagnostycznego:\n\n"
+            for _e in _rpt:
+                _mp += f"--- {_e.get('severity','?')} | {_e['timestamp']} ---\n"
+                _mp += f"Kategoria: {_e.get('category','?')} | Moduł: {_e.get('file','N/A')}:{_e.get('line','N/A')}\n"
+                _mp += f"Komunikat: {_e['message']}\n"
+                if _e.get("exc_text"):
+                    _mp += f"Traceback:\n{_e['exc_text'][:600]}\n"
+                _mp += "\n"
+            st.code(_mp, language="markdown")
+        else:
+            st.info("Zaznacz błędy na liście lub kliknij przycisk wyboru.")
+
+    # ── Rozkład kategorii ─────────────────────────────────────────────────────
+    if _stats["by_category"]:
+        st.markdown("---")
+        st.markdown("**📊 Rozkład Aktywnych Błędów wg Kategorii**")
+        _ccat_cols = st.columns(min(len(_stats["by_category"]), 4))
+        for _i, (_ccat, _ccnt) in enumerate(sorted(_stats["by_category"].items(), key=lambda x: -x[1])):
+            _ccat_cols[_i % 4].metric(_ccat, _ccnt)
 

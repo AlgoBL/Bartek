@@ -13,7 +13,7 @@ FRED_SERIES = {
     "Credit_Spread_BAA_AAA": ("BAA10Y", ""),   # Spread korporacyjny BBB-10Y
     "Initial_Jobless_Claims": ("IC4WSA", ""),  # Wnioski o zasiłek
     "ISM_Manufacturing_PMI":  ("MANEMP", ""),  # Manufacturing Employment
-    "M2_YoY_Growth":          ("M2SL", "units=pc1"), # M2 Money Supply (% change YoY)
+    "M2_YoY_Growth":          ("M2SL", ""),    # M2 Money Supply
     "TED_Spread":             ("TEDRATE", ""), # Ryzyko kredytowe bankowe
     "HY_Spread":              ("BAMLH0A0HYM2", ""), # High Yield Option-Adjusted Spread
     "Real_Yield_10Y":         ("DFII10", ""),  # 10Y Real Yield (TIPS)
