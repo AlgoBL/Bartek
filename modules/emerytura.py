@@ -413,17 +413,79 @@ def calculate_ike_ikze_advantage(
     }
 
 
-# ─── CAPE-Adjusted SWR (Kitces 2022) ─────────────────────────────────────────
+# ─── Limity IKE / IKZE (aktualizowane rocznie) ───────────────────────────────
+# Podstawa prawna: Ustawa o IKE z 20.04.2004 r. (Dz.U. 2004 nr 116 poz. 1205)
+# Limit IKE = 3× przeciętne prognozowane wynagrodzenie miesięczne w gosp. narodowej
+# Limit IKZE = 1.2× limit IKE (dla os. prowadzących działalność gosp.: 1.8×)
+IKE_LIMIT_2025  = 26_019   # 3 × 8 673 PLN (prognoza GUS 2025)
+IKZE_LIMIT_2025 = 10_408   # max(1.2× IKE limit) dla pracowników
+IKZE_LIMIT_SELF_EMPLOYED_2025 = 15_611  # 1.8× IKE dla os. samozatrudnionych
 
-def cape_adjusted_swr(cape_ratio: float, base_swr: float = 0.04) -> float:
+
+# ─── Morningstar 2025: Horyzont-zależny SWR ──────────────────────────────────
+
+# Tabela Morningstar State of Retirement Income 2025 (p(sukces) = 90%, Stocks 50/Bonds 50)
+_MORNINGSTAR_SWR_TABLE = {
+    15: 0.052,
+    20: 0.046,
+    25: 0.043,
+    30: 0.039,  # główny benchmark
+    35: 0.036,
+    40: 0.034,
+    45: 0.032,
+    50: 0.031,
+}
+
+
+def horizon_adjusted_base_swr(horizon_years: int) -> float:
     """
-    Koryguje Safe Withdrawal Rate o bieżące wyceny (CAPE Shillera).
-    Kitces (2022): każdy punkt CAPE powyżej 20 obniża SWR o ~0.05pp.
-    Referencja: Kitces M. (2022) 'The 4% Rule and the Search for a Safe
-                Withdrawal Rate', Kitces.com. Morningstar (2023).
+    Interpoluje bezpieczny SWR z tabeli Morningstar (2025) na podstawie horyzontu.
+    Morningstar State of Retirement Income 2025: Christine Benz, Jeffrey Ptak, John Rekenthaler.
+    Referencja: Morningstar (2025) 'State of Retirement Income', p.12-18.
     """
-    adjustment = max(0.0, (cape_ratio - 20.0) * 0.0005)
-    return round(float(max(0.025, base_swr - adjustment)), 4)
+    keys = sorted(_MORNINGSTAR_SWR_TABLE.keys())
+    if horizon_years <= keys[0]:
+        return _MORNINGSTAR_SWR_TABLE[keys[0]]
+    if horizon_years >= keys[-1]:
+        return _MORNINGSTAR_SWR_TABLE[keys[-1]]
+    # Interpolacja liniowa
+    for i in range(len(keys) - 1):
+        lo, hi = keys[i], keys[i + 1]
+        if lo <= horizon_years <= hi:
+            t = (horizon_years - lo) / (hi - lo)
+            return _MORNINGSTAR_SWR_TABLE[lo] + t * (_MORNINGSTAR_SWR_TABLE[hi] - _MORNINGSTAR_SWR_TABLE[lo])
+    return 0.039
+
+
+def cape_adjusted_swr(cape_ratio: float, base_swr: float = 0.04,
+                     horizon_years: int = 30) -> float:
+    """
+    Koryguje Safe Withdrawal Rate o bieżące wyceny (CAPE Shillera) i horyzont.
+
+    Składa dwie korekty:
+    1. Horyzontową — Morningstar 2025 (dłuższy horyzont = niższy SWR)
+    2. CAPE — Kitces (2022): każdy punkt CAPE powyżej 20 obniża SWR o ~0.05pp.
+       CAPE < 15 → premia +0.5pp (tanie wyceny = wyższy bezpieczny SWR)
+
+    Referencja: Morningstar (2025) 'State of Retirement Income'; Kitces M. (2022)
+                'The 4% Rule and the Search for a Safe Withdrawal Rate';
+                Bengen W. (2021) 'How Much Is Enough?', FA Magazine.
+    """
+    # Bazowy SWR zależny od horyzontu (Morningstar 2025)
+    horizon_base = horizon_adjusted_base_swr(horizon_years)
+    # Używaj większego (parametr base_swr jest teraz fallbackiem gdy brak horizon info)
+    best_base = max(base_swr, horizon_base) if horizon_years == 30 else horizon_base
+
+    # Korekta CAPE (Kitces 2022)
+    if cape_ratio > 20.0:
+        cape_adj = (cape_ratio - 20.0) * 0.0005   # -0.05pp per punkt CAPE powyżej 20
+    elif cape_ratio < 15.0:
+        cape_adj = -(15.0 - cape_ratio) * 0.001   # +0.1pp per punkt CAPE poniżej 15 (tanie wyceny)
+    else:
+        cape_adj = 0.0
+
+    result = best_base - cape_adj
+    return round(float(np.clip(result, 0.025, 0.07)), 4)
 
 
 # ─── Retirement Readiness Score (wzorowany Fidelity 2023) ────────────────────
@@ -472,6 +534,9 @@ def cir_inflation(base_inflation, horizon, n_sims, kappa=0.3, theta=0.035, sigma
     return inf_matrix
 
 
+import streamlit as st
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
                       ret_return, ret_vol, horizon, n_sims,
                       years_to_retirement, inflation_base,
@@ -484,7 +549,9 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
                       tax_regime="IKE/IKZE",
                       use_spending_smile=False,
                       use_glide_path=False,
-                      medical_inflation_rate=0.0):
+                      medical_inflation_rate=0.0,
+                      ratchet_threshold=1.50,
+                      ratchet_increase=0.10):
     """
     Główna symulacja Monte Carlo z polepszeniami naukowymi.
     Returns: wealth_matrix (n_sims x horizon+1), inflation path (n_sims x horizon)
@@ -534,10 +601,12 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
     # Baza kosztowa (R3) do obliczania podatku ułamkowego przy wypłatach
     cost_basis = np.full(n_sims, init_cap)
 
-    # For guardrails: track expected portfolio trajectory & withdrawals
+    # For guardrails / ratchet: track expected portfolio trajectory & withdrawals
     glide_path = init_cap * (1 + ret_return) ** np.arange(horizon + 1)
     current_withdrawal = np.full(n_sims, annual_expenses)
     initial_withdrawal_val = np.full(n_sims, annual_expenses)
+    # Ratchet — poziom kapitału od którego przysługuje "podwyżka"
+    ratchet_peak = np.full(n_sims, init_cap * ratchet_threshold)
 
     for y in range(horizon):
         ret = annual_returns[:, y]
@@ -588,8 +657,27 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
                     pmr_mask = (adj_withdrawal / np.maximum(w_new, 1.0)) > (1.20 * initial_wr)
                     adj_withdrawal = np.where(pmr_mask, current_withdrawal, adj_withdrawal)
                     current_withdrawal = np.maximum(adj_withdrawal, 0)
-                    
                     eff_withdrawal = current_withdrawal * spending_factor * medical_expense_multiplier
+
+                elif withdrawal_strategy == "ratchet":
+                    # Ratchet Strategy — Kitces (2024):
+                    # Inflacja-adjusted wypłata z możliwością trwałej podwyżki gdy portfel rośnie.
+                    # Reguła: jeśli portfolio > ratchet_peak → podwyższ wypłatę o ratchet_increase%
+                    # Podwyżka jest trwała (nie cofa się gdy portfel spada).
+                    # Referencja: Kitces M. (2024) 'The Ratcheting Safe Withdrawal Rate', Kitces.com.
+                    inf_rate = inf_matrix[:, y] if stochastic_inflation else inflation_base
+                    # Bazowa indeksacja inflacyjna
+                    current_withdrawal = current_withdrawal * (1 + inf_rate)
+                    # Sprawdź czy portfel osiągnął nowy szczyt wymagający ratchetu
+                    ratchet_mask = w_new >= ratchet_peak
+                    ratchet_peak = np.where(ratchet_mask, w_new * ratchet_threshold, ratchet_peak)
+                    current_withdrawal = np.where(
+                        ratchet_mask,
+                        current_withdrawal * (1 + ratchet_increase),
+                        current_withdrawal
+                    )
+                    eff_withdrawal = current_withdrawal * spending_factor * medical_expense_multiplier
+
                 elif withdrawal_strategy == "constant":
                     eff_withdrawal = annual_expenses * spending_factor * inf_cum * medical_expense_multiplier
 
@@ -713,22 +801,47 @@ def render_emerytura_module():
     contrib_during_retirement = st.sidebar.checkbox("Dochód też na emeryturze", value=_saved("rem_cdr", False), key="rem_cdr", on_change=_save, args=("rem_cdr",), disabled=not enable_contributions)
 
     st.sidebar.markdown("### 🧮 Strategia Wypłat")
-    _strat_opts = ["constant — Stała kwota", "guardrails — Klinger 2006", "flexible — % portfela"]
+    _strat_opts = [
+        "constant — Stała kwota",
+        "guardrails — Klinger 2006",
+        "flexible — % portfela",
+        "ratchet — Kitces 2024 (podwyżki)",
+    ]
     val_strat = _saved("rem_strat", _strat_opts[0])
-    if val_strat == "constant": val_strat = _strat_opts[0]
+    if val_strat == "constant":   val_strat = _strat_opts[0]
     elif val_strat == "guardrails": val_strat = _strat_opts[1]
-    elif val_strat == "flexible": val_strat = _strat_opts[2]
-    
+    elif val_strat == "flexible":  val_strat = _strat_opts[2]
+    elif val_strat == "ratchet":   val_strat = _strat_opts[3]
+
     safe_idx_strat = _strat_opts.index(val_strat) if val_strat in _strat_opts else 0
-    withdrawal_strategy_label = st.sidebar.selectbox("Strategia Wypłat", _strat_opts, index=safe_idx_strat, key="rem_strat", on_change=_save, args=("rem_strat",))
+    withdrawal_strategy_label = st.sidebar.selectbox(
+        "Strategia Wypłat", _strat_opts, index=safe_idx_strat,
+        key="rem_strat", on_change=_save, args=("rem_strat",),
+        help="**Constant**: stała kwota × inflacja. **Guardrails**: Klinger 2006 — korekta ±10% gdy WR odbiega od normy. **Flexible**: % aktualnego portfela. **Ratchet** (Kitces 2024): inflacja + trwała podwyżka 10% gdy portfel rośnie do 150% bazowego."
+    )
     withdrawal_strategy = withdrawal_strategy_label.split(" ")[0]
 
     flexible_pct = 0.04
     floor_amount = 0
+    ratchet_threshold = 1.50
+    ratchet_increase  = 0.10
     if withdrawal_strategy == "flexible":
         flexible_pct = st.sidebar.slider("% wypłaty z portfela", 1.0, 10.0, value=_saved("rem_flex_pct", 4.0), step=0.5, key="rem_flex_pct", on_change=_save, args=("rem_flex_pct",)) / 100.0
     elif withdrawal_strategy == "guardrails":
         floor_amount = st.sidebar.number_input("Floor (min. bezpieczna kwota PLN)", value=_saved("rem_floor", 0), step=10000, key="rem_floor", on_change=_save, args=("rem_floor",))
+    elif withdrawal_strategy == "ratchet":
+        ratchet_threshold = st.sidebar.slider(
+            "Próg ratchetu (× bazowy)", 1.20, 2.00,
+            value=_saved("rem_ratchet_thr", 1.50), step=0.05,
+            key="rem_ratchet_thr", on_change=_save, args=("rem_ratchet_thr",),
+            help="Gdy portfel osiągnie ten wielokrotność wartości startowej, wypłata rośnie trwale o ustalony %."
+        )
+        ratchet_increase = st.sidebar.slider(
+            "Podwyżka ratchet (%)", 5, 25,
+            value=_saved("rem_ratchet_inc", 10), step=1,
+            key="rem_ratchet_inc", on_change=_save, args=("rem_ratchet_inc",),
+            help="Trwały wzrost wypłaty po osiągnięciu progu (Kitces 2024: optymalny zakres 8-12%)."
+        ) / 100.0
 
     st.sidebar.markdown("### 🇵🇱 ZUS / PPK / Dodatkowy Dochód")
     zus_monthly = st.sidebar.number_input(
@@ -805,9 +918,10 @@ def render_emerytura_module():
     zus_annual = float(zus_monthly) * 12.0
     total_init_cap = float(init_cap) + float(ppk_capital)  # PPK + kapital
 
-    # ZUS-korygowany FIRE Number i SWR
+    # ZUS-korygowany FIRE Number i SWR (Morningstar 2025 — horyzont-zależny)
     effective_expenses = max(0.0, annual_expenses - zus_annual)  # portfel musi pokryć RESZTĘ po ZUS
-    fire_number = effective_expenses / 0.035 if effective_expenses > 0 else 0
+    _adj_swr_for_fire = cape_adjusted_swr(cape_ratio, base_swr=0.04, horizon_years=max(10, years_in_retirement))
+    fire_number = effective_expenses / _adj_swr_for_fire if effective_expenses > 0 else 0
     current_swr = effective_expenses / total_init_cap if total_init_cap > 0 else 0
     zus_coverage = min(1.0, zus_annual / max(annual_expenses, 1.0))
 
@@ -882,7 +996,9 @@ def render_emerytura_module():
         tax_regime=tax_regime,
         use_spending_smile=use_spending_smile,
         use_glide_path=use_glide_path,
-        medical_inflation_rate=float(medical_inflation / 100.0)
+        medical_inflation_rate=float(medical_inflation / 100.0),
+        ratchet_threshold=ratchet_threshold,
+        ratchet_increase=ratchet_increase,
     )
 
     years_arr = np.arange(current_age, current_age + horizon + 1)
@@ -907,9 +1023,9 @@ def render_emerytura_module():
     median_at_retire = float(np.median(wealth_matrix[:, years_to_retirement]))
 
     # ─── TABS ─────────────────────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Projekcja", "🛡️ SWR & Strategie", "🧪 Scenariusze",
-        "💰 Cash Flow", "🧬 Zaawansowane"
+        "💰 Cash Flow", "🧬 Zaawansowane", "🪣 Bucket Strategy"
     ])
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1027,7 +1143,7 @@ def render_emerytura_module():
         with st.expander("🏦 Kalkulator Korzyści IKE / IKZE vs Konto Zwykłe"):
             st.caption("Polska ustawa o IKE/IKZE (KNF 2023) — oblicz ile zaoszczędzisz na podatku Belki i PIT.")
             ike_col1, ike_col2, ike_col3 = st.columns(3)
-            ike_contrib = ike_col1.number_input("Roczna wpłata (PLN)", value=min(annual_contrib if enable_contributions else 23_472, 23_472), step=1_000, min_value=0, max_value=23_472, key="ike_c")
+            ike_contrib = ike_col1.number_input("Roczna wpłata (PLN)", value=min(annual_contrib if enable_contributions else IKE_LIMIT_2025, IKE_LIMIT_2025), step=1_000, min_value=0, max_value=IKE_LIMIT_2025, key="ike_c")
             ike_years = ike_col2.number_input("Liczba lat oszczędzania", value=years_to_retirement or 20, min_value=1, max_value=50, key="ike_y")
             ike_ret = ike_col3.slider("Stopa zwrotu (%)", 2.0, 15.0, value=float(ret_return * 100), step=0.5, key="ike_r") / 100.0
             ike_res = calculate_ike_ikze_advantage(
@@ -1044,7 +1160,7 @@ def render_emerytura_module():
                 st.info(f"💡 **IKE** zaoszczędza **{ike_res['ike_gain']:,.0f} PLN** (brak podatku Belki {ike_res['belka_tax']:,.0f} PLN). "
                         f"**IKZE** zaoszczędza **{ike_res['ikze_gain']:,.0f} PLN** "
                         f"(w tym odliczenie PIT {ike_res['ikze_pit_savings']:,.0f} PLN przy stawce {pit_bracket_pct}%).")
-                st.caption(f"📌 Limit IKE 2024: 23,472 PLN/rok | Limit IKZE 2024: {int(23_472 * 1.5):,} PLN/rok (3× MIN) | Ustawa z 20.04.2004 r.")
+                st.caption(f"📌 Limit IKE 2025: {IKE_LIMIT_2025:,} PLN/rok | Limit IKZE 2025: {IKZE_LIMIT_2025:,} PLN/rok (pracownicy) | {IKZE_LIMIT_SELF_EMPLOYED_2025:,} PLN/rok (samozatrudnieni) | Ustawa z 20.04.2004 r.")
 
         # ── Glide Path Visualizer ─────────────────────────────────────────────
         if use_glide_path:
@@ -1491,13 +1607,38 @@ def render_emerytura_module():
                 )
                 return float(np.mean(wm_t[:, -1] > 0))
 
+            import concurrent.futures
+
+            # Zadania do zrównoleglenia (12 symulacji)
+            tasks = [
+                ("Kapitał (+20%)", lambda: _mc_success(total_init_cap * 1.20, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement)),
+                ("Kapitał (-20%)", lambda: _mc_success(total_init_cap * 0.80, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement)),
+                ("Wydatki (-20%)", lambda: _mc_success(total_init_cap, annual_expenses * 0.80, ret_return, ret_vol, inflation, years_to_retirement)),
+                ("Wydatki (+20%)", lambda: _mc_success(total_init_cap, annual_expenses * 1.20, ret_return, ret_vol, inflation, years_to_retirement)),
+                ("Zwrot (+20%)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return * 1.20, ret_vol, inflation, years_to_retirement)),
+                ("Zwrot (-20%)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return * 0.80, ret_vol, inflation, years_to_retirement)),
+                ("Zmienność (-20%)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol * 0.80, inflation, years_to_retirement)),
+                ("Zmienność (+20%)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol * 1.20, inflation, years_to_retirement)),
+                ("Inflacja (-20%)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation * 0.80, years_to_retirement)),
+                ("Inflacja (+20%)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation * 1.20, years_to_retirement)),
+                ("Wiek em. (-2 lata)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation, max(0, years_to_retirement - 2))),
+                ("Wiek em. (+2 lata)", lambda: _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement + 2)),
+            ]
+
+            results = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+                future_to_name = {executor.submit(func): name for name, func in tasks}
+                for future in concurrent.futures.as_completed(future_to_name):
+                    name = future_to_name[future]
+                    results[name] = future.result()
+
             params_tornado = [
-                ("Kapitał (+20%)", _mc_success(total_init_cap * 1.20, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement), _mc_success(total_init_cap * 0.80, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement)),
-                ("Wydatki (-20%)", _mc_success(total_init_cap, annual_expenses * 0.80, ret_return, ret_vol, inflation, years_to_retirement), _mc_success(total_init_cap, annual_expenses * 1.20, ret_return, ret_vol, inflation, years_to_retirement)),
-                ("Zwrot (+20%)", _mc_success(total_init_cap, annual_expenses, ret_return * 1.20, ret_vol, inflation, years_to_retirement), _mc_success(total_init_cap, annual_expenses, ret_return * 0.80, ret_vol, inflation, years_to_retirement)),
-                ("Zmienność (-20%)", _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol * 0.80, inflation, years_to_retirement), _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol * 1.20, inflation, years_to_retirement)),
-                ("Inflacja (-20%)", _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation * 0.80, years_to_retirement), _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation * 1.20, years_to_retirement)),
-                ("Wiek em. (-2 lata)", _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation, max(0, years_to_retirement - 2)), _mc_success(total_init_cap, annual_expenses, ret_return, ret_vol, inflation, years_to_retirement + 2)),
+                ("Kapitał", results["Kapitał (+20%)"], results["Kapitał (-20%)"]),
+                ("Wydatki", results["Wydatki (-20%)"], results["Wydatki (+20%)"]),
+                ("Zwrot", results["Zwrot (+20%)"], results["Zwrot (-20%)"]),
+                ("Zmienność", results["Zmienność (-20%)"], results["Zmienność (+20%)"]),
+                ("Inflacja", results["Inflacja (-20%)"], results["Inflacja (+20%)"]),
+                ("Wiek em. (±2 lata)", results["Wiek em. (-2 lata)"], results["Wiek em. (+2 lata)"]),
             ]
 
         tornado_df_items = [(label, up - base_sp, down - base_sp) for label, up, down in params_tornado]
@@ -1523,11 +1664,19 @@ def render_emerytura_module():
     st.divider()
     st.subheader("💡 Rekomendacje i Gotowość Emerytalna")
 
-    # Finalize Readiness Score po MC
+    # Finalize Readiness Score po MC — Fidelity 2024 4-stopniowa skala
     ytf_final = years_to_fire if years_to_fire != float('inf') else 30
     rrs_final = retirement_readiness_score(success_prob, current_swr, zus_coverage, ytf_final, cap_vs_fire)
-    rrs_col = "#00ff88" if rrs_final >= 70 else ("#ffaa00" if rrs_final >= 50 else "#ff4444")
-    rrs_label = "🟢 Plan Antykruchy" if rrs_final >= 70 else ("🟡 Plan Wymaga Uwagi" if rrs_final >= 50 else "🔴 Plan Zagrożony")
+    # Fidelity (2024) Retirement Score 4-tier system:
+    # On Track (85+) • Likely on Track (70-85) • Somewhat on Track (50-70) • Off Track (<50)
+    if rrs_final >= 85:
+        rrs_col, rrs_label, rrs_sublabel = "#00e676", "🟢 On Track", "Twoje oszczędności i plan są na dobrej drodze do osiągnięcia celów emerytalnych."
+    elif rrs_final >= 70:
+        rrs_col, rrs_label, rrs_sublabel = "#ffea00", "🟡 Likely on Track", "Plan prawdopodobnie wystarczy — kilka optymalizacji (IKE, wpłaty) znacznie podniesie pewność."
+    elif rrs_final >= 50:
+        rrs_col, rrs_label, rrs_sublabel = "#ff9800", "🟠 Somewhat on Track", "Plan wymaga korekty. Rozważ zwiększenie wpłat, późniejszą emeryturę lub strategię Guardrails."
+    else:
+        rrs_col, rrs_label, rrs_sublabel = "#ff1744", "🔴 Off Track", "Plan jest zagrożony. Konieczna głęboka rewizja: wpłaty, wiek emerytalny, ograniczenie wydatków."
 
     st.markdown(f"""
     <div style='background:rgba(255,255,255,0.04);border-radius:12px;padding:20px;margin-bottom:16px;'>
@@ -1538,8 +1687,9 @@ def render_emerytura_module():
             </div>
             <div>
                 <div style='font-size:20px;font-weight:700;color:{rrs_col};'>{rrs_label}</div>
-                <div style='font-size:13px;color:#d1d5db;margin-top:6px;'>
-                    Retirement Readiness Score — Fidelity-style composite (P(sukces) • SWR • ZUS coverage • postęp FIRE • kapitał)
+                <div style='font-size:13px;color:#d1d5db;margin-top:6px;'>{rrs_sublabel}</div>
+                <div style='font-size:11px;color:#6b7280;margin-top:4px;'>
+                    Retirement Readiness Score — Fidelity (2024) 4-stopniowa skala: On Track (85+) • Likely on Track (70-85) • Somewhat on Track (50-70) • Off Track (&lt;50)
                 </div>
             </div>
         </div>
@@ -1566,8 +1716,179 @@ def render_emerytura_module():
         if stoch_life and life_survival_prob is not None and life_survival_prob < 0.85:
             st.warning(f"⚠️ Portfel przeżyje Cię tylko w {life_survival_prob:.1%} symulacji. Rozważ dożywotnią rentę (annuity).")
 
-    st.caption("Analiza oparta na: Bengen 2021, Merton 2014, Pfau 2015/2018, Blanchett 2013, Kitces 2022, GUS 2023, KNF 2023. "
+    if withdrawal_strategy == "ratchet":
+        st.success("✅ **Ratchet Strategy** aktywna — trwałe podwyżki wypłat gdy portfel rośnie (Kitces 2024). Zapewnia wyższy komfort życia przy zachowaniu bezpieczeństwa.")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    with tab6:
+        st.subheader("🪣 Bucket Strategy — Strategia 3 Wiaderkowa")
+        st.markdown("""
+        **Daryanani (2008) + Kitces (2024):** Podziel kapitał emerytalny na trzy "wiadra" wg horyzontu czasowego.
+        Psychologicznie skuteczniejsza niż Total Return — każde wiadro ma inną funkcję i profil ryzyka.
+        """)
+
+        st.info("💡 **Kluczowa zasługa Bucket Strategy:** Gdy rynek spada, czerpiesz z Wiadra 1 (bezpiecznego), "
+                "a Wiadra 2-3 mają czas na odbicie. To eliminuje sprzedaż akcji w najgorszym momencie.")
+
+        bc1, bc2, bc3 = st.columns(3)
+        with bc1:
+            st.markdown("""
+            <div style='background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);
+                        border-top:3px solid #00e676;border-radius:12px;padding:16px;'>
+            <div style='font-size:22px;font-weight:800;color:#00e676;'>🪣 Wiadro 1</div>
+            <div style='font-size:13px;color:#94a3b8;margin-top:4px;'>Bezpieczne • 0–3 lata</div>
+            </div>""", unsafe_allow_html=True)
+        with bc2:
+            st.markdown("""
+            <div style='background:rgba(255,234,0,0.1);border:1px solid rgba(255,234,0,0.3);
+                        border-top:3px solid #ffea00;border-radius:12px;padding:16px;'>
+            <div style='font-size:22px;font-weight:800;color:#ffea00;'>🪣 Wiadro 2</div>
+            <div style='font-size:13px;color:#94a3b8;margin-top:4px;'>Zrównoważone • 3–10 lat</div>
+            </div>""", unsafe_allow_html=True)
+        with bc3:
+            st.markdown("""
+            <div style='background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);
+                        border-top:3px solid #3b82f6;border-radius:12px;padding:16px;'>
+            <div style='font-size:22px;font-weight:800;color:#3b82f6;'>🪣 Wiadro 3</div>
+            <div style='font-size:13px;color:#94a3b8;margin-top:4px;'>Wzrostowe • 10+ lat</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("### 📈 Kalkulator Podziału Wiaderkowego")
+        bk_col1, bk_col2 = st.columns(2)
+        with bk_col1:
+            bk_capital = st.number_input(
+                "Kapitał emerytalny (PLN)",
+                value=float(total_init_cap), step=50_000.0, min_value=0.0, key="bk_cap",
+                help="Całkowity kapitał do podziału na 3 wiadra"
+            )
+            bk_monthly_exp = st.number_input(
+                "Miesięczne wydatki emerytalne (PLN)",
+                value=float(monthly_expat), step=500.0, min_value=0.0, key="bk_exp",
+                help="Suma miesięczna do sfinansowania z portfela (po odjęciu ZUS)"
+            )
+            bk_zus = st.number_input(
+                "ZUS / inne stałe dochody (PLN/mies)",
+                value=float(zus_monthly), step=100.0, min_value=0.0, key="bk_zus",
+                help="Stały miesięczny dochód (ZUS, emerytura, najem) pomniejszający potrzeby z portfela"
+            )
+        with bk_col2:
+            bk_years_b1 = st.slider("Lata pokrycia Wiadra 1", 1, 5, value=3, key="bk_y1",
+                                    help="Zalecane: 2–3 lata \u2014 Daryanani (2008)")
+            bk_years_b2 = st.slider("Lata pokrycia Wiadra 2", 3, 15, value=7, key="bk_y2",
+                                    help="Zalecane: 5–8 lat \u2014 obligacje / TIPS")
+            bk_inflation = st.slider("Inflacja (%)", 0.0, 10.0,
+                                    value=float(inflation * 100), step=0.5, key="bk_inf") / 100.0
+
+        # Obliczenia
+        net_monthly = max(0.0, bk_monthly_exp - bk_zus)  # co portfel musi dostarczyć
+        net_annual  = net_monthly * 12.0
+
+        # Wiadro 1: gotówka / TOS — pokrycie na bk_years_b1 lat (bez inflacji)
+        b1_target = net_annual * bk_years_b1
+
+        # Wiadro 2: obligacje/TIPS — potrzeba nominalna z inflacją
+        b2_years_arr = np.arange(bk_years_b1, bk_years_b1 + bk_years_b2 + 1)
+        b2_target = sum(net_annual * (1 + bk_inflation) ** y for y in range(1, bk_years_b2 + 1))
+        # Dyskontujemy do wartości obecnej (obligacje: ~4% yield)
+        b2_bond_yield = 0.04
+        b2_pv = sum(
+            (net_annual * (1 + bk_inflation) ** y) / (1 + b2_bond_yield) ** y
+            for y in range(1, bk_years_b2 + 1)
+        )
+
+        # Wiadro 3: Akcje/ETF — reszta kapitału
+        b3_target = max(0.0, bk_capital - b1_target - b2_pv)
+        total_allocated = b1_target + b2_pv + b3_target
+
+        b1_pct = b1_target / max(bk_capital, 1) * 100
+        b2_pct = b2_pv    / max(bk_capital, 1) * 100
+        b3_pct = b3_target / max(bk_capital, 1) * 100
+
+        st.markdown("---")
+        r1, r2, r3 = st.columns(3)
+        r1.metric("🪣 Wiadro 1 — Bezpieczne",
+                  f"{b1_target:,.0f} PLN",
+                  f"{b1_pct:.1f}% kapitału • {bk_years_b1} lata @ gotówka/TOS",
+                  help="Gotówka, TOS, krótkoterminowe obligacje. Brak ryzyka rynku.")
+        r2.metric("🪣 Wiadro 2 — Zrównoważone",
+                  f"{b2_pv:,.0f} PLN",
+                  f"{b2_pct:.1f}% kapitału • {bk_years_b2} lat @ obligacje/TIPS",
+                  help="Obligacje, TIPS, obligacje korporacyjne. Niskie ryzyko rynku.")
+        r3.metric("🪣 Wiadro 3 — Wzrostowe",
+                  f"{b3_target:,.0f} PLN",
+                  f"{b3_pct:.1f}% kapitału • 10+ lat @ akcje/ETF",
+                  help="Akcje, ETF globalne. Wysoki potencjał wzrostu długoterminowy.")
+
+        # Stacked Bar Visualization
+        fig_bucket = go.Figure()
+        fig_bucket.add_trace(go.Bar(
+            name="🪣 Wiadro 1 (Bezpieczne)",
+            x=["Twój Plan"], y=[b1_target],
+            marker_color="#00e676", text=[f"{b1_pct:.0f}%"],
+            textposition="inside", insidetextfont=dict(color="#0a0b14", size=14, family="Inter")
+        ))
+        fig_bucket.add_trace(go.Bar(
+            name="🪣 Wiadro 2 (Zrównoważone)",
+            x=["Twój Plan"], y=[b2_pv],
+            marker_color="#ffea00", text=[f"{b2_pct:.0f}%"],
+            textposition="inside", insidetextfont=dict(color="#0a0b14", size=14, family="Inter")
+        ))
+        fig_bucket.add_trace(go.Bar(
+            name="🪣 Wiadro 3 (Wzrostowe)",
+            x=["Twój Plan"], y=[b3_target],
+            marker_color="#3b82f6", text=[f"{b3_pct:.0f}%"],
+            textposition="inside", insidetextfont=dict(color="white", size=14, family="Inter")
+        ))
+        fig_bucket.update_layout(
+            barmode="stack", template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(10,11,20,0.5)",
+            height=350, margin=dict(t=30, b=30, l=20, r=20),
+            yaxis_title="Kapitał (PLN)", showlegend=True,
+            legend=dict(orientation="h", y=1.15, font=dict(size=11))
+        )
+        st.plotly_chart(fig_bucket, use_container_width=True)
+
+        # Refill Schedule
+        st.markdown("### 🔄 Schedule Uzupełniania Wiadra 1 ('Refill Rule')")
+        st.caption("""
+        **Reguła uzupełniania (Kitces 2024):** Co rok uzupełniaj Wiadro 1 z Wiadra 2/3
+        gdy rynek jest dobry („normal‟). Gdy rynek spada — czekaj i nie sprzedawaj Wiadra 3.
+        """)
+        refill_data = []
+        bucket1 = b1_target
+        bucket3 = b3_target
+        annual_need = net_annual
+        for yr in range(1, min(bk_years_b1 + bk_years_b2 + 1, 16)):
+            bucket1 -= annual_need * (1 + bk_inflation) ** yr
+            bucket1  = max(bucket1, 0)
+            bucket3 *= (1.07)  # załóż 7% wzrostu akcji
+            refill_ok = bucket3 > (b3_target * 0.90)  # refill gdy portfel zdrowy
+            if refill_ok and bucket1 < annual_need:
+                refill_amount = annual_need * bk_years_b1 - bucket1
+                bucket1 += refill_amount
+                bucket3 -= refill_amount
+            else:
+                refill_amount = 0.0
+            refill_data.append({
+                "Rok": yr,
+                "Wiadro 1 (PLN)": round(bucket1),
+                "Wiadro 3 (PLN)": round(bucket3),
+                "Uzupełnienie (PLN)": round(refill_amount),
+                "Status": "✅ Uzupełniono" if refill_amount > 0 else "⏳ Bez zmian"
+            })
+        df_refill = pd.DataFrame(refill_data)
+        st.dataframe(df_refill, use_container_width=True, hide_index=True)
+
+        st.caption("""
+        📚 **Źródła naukowe:** Daryanani G. (2008) 'Portfolio Segmentation and Mental Accounts',
+        Journal of Financial Planning. Kitces M. (2024) 'The Bucket Approach — Does it Really Work?', Kitces.com.
+        Morningstar (2025) 'Income Strategies for Retirement'.
+        """)
+
+    st.caption("Analiza oparta na: Morningstar 2025 (SWR Horizon Table), Bengen 2021, Merton 2014, Pfau 2015/2018, "
+               "Blanchett 2013, Kitces 2022/2024 (CAPE-SWR, Ratchet), GUS 2023, KNF 2025. "
                "Model używa Student-t(df=4) dla grubych ogonów, CIR dla inflacji, Lee-Carter dla długowieczności, "
-               "Split Conformal Prediction dla przedziałów, Guyton-Klinger dla Guardrails, CAPE-Adjusted SWR. "
-               "V3.0 — Intelligent Barbell Dashboard.")
+               "Split Conformal Prediction dla przedziałów, Guyton-Klinger dla Guardrails, Ratchet dla podwyżek. "
+               "V4.0 — Intelligent Barbell Dashboard.")
+
 

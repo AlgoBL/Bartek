@@ -11,9 +11,6 @@ logger = setup_logger(__name__)
 
 # ─── YFINANCE ROBUST FETCH ────────────────────────────────────────────────────
 
-import threading
-_YF_LOCK = threading.Lock()
-
 def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = None, period: str = None, auto_adjust: bool = True) -> pd.DataFrame:
     # Zabezpieczenie na wyścigi wątków (thread-safety) we wbudowanym module cacheującym YFinance
     if len(tickers) == 1:
@@ -29,7 +26,7 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
         else:
             kw["period"] = "1y"
             
-        # Retry logic for reliability
+        # Retry logic for reliability bez nadmiernego blokowania
         hist = pd.DataFrame()
         for attempt in range(2):
             try:
@@ -37,7 +34,7 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
                 if not hist.empty: break
             except Exception:
                 import time
-                time.sleep(1)
+                time.sleep(0.1) # zmniejszono czas uśpienia do 100ms
         
         if not hist.empty:
             # Force MultiIndex (Attribute, Ticker) Nawet dla pojedynczego tickera dla spójności
@@ -54,13 +51,12 @@ def _fetch_from_yfinance_sync(tickers: List[str], start: str = None, end: str = 
     else:
         kwargs["period"] = "2y" # domyślnie 2 lata dla pewności danych historycznych
 
-    # Wymuszenie sekwencyjnego logowania w yfinance globals
-    with _YF_LOCK:
-        try:
-            data = yf.download(tickers, **kwargs)
-        except Exception as e:
-            logger.error(f"Krytyczny błąd yf.download: {e}")
-            data = pd.DataFrame()
+    # Usunięto globalny zamek (YF_LOCK), yf.download radzi sobie z wątkami (threads=True).
+    try:
+        data = yf.download(tickers, **kwargs)
+    except Exception as e:
+        logger.error(f"Krytyczny błąd yf.download: {e}")
+        data = pd.DataFrame()
     return data
 
 

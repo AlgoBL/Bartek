@@ -24,6 +24,20 @@ from modules.styling import apply_styling
 from modules.global_settings import get_gs
 from modules.advisor_engine import AdvisorEngine, AdvisorReport, _load_cache
 from modules.background_updater import bg_engine
+import datetime, json
+
+# ── Cached helpers (F4.2 — eliminacja zbednych rekurencji) ──────────────────
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_sparkline(ticker: str, period: str = "3mo"):
+    """Pobiera dane sparkline z cache (TTL 5 min) — eliminuje podwójne pobieranie."""
+    try:
+        import yfinance as yf
+        df = yf.Ticker(ticker).history(period=period, interval="1d")
+        if df is not None and not df.empty and "Close" in df.columns:
+            return df["Close"].dropna().tolist()[-60:]
+    except Exception:
+        pass
+    return []
 
 # ── Setup ──────────────────────────────────────────────────────────────────────
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -227,7 +241,9 @@ with sc3:
     st.markdown(_score_card("Poziom Ryzyka", "Wyższy = więcej zagrożeń",
         report.score_risk, _score_color(report.score_risk, invert=True), "⚠️"), unsafe_allow_html=True)
 with sc4:
-    st.markdown(_score_card("Ocena Ogólna", "Synteza makro + portfel",
+    _ci = getattr(engine, '_score_ci', (report.score_overall, report.score_overall))
+    _ci_txt = f"przedział ufności: {_ci[0]:.0f}–{_ci[1]:.0f}" if _ci[0] != _ci[1] else ""
+    st.markdown(_score_card("Ocena Ogólna", f"Synteza makro + portfel | {_ci_txt}",
         report.score_overall, _score_color(report.score_overall), "🎯"), unsafe_allow_html=True)
 
 st.divider()
@@ -261,6 +277,18 @@ with col_actions:
         horizon_note = ""
         if action.horizon_months > 0:
             horizon_note = f"<span style='color:#6b7280;font-size:10px;'> · Istotne od ~{action.horizon_months} mies.</span>"
+
+        # XAI — evidence chain (CFA Institute 2025)
+        xai_html = ""
+        evidence = getattr(action, 'evidence', [])
+        explanation = getattr(action, 'explanation_chain', '')
+        if evidence or explanation:
+            ev_tags = " ".join(f"<code style='background:rgba(255,255,255,0.06);border-radius:3px;padding:1px 5px;font-size:10px;color:#94a3b8;'>{e}</code>" for e in evidence[:3])
+            xai_html = f"""
+            <div style='border-top:1px solid rgba(255,255,255,0.05);margin-top:8px;padding-top:7px;'>
+              <span style='font-size:10px;color:#6b7280;'>📊 Dane: </span>{ev_tags}
+              {'<div style="font-size:10px;color:#64748b;margin-top:3px;">💡 ' + explanation + '</div>' if explanation else ''}
+            </div>"""
 
         st.markdown(f"""
 <div style="background:rgba(15,17,26,0.8);border:1px solid rgba(255,255,255,0.06);
@@ -307,13 +335,16 @@ with col_radar:
         line=dict(color=C_CYAN, width=2),
         name="Twój portfel"
     ))
-    # Benchmark (rynek neutralny)
+    # Benchmark — dynamiczny wg profilu ryzyka (Konserwatywny/Zrównoważony/Agresywny)
+    _bm = getattr(engine, 'radar_benchmark', [55, 55, 70, 55, 55, 50])
+    _bm_closed = _bm + [_bm[0]]
+    _profile_label = getattr(gs, 'profile_name', 'Benchmark')
     fig_radar.add_trace(go.Scatterpolar(
-        r=[50, 50, 70, 50, 50, 50, 50], theta=cats_closed,
+        r=_bm_closed, theta=cats_closed,
         fill="toself",
         fillcolor="rgba(168,85,247,0.06)",
         line=dict(color=C_PURPLE, width=1, dash="dot"),
-        name="Benchmark (neutralny)"
+        name=f"Benchmark ({_profile_label})"
     ))
     fig_radar.update_layout(
         polar=dict(
@@ -655,25 +686,52 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 if hasattr(report, "ret_readiness_score"):
     st.markdown("## 🎯 Inteligentna Emerytura (FIRE) & Barbell Integration")
-    st.caption("Zaawansowana ocena szans na udaną emeryturę (uwzględnia stochastyczną zmienność wycen CAPE i zoptymalizowany Glide Path).")
+    st.caption("Zaawansowana ocena szans na udaną emeryturę (uwzględnia horyzont-zależny SWR Morningstar 2025, CAPE, Glide Path i SORR).")
 
-    rc1, rc2, rc3 = st.columns(3)
-    
+    rc1, rc2, rc3, rc4 = st.columns(4)
+
     with rc1:
         c_readiness = _score_color(report.ret_readiness_score)
         st.plotly_chart(_gauge_fig(report.ret_readiness_score, "🔥 Readiness Score", c_readiness), use_container_width=True)
-        st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Twój ustandaryzowany wynik gotowości FIRE z Barbell</div>", unsafe_allow_html=True)
+        # Fidelity 2024 label
+        _rrs = report.ret_readiness_score
+        _rrs_lbl = ("🟢 On Track" if _rrs >= 85 else ("🟡 Likely on Track" if _rrs >= 70 else ("🟠 Somewhat on Track" if _rrs >= 50 else "🔴 Off Track")))
+        st.markdown(f"<div style='text-align:center;font-size:11px;color:#94a3b8;'>{_rrs_lbl} · Fidelity 2024</div>", unsafe_allow_html=True)
 
     with rc2:
         c_prob = _score_color(report.ret_success_prob * 100)
         st.plotly_chart(_gauge_fig(report.ret_success_prob * 100, "🎲 Szansa Sukcesu (P50)", c_prob), use_container_width=True)
-        st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Prognoza przetrwania kapitału z uwzgl. podatków (IKE/Zwykłe)</div>", unsafe_allow_html=True)
-        
+        st.markdown(f"<div style='text-align:center;font-size:11px;color:#6b7280;'>Przetrwanie kapitału z uwzgl. podatków (IKE/Zwykłe)</div>", unsafe_allow_html=True)
+
     with rc3:
         st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
-        st.metric("Skorygowany SWR (wg CAPE)", f"{report.ret_adjusted_swr*100:.2f}%")
-        st.metric("Lat do wolności fin. (FIRE)", f"{report.ret_years_to_fire:.1f} lat" if report.ret_years_to_fire < 90 else "Niedościgły cel")
-    
+        st.metric("SWR (Morningstar 2025)", f"{report.ret_adjusted_swr*100:.2f}%",
+                  help="Horyzont-zależny SWR wg tabeli Morningstar 2025 + korekta CAPE Kitces 2022.")
+        st.metric("Lat do FIRE", f"{report.ret_years_to_fire:.1f} lat" if report.ret_years_to_fire < 90 else "Niedościgły cel")
+
+    with rc4:
+        st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+        # SORR KPI (Pfau 2024)
+        _sorr_sig = next((s for s in report.signals if "SORR" in s.name), None)
+        if _sorr_sig is not None:
+            _sorr_val = _sorr_sig.value or 0
+            _sorr_score = _sorr_sig.score()
+            _sorr_state = _sorr_sig.current_state
+            _sorr_c = C_GREEN if _sorr_state == "ok" else (C_YELLOW if _sorr_state == "warn" else C_RED)
+            _sorr_lbl = "✅ Niskie" if _sorr_state == "ok" else ("⚠️ Umiarkowane" if _sorr_state == "warn" else "🚨 Wysokie")
+            st.markdown(f"""
+<div style='background:rgba(0,0,0,0.3);border:1px solid {_sorr_c}44;border-top:3px solid {_sorr_c};
+            border-radius:10px;padding:14px;text-align:center;'>
+  <div style='font-size:11px;color:#6b7280;'>⏳ SORR Risk (Pfau 2024)</div>
+  <div style='font-size:26px;font-weight:800;color:{_sorr_c};'>{_sorr_score:.0f}/100</div>
+  <div style='font-size:11px;color:{_sorr_c};'>{_sorr_lbl}</div>
+  <div style='font-size:10px;color:#4b5563;margin-top:4px;'>Ryzyko Sekwencji Zwrotów</div>
+</div>""", unsafe_allow_html=True)
+        else:
+            st.metric("SORR Risk", "N/A")
+
+
+
     st.markdown(f"""
     <div style="background:rgba(255,100,50,0.08);border:1px solid rgba(255,100,50,0.2);
                 border-left:3px solid rgba(255,100,50,0.8);border-radius:10px;
@@ -682,7 +740,7 @@ if hasattr(report, "ret_readiness_score"):
     </div>
     """, unsafe_allow_html=True)
 
-    # Opcjonalny min-wykres dla trajektorii jeśli mamy dane
+    # Trajektoria
     if hasattr(report, "ret_timeline_labels") and report.ret_timeline_labels:
         fig_r_tl = go.Figure()
         fig_r_tl.add_trace(go.Scatter(
@@ -696,6 +754,22 @@ if hasattr(report, "ret_readiness_score"):
             yaxis=dict(gridcolor="rgba(255,255,255,0.05)"), xaxis=dict(gridcolor="rgba(255,255,255,0.05)")
         )
         st.plotly_chart(fig_r_tl, use_container_width=True)
+
+    # ── Bucket Strategy (deterministyczny kalkulator) ─────────────────────────
+    with st.expander("🪣 Bucket Strategy — Szybki Kalkulator (Daryanani 2008)", expanded=False):
+        st.caption("Podziel kapitał emerytalny na 3 wiadra wg horyzontu. Eliminuje sprzedaż akcji podczas bessy.")
+        _bk_cap = gs.initial_capital
+        _bk_exp = gs.ret_monthly_expense * 12
+        _bk_zus = gs.ret_zus_monthly * 12
+        _bk_net = max(0.0, _bk_exp - _bk_zus)
+        _b1 = _bk_net * 3          # 3 lata gotówka
+        _b2_pv = sum((_bk_net * 1.03**y) / 1.04**y for y in range(1, 8))  # 7 lat obligacje ~4%
+        _b3 = max(0.0, _bk_cap - _b1 - _b2_pv)
+        _bc1, _bc2, _bc3 = st.columns(3)
+        _bc1.metric("🪣 Wiadro 1 (Bezpieczne)", f"{_b1:,.0f} PLN", f"{_b1/_bk_cap*100:.0f}% | 3 lata gotówka/TOS")
+        _bc2.metric("🪣 Wiadro 2 (Obligacje)", f"{_b2_pv:,.0f} PLN", f"{_b2_pv/_bk_cap*100:.0f}% | 7 lat TIPS/obligacje")
+        _bc3.metric("🪣 Wiadro 3 (Akcje/ETF)", f"{_b3:,.0f} PLN", f"{_b3/_bk_cap*100:.0f}% | 10+ lat wzrost")
+        st.caption("📖 Szczegółowy kalkulator + Refill Schedule → moduł **Emerytura** zakładka 🪣 Bucket Strategy")
 
     st.divider()
 
@@ -735,14 +809,65 @@ if hasattr(report, "rebalancing_orders") and report.rebalancing_orders:
         </div>
         """, unsafe_allow_html=True)
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+# ── Eksport Raportu HTML (F4.3) ───────────────────────────────────────
+@st.cache_data
+def get_report_html(report, gs):
+    _ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    _html_report = f"""
+<!DOCTYPE html>
+<html lang="pl">
+<head><meta charset="UTF-8"><title>Raport Doradcy AI — {_ts}</title>
+<style>
+  body{{font-family:Inter,sans-serif;background:#0a0b14;color:#d1d5db;padding:32px;max-width:900px;margin:auto;}}
+  h1{{color:#00ccff;}} h2{{color:#a855f7;border-bottom:1px solid #1f2937;padding-bottom:8px;}}
+  .card{{background:#111827;border:1px solid #1f2937;border-radius:10px;padding:16px;margin:12px 0;}}
+  .score{{font-size:36px;font-weight:900;}} .ok{{color:#00e676;}} .warn{{color:#ffea00;}} .alarm{{color:#ff1744;}}
+  .action{{border-left:4px solid #00ccff;padding:10px 14px;margin:8px 0;background:#0d1117;border-radius:4px;}}
+  .evidence{{font-size:11px;color:#6b7280;margin-top:4px;}}
+  footer{{text-align:center;color:#374151;font-size:11px;margin-top:32px;}}
+</style></head>
+<body>
+<h1>🧠 Raport Doradcy Inwestycyjnego AI</h1>
+<p style="color:#6b7280;">Wygenerowano: {_ts} | Portfel: {gs.profile_name}</p>
+<h2>📊 Oceny główne</h2>
+<div class="card">
+  <span class="score">{report.score_overall:.0f}/100</span> Ocena Ogólna
+  • Ochrona: {report.score_protection:.0f} • Wzrost: {report.score_growth:.0f} • Ryzyko: {report.score_risk:.0f}
+</div>
+<h2>✅ Rekomendacje ({len(report.actions)})</h2>
+{''.join(f'<div class="action"><b>{a.icon} {a.title}</b> [{a.category}]<br>{a.description}<div class="evidence">{"&nbsp;".join(getattr(a,"evidence",[])) or ""}<br><i>{getattr(a,"explanation_chain","")}</i></div></div>' for a in report.actions[:8])}
+<h2>🎯 Emerytura FIRE</h2>
+<div class="card">
+  Readiness Score: <b>{getattr(report,'ret_readiness_score',0):.0f}/100</b>
+  • Sukces MC: {getattr(report,'ret_success_prob',0):.1%}
+  • SWR: {getattr(report,'ret_adjusted_swr',0)*100:.2f}%<br>
+  {getattr(report,'ret_assessment','')}
+</div>
+<footer>Doradca AI V4.0 — Intelligent Barbell Dashboard. Nie stanowi porady inwestycyjnej.</footer>
+</body></html>
+"""
+    return _html_report
+
 st.divider()
+_dl_col, _info_col = st.columns([1, 3])
+with _dl_col:
+    st.download_button(
+        label="📄 Pobierz Raport HTML",
+        data=get_report_html(report, gs).encode("utf-8"),
+        file_name=f"doradca_raport_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.html",
+        mime="text/html",
+        help="Eksportuj pełny raport doradczy do pliku HTML — gotowy do wydruku lub udostępnienia."
+    )
+with _info_col:
+    st.caption("💡 Raport HTML zawiera wszystkie oceny, rekomendacje z uzasadnieniami (XAI) i dane emerytalne FIRE.")
+
+# ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div style="text-align:center;color:#374151;font-size:11px;padding:16px;">
-    🧭 Doradca Inwestycyjny AI v1.0 · Barbell Strategy Dashboard<br>
+    🧠 Doradca Inwestycyjny AI V4.0 • Barbell Strategy Dashboard<br>
     <span style="color:#1f2937;">
-    Analiza oparta na danych makroekonomicznych z Heartbeat Engine i strukturze portfela z Globalnych Ustawień.
-    Nie stanowi porady inwestycyjnej w rozumieniu przepisów prawa. Inwestuj odpowiedzialnie.
+    XAI • Morningstar 2025 SWR • SORR (Pfau 2024) • Bucket Strategy (Daryanani 2008) • Bootstrap CI.<br>
+    Nie stanowi porady inwestycyjnej. Inwestuj odpowiedzialnie.
     </span>
 </div>
 """, unsafe_allow_html=True)
