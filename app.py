@@ -1237,6 +1237,8 @@ pages = {
         st.Page("pages/9_Concentration_Risk.py", title="Concentration Risk", icon="🎯"),
         st.Page("pages/5_EVT_Analysis.py", title="EVT — Tail Risk", icon="📐"),
         st.Page("pages/27_Systemic_Risk.py", title="Systemic Risk & CoVaR", icon="🌐"),
+        st.Page("pages/32_Inzynieria_Opcji.py", title="Inżynieria Opcji", icon="📈"),
+        st.Page("pages/33_Sieci_Przyczynowe.py", title="Sieci Przyczynowe", icon="🕸️"),
     ],
     "♟️  Optymalizacja i Strategia": [
         st.Page("pages/19_Wealth_Optimizer.py", title="Wealth Optimizer", icon="🏰"),
@@ -1261,6 +1263,7 @@ pages = {
         st.Page("pages/25_Decumulation.py", title="Decumulation / SWR", icon="💸"),
         st.Page("pages/29_Kalkulator_Bayesa.py", title="Kalkulator Bayesa", icon="🧮"),
         st.Page("pages/30_Teoria_Gier.py", title="Teoria Gier", icon="♟️"),
+        st.Page("pages/31_Asymetria_Informacji.py", title="Asymetria Informacji", icon="🤝"),
     ],
 }
 
