@@ -1259,6 +1259,7 @@ pages = {
         st.Page("pages/18_Alt_Risk_Premia.py", title="Alt. Risk Premia", icon="⚡"),
         st.Page("pages/4_Emerytura.py", title="Emerytura / FIRE", icon="💰"),
         st.Page("pages/25_Decumulation.py", title="Decumulation / SWR", icon="💸"),
+        st.Page("pages/29_Kalkulator_Bayesa.py", title="Kalkulator Bayesa", icon="🧮"),
     ],
 }
 
