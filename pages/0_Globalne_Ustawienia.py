@@ -428,6 +428,7 @@ with tab_tech:
             "Wealth Optimizer", "Life OS — Łowca", "Day Trading",
             "Walk-Forward CPCV", "Systemic Risk & CoVaR",
             "Recession Nowcasting", "Decumulation / SWR", "Doradca AI",
+            "Kalkulator Bayesa", "Teoria Gier"
         ]
         default_vis = [m for m in (gs.visible_modules or all_mods) if m in all_mods]
         new_visible = st.multiselect(
