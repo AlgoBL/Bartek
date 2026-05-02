@@ -23,7 +23,16 @@ from scipy.optimize import minimize, LinearConstraint
 from scipy.linalg import block_diag
 import plotly.graph_objects as go
 import plotly.express as px
+from sklearn.covariance import LedoitWolf
 from modules.metrics import calculate_omega
+
+def _compute_covariance(returns_array: np.ndarray) -> np.ndarray:
+    """Oblicza zannualizowaną macierz kowariancji (estymator Ledoit-Wolf)."""
+    if returns_array.shape[0] < 2:
+        if returns_array.shape[1] > 1:
+            return np.cov(returns_array.T) * 252
+        return np.array([[np.var(returns_array) * 252]])
+    return LedoitWolf().fit(returns_array).covariance_ * 252
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. HRP — Hierarchical Risk Parity
@@ -118,7 +127,7 @@ def compute_hrp(returns_df: pd.DataFrame, risk_free_rate: float = 0.04) -> dict:
     # returns.mask(returns > 0, returns * 0.81, inplace=True)  # USUNIĘTE
 
     corr = returns.corr().values
-    cov  = returns.cov().values * 252
+    cov  = _compute_covariance(returns.values)
     mu   = returns.mean().values * 252
 
     dist     = _corr_to_dist(corr)
@@ -187,7 +196,7 @@ def compute_min_cvar(
     R   = returns.values          # (T, n)
     T, n = R.shape
     mu  = R.mean(axis=0) * 252
-    cov = np.cov(R.T) * 252
+    cov = _compute_covariance(R)
     rf  = risk_free_rate * 0.81
 
     def _cvar(w: np.ndarray) -> float:
@@ -273,7 +282,7 @@ def compute_black_litterman(
     tickers = returns_df.columns.tolist()
     n       = len(tickers)
     mu_hist = returns.mean().values * 252
-    Sigma   = returns.cov().values * 252
+    Sigma   = _compute_covariance(returns.values)
     rf      = risk_free_rate * 0.81
 
     # Market weights — equal weight prior (proxy for market cap)
@@ -375,7 +384,7 @@ def compute_efficient_frontier(
     # returns_taxed.mask(returns_taxed > 0, returns_taxed * 0.81, inplace=True)  # USUNIĘTE — błąd ekonomiczny
 
     mean_returns = returns_taxed.mean() * 252
-    cov_matrix   = returns_taxed.cov() * 252
+    cov_matrix   = pd.DataFrame(_compute_covariance(returns_taxed.values), index=returns_taxed.columns, columns=returns_taxed.columns)
     rf_taxed     = risk_free_rate * 0.81  # efektywna stopa wolna od ryzyka po Belce
 
     # ── Monte Carlo sampling (background) ────────────────────────────────
@@ -423,6 +432,7 @@ def compute_efficient_frontier(
     cvar_result = compute_min_cvar(returns_df, alpha=0.05, risk_free_rate=risk_free_rate)
     bl_result   = compute_black_litterman(returns_df, cio_views=cio_views,
                                           risk_free_rate=risk_free_rate)
+    kelly_result = compute_fractional_kelly(returns_df, fraction=0.5, risk_free_rate=risk_free_rate)
 
     # ── Build Plotly figure ───────────────────────────────────────────────
     fig = go.Figure()
@@ -509,6 +519,21 @@ def compute_efficient_frontier(
         name="🔷 Black-Litterman",
     ))
 
+    # Fractional Kelly
+    kelly_cvar = kelly_result.get("cvar", kelly_result.get("volatility", 0)) * 100
+    kelly_ret  = kelly_result.get("return", 0) * 100
+    fig.add_trace(go.Scatter(
+        x=[kelly_cvar], y=[kelly_ret], mode="markers+text",
+        marker=dict(color="#00ffcc", size=20, symbol="triangle-right",
+                    line=dict(color="white", width=2)),
+        text=["🟢 Half-Kelly"], textposition="bottom right",
+        textfont=dict(color="#00ffcc", size=11),
+        hovertemplate=(f"<b>🟢 Fractional Kelly (f=0.5)</b><br>"
+                       f"Return: {kelly_ret:.1f}%<br>CVaR: {kelly_cvar:.1f}%<br>"
+                       f"Sharpe: {kelly_result.get('sharpe', 0):.2f}<extra></extra>"),
+        name="🟢 Half-Kelly",
+    ))
+
     # Barbell overlay
     if barbell_weights:
         w_arr = np.array([barbell_weights.get(t, 0.0) for t in tickers])
@@ -556,6 +581,7 @@ def compute_efficient_frontier(
         "hrp":              hrp_result,
         "cvar_opt":         cvar_result,
         "black_litterman":  bl_result,
+        "kelly":            kelly_result,
         "error":            None,
     }
 
@@ -592,7 +618,7 @@ def compute_nco(
     tickers  = returns_df.columns.tolist()
     n        = len(tickers)
     mu       = returns.mean().values * 252
-    cov      = returns.cov().values * 252
+    cov      = _compute_covariance(returns.values)
     corr     = returns.corr().values
     rf       = risk_free_rate * 0.81
 
@@ -722,7 +748,7 @@ def compute_wasserstein_dro(
     n        = len(tickers)
     R        = returns.values          # (T, n)
     mu       = R.mean(axis=0) * 252    # Annual expected returns
-    cov      = np.cov(R.T) * 252       # Annual covariance
+    cov      = _compute_covariance(R)  # Annual covariance
     rf       = risk_free_rate * 0.81
 
     # Cholesky of covariance (for Wasserstein robustification)
@@ -832,7 +858,7 @@ def compute_herc(
     tickers = returns_df.columns.tolist()
     n = len(tickers)
     R = returns.values
-    cov = np.cov(R.T) * 252
+    cov = _compute_covariance(R)
     mu = R.mean(axis=0) * 252
     rf = risk_free_rate * 0.81
 
@@ -986,7 +1012,7 @@ def compute_robust_black_litterman(
     tickers = returns_df.columns.tolist()
     n = len(tickers)
     mu_hist = returns.mean().values * 252
-    Sigma = returns.cov().values * 252
+    Sigma = _compute_covariance(returns.values)
     rf = risk_free_rate * 0.81
     w_mkt = np.ones(n) / n
     pi_prior = risk_aversion * Sigma @ w_mkt
@@ -1058,4 +1084,72 @@ def compute_robust_black_litterman(
             f"κ={kappa:.1f}: {kappa*100:.0f}% BL widoki + {(1-kappa)*100:.0f}% historyczna stopa. "
             "Robust BL jest mniej wrażliwy na błędne widoki CIO."
         ),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Fractional Kelly Optimization (For Fat Tails) (NEW)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def compute_fractional_kelly(
+    returns_df: pd.DataFrame,
+    fraction: float = 0.5,
+    risk_free_rate: float = 0.04,
+    max_weight: float = 0.40,
+) -> dict:
+    """
+    Optymalizacja Ułamkowego Kryterium Kelly'ego na historycznych stopach zwrotu.
+    
+    W przeciwieństwie do Mean-Variance, Kelly maksymalizuje średnie tempo wzrostu
+    portfela: E[log(1 + f * R)]. Wykorzystanie historycznych stóp zwrotu pozwala
+    na uwzględnienie grubych ogonów i rzeczywistych korelacji (zamiast zakładać
+    rozkład log-normalny).
+    """
+    returns = returns_df.copy()
+    returns.mask(returns > 0, returns * 0.81, inplace=True)
+    
+    tickers = returns_df.columns.tolist()
+    n = len(tickers)
+    R = returns.values
+    rf = risk_free_rate * 0.81
+    
+    rf_daily = (1 + rf) ** (1 / 252) - 1
+    excess_R = R - rf_daily
+    
+    def _neg_kelly_objective(w: np.ndarray) -> float:
+        port_r = excess_R @ w
+        growth = 1 + fraction * port_r
+        growth = np.maximum(growth, 1e-8)
+        return -float(np.mean(np.log(growth)))
+
+    w0 = np.ones(n) / n
+    bounds = [(0, max_weight)] * n
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1.0}]
+    
+    res = minimize(
+        _neg_kelly_objective, w0,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=cons,
+        options={"maxiter": 1000, "ftol": 1e-10},
+    )
+    
+    w_kelly = np.abs(res.x); w_kelly /= w_kelly.sum()
+    
+    mu = R.mean(axis=0) * 252
+    cov = _compute_covariance(R)
+    
+    port_ret = float(w_kelly @ mu)
+    port_vol = float(np.sqrt(w_kelly @ cov @ w_kelly))
+    sharpe = (port_ret - rf) / port_vol if port_vol > 0 else 0.0
+    omega = float(min(calculate_omega(R @ w_kelly), 10.0))
+    
+    return {
+        "method":          f"Fractional Kelly (f={fraction})",
+        "weights":         {t: float(w_kelly[i]) for i, t in enumerate(tickers)},
+        "return":          port_ret,
+        "volatility":      port_vol,
+        "sharpe":          sharpe,
+        "omega":           omega,
+        "fraction":        fraction,
     }

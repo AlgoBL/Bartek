@@ -276,6 +276,68 @@ def generate_archimedean_copula_shocks(
     return shocks.reshape(n_sims, n_days)
 
 
+def generate_regime_switching_copula_shocks(
+    n_sims: int, n_days: int,
+    p_00: float = 0.98,  # Prob of staying in Normal regime
+    p_11: float = 0.90,  # Prob of staying in Crisis regime
+    normal_family: str = "frank",
+    normal_theta: float = 2.0,
+    crisis_family: str = "clayton",
+    crisis_theta: float = 8.0,
+    df_marginal: float = 4.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Markov-Switching Copulas.
+    Dynamiczne przełączanie reżimów korelacji. W czasie kryzysu aktywuje się
+    kopuła Claytona o wysokiej zależności w lewym ogonie (wszystko spada razem).
+    W czasie normalnym obowiązuje kopuła Franka (symetryczna, słabsza korelacja).
+
+    Returns
+    -------
+    shocks : (n_sims, n_days) array of standardized shocks
+    regimes : (n_sims, n_days) array of hidden states (0=Normal, 1=Crisis)
+    """
+    # Simulate Markov Chain for each path
+    regimes = np.zeros((n_sims, n_days), dtype=int)
+    # Start in normal regime
+    regimes[:, 0] = 0
+    for t in range(1, n_days):
+        rand = np.random.uniform(0, 1, n_sims)
+        # Stay in normal vs switch to crisis
+        stay_0 = (regimes[:, t-1] == 0) & (rand < p_00)
+        switch_to_1 = (regimes[:, t-1] == 0) & (rand >= p_00)
+        # Stay in crisis vs switch to normal
+        stay_1 = (regimes[:, t-1] == 1) & (rand < p_11)
+        switch_to_0 = (regimes[:, t-1] == 1) & (rand >= p_11)
+
+        regimes[:, t] = np.where(stay_1 | switch_to_1, 1, 0)
+
+    # Generate shocks for both regimes for all points
+    total = n_sims * n_days
+    
+    if normal_family == "gumbel": uv_norm = _sample_gumbel_copula(total, normal_theta)
+    elif normal_family == "clayton": uv_norm = _sample_clayton_copula(total, normal_theta)
+    else: uv_norm = _sample_frank_copula(total, normal_theta)
+    
+    if crisis_family == "gumbel": uv_cris = _sample_gumbel_copula(total, crisis_theta)
+    elif crisis_family == "frank": uv_cris = _sample_frank_copula(total, crisis_theta)
+    else: uv_cris = _sample_clayton_copula(total, crisis_theta)
+
+    from scipy.stats import t as t_dist
+    std_t = np.sqrt(df_marginal / (df_marginal - 2)) if df_marginal > 2 else 1.0
+    
+    # Map back to Student-t
+    shocks_norm = t_dist.ppf(np.clip(uv_norm[:, 0], 1e-6, 1-1e-6), df=df_marginal) / std_t
+    shocks_cris = t_dist.ppf(np.clip(uv_cris[:, 0], 1e-6, 1-1e-6), df=df_marginal) / std_t
+    
+    shocks_norm = shocks_norm.reshape(n_sims, n_days)
+    shocks_cris = shocks_cris.reshape(n_sims, n_days)
+    
+    # Combine based on regime
+    shocks = np.where(regimes == 1, shocks_cris, shocks_norm)
+    return shocks, regimes
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # HAWKES-GARCH HYBRID MODEL (A.5)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -767,6 +829,13 @@ def simulate_barbell_strategy(
         )
         standardized_shocks = spot_shocks_2d
         rough_daily_vols    = vol_paths
+    elif copula_family == "markov_switching":
+        shocks, _ = generate_regime_switching_copula_shocks(
+            n_sims=n_simulations, n_days=total_days,
+            df_marginal=max(2.1, risky_kurtosis),
+        )
+        standardized_shocks = shocks
+        rough_daily_vols = None
     elif copula_family in ("clayton", "gumbel", "frank"):
         standardized_shocks = generate_archimedean_copula_shocks(
             n_sims=n_simulations, n_days=total_days,

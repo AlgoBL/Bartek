@@ -320,8 +320,12 @@ class BlackLittermanEngine:
         asset_names = list(returns_df.columns)
         n           = len(asset_names)
 
-        # Σ z danych historycznych (roczna)
-        sigma = returns_df.cov().values * 252
+        from sklearn.covariance import LedoitWolf
+        returns_array = returns_df.values
+        if returns_array.shape[0] < 2:
+            sigma = returns_df.cov().values * 252
+        else:
+            sigma = LedoitWolf().fit(returns_array).covariance_ * 252
 
         # Wagi rynkowe
         w_mkt = (
