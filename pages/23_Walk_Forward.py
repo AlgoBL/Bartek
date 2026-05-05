@@ -1,16 +1,20 @@
-"""23_Walk_Forward.py — Probability of Backtest Overfitting & CPCV"""
 import streamlit as st
 import pandas as pd
-from modules.styling import apply_styling
+from modules.styling import apply_styling, module_header
 from modules.ai.data_loader import load_data
 from modules.walk_forward import generate_strategy_matrix, cpcv_pbo, plot_cpcv_results, adversarial_validation_auc
 from modules.i18n import t
+from modules.ui.widgets import ticker_input
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
-st.markdown("# 🔬 Walk-Forward & PBO Scorecard")
-st.markdown("*Combinatorial Purged Cross-Validation i Probability of Backtest Overfitting wg Bailey et al. (2014).*")
-st.divider()
+st.markdown(module_header(
+    title="Walk-Forward & PBO",
+    subtitle="Combinatorial Purged Cross-Validation i Probability of Backtest Overfitting wg Bailey et al. (2014).",
+    icon="🔬",
+    badge="Backtest Validation"
+), unsafe_allow_html=True)
+
 
 with st.sidebar:
     st.markdown("### ⚙️ Konfiguracja Testu")
@@ -60,27 +64,26 @@ if st.button("🚀 Przeprowadź Test CPCV (Probability of Backtest Overfitting)"
             # Kolorowanie
             if pbo_val < 10:
                 color = "#00e676"  # Zielony (dobry)
-                status = "✅ SOLIDNA (Brak data snooping)"
+                status = "✅ SOLIDNA"
             elif pbo_val < 30:
                 color = "#ffea00"  # Żółty (ostrzeżenie)
-                status = "⚠️ UMIARKOWANE RYZYKO (Sprawdź założenia)"
+                status = "⚠️ UMIARKOWANE RYZYKO"
             else:
                 color = "#ff1744"  # Czerwony (źle)
-                status = "❌ PRZEUCZONA (Zbyt dopasowana do historii)"
+                status = "❌ PRZEUCZONA"
                 
-            st.markdown(f"**PBO (Probability of Backtest Overfitting):** <span style='font-size:32px;color:{color};font-weight:bold;'>{pbo_val:.1f}%</span>", unsafe_allow_html=True)
-            st.markdown(f"**Ocena:** <span style='color:{color};font-weight:bold;'>{status}</span>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">PROBABILITY OF BACKTEST OVERFITTING (PBO)</div>
+                <div class="metric-value" style="color:{color}">{pbo_val:.1f}%</div>
+                <div style="font-size:12px;color:{color};font-weight:700">{status}</div>
+            </div>
+            """, unsafe_allow_html=True)
             
             st.markdown("---")
             st.markdown("""
             **Matematyka PBO (Bailey & Lopez de Prado 2014):**
             PBO definiuje prawdopodobieństwo, z jakim strategia zoptymalizowana In-Sample (IS), w próbce Out-Of-Sample (OOS) okaże się gorsza od *losowo wybranej innej (mediany)*.
-            
-            **Zasada działania testu:**
-            - **CPCV** (Combinatorial Purged CV) wycina historię na **N** bloków.
-            - Tworzy wszystkie unikalne podziały na zbiory uczące (In-Sample) złożone z **N/2** bloków. (Dla N=6 test wykonuje się 15 razy).
-            - Na każdym wariancie szuka optymalnej alokacji ze zbioru M strategii, i testuje ją na wyciętych blokach testowych (OOS).
-            - Odkłada rangę wyniku OOS (w rozkładzie wszystkich wyników). Histogram obok pokazuje zlogarytmowane dystrybucje tych rang (Logit). PBO to pole powierzchni pod medianą wyliczonych logitów rang!
             """)
 
         # --- ADVERSARIAL VALIDATION SECTION ---
@@ -104,7 +107,7 @@ if st.button("🚀 Przeprowadź Test CPCV (Probability of Backtest Overfitting)"
                 mode = "gauge+number",
                 value = auc_val,
                 domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "AUC: Podobieństwo zbiorów Train vs Test", 'font': {'size': 18}},
+                title = {'text': "AUC: Podobieństwo Train vs Test", 'font': {'size': 16, 'color': 'white'}},
                 gauge = {
                     'axis': {'range': [0.4, 1.0], 'tickwidth': 1, 'tickcolor': "white"},
                     'bar': {'color': "#00ff88" if auc_val < 0.6 else "#ffea00" if auc_val < 0.75 else "#ff1744"},
@@ -112,25 +115,31 @@ if st.button("🚀 Przeprowadź Test CPCV (Probability of Backtest Overfitting)"
                         {'range': [0.4, 0.6], 'color': 'rgba(0, 255, 136, 0.1)'},
                         {'range': [0.6, 0.75], 'color': 'rgba(255, 234, 0, 0.1)'},
                         {'range': [0.75, 1.0], 'color': 'rgba(255, 23, 68, 0.1)'}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 0.70
-                    }
+                    ]
                 }
             ))
-            fig_auc.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={'color': "white", 'family': "Inter"}, height=300)
+            fig_auc.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={'color': "white", 'family': "Inter"}, height=280, margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_auc, use_container_width=True)
             
         with ac2:
-            st.markdown("#### Interpretacja AUC Klasyfikatora")
+            auc_color = "#00e676" if auc_val < 0.6 else "#ffea00" if auc_val < 0.75 else "#ff1744"
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">ADVERSARIAL AUC</div>
+                <div class="metric-value" style="color:{auc_color}">{auc_val:.3f}</div>
+                <div style="font-size:11px;color:var(--text-dim)">
+                    { "Brak istotnego dryfu" if auc_val < 0.6 else "Wykryto Regime Shift" if auc_val < 0.75 else "Data Leakage Alert!" }
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
             if auc_val < 0.6:
-                st.success("✅ **Niskie AUC:** Klasyfikator nie potrafi rozróżnić Train od Test. Dane są statystycznie spójne (brak istotnego dryfu).")
+                st.success("✅ Klasyfikator nie odróżnia zbiorów.")
             elif auc_val < 0.75:
-                 st.warning("⚠️ **Podwyższone AUC:** Wystąpił dryf danych lub zmiana reżimu. Twoja strategia może działać inaczej w przyszłości niż w przeszłości.")
+                 st.warning("⚠️ Wystąpił dryf danych.")
             else:
-                 st.error("🚨 **Wysokie AUC:** Dane testowe radykalnie różnią się od treningowych. Prawdopodobny wyciek danych (Data Leakage) lub ekstremalny Regime Shift.")
+                 st.error("🚨 Dane testowe skrajnie inne.")
+
             
             st.info("""
             **Adversarial Validation** to metoda, w której trenujemy model AI (np. Regresję Logistyczną), by odgadł, czy dany wiersz pochodzi z przeszłości czy z przyszłości.

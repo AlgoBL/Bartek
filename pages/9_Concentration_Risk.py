@@ -67,10 +67,16 @@ if prices is None or prices.empty:
     st.error("Brak danych. Sprawdź tickery.")
     st.stop()
 
+# Align tickers and weights
+ticker_weight_map = dict(zip(tickers, weights))
 available = [t for t in tickers if t in prices.columns]
 prices = prices[available].dropna()
-w = weights[:len(available)]
-w = w / w.sum()
+
+w = np.array([ticker_weight_map[t] for t in available])
+if w.sum() > 0:
+    w = w / w.sum()
+else:
+    w = np.ones(len(available)) / len(available) if len(available) > 0 else np.array([])
 
 returns_df = prices.pct_change().dropna()
 

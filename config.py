@@ -7,6 +7,7 @@ import os
 TAX_BELKA = 0.19
 RISK_FREE_RATE_PL = 0.0551  # Stopa wolna od ryzyka w PL (np. obligacje TOS)
 INFLATION_RATE_PL = 0.030   # Domyślna stopa inflacji w PL
+START_DATE = "2020-01-01"   # Domyślna data startowa dla analizy historycznej
 
 # --- USTAWIENIA WALUTOWE (FX) ---
 BASE_CURRENCY = "PLN"

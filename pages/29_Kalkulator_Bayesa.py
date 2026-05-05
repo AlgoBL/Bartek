@@ -1,16 +1,25 @@
+from modules.styling import apply_styling, module_header
+from modules.i18n import t
 import streamlit as st
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import scipy.stats as stats
 from sklearn.decomposition import TruncatedSVD
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
+import plotly.graph_objects as go
+import plotly.express as px
 
-st.set_page_config(page_title="Kalkulator Bayesa & Statystyka", page_icon="🧮", layout="wide")
+# 2. Apply Custom Styling
+st.markdown(apply_styling(), unsafe_allow_html=True)
 
-st.title("🧮 Zaawansowany Kalkulator Bayesa")
+# 3. Main Navigation Header
+st.markdown(module_header(
+    title="Kalkulator Bayesa",
+    subtitle="Wnioskowanie statystyczne, rozkłady sprzężone i prawa graniczne — fundamenty nowoczesnego ML.",
+    icon="🧮",
+    badge="Wnioskowanie Bayesowskie"
+), unsafe_allow_html=True)
 st.markdown("""
 Ten moduł to potężne narzędzie do analizy prawdopodobieństwa i wnioskowania statystycznego. 
 Łączy w sobie klasyczne **Twierdzenie Bayesa** z fundamentalnymi prawami statystyki i uczenia maszynowego.

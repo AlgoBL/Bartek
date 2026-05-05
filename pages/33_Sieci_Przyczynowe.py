@@ -2,18 +2,26 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from modules.causal_risk import get_default_financial_dag
+from modules.styling import apply_styling, module_header
 
-st.set_page_config(page_title="Sieci Przyczynowe", page_icon="🕸️", layout="wide")
+st.markdown(apply_styling(), unsafe_allow_html=True)
 
-st.title("🕸️ Analiza Ryzyka: Sieci Bayesowskie (Causal DAGs)")
+st.markdown(module_header(
+    title="Sieci Przyczynowe",
+    subtitle="Analiza Ryzyka Systemowego: Sieci Bayesowskie (Causal DAGs) i Propagacja Wstrząsów.",
+    icon="🕸️",
+    badge="Causal AI"
+), unsafe_allow_html=True)
+
 st.markdown("""
-Ten moduł przenosi zarządzanie ryzykiem z **korelacji** (która bywa złudna) na **przyczynowość** (Causality).
-Używając Skierowanych Grafów Acyklicznych (DAG) oraz wnioskowania opartego na twierdzeniu Bayesa (Interwencje *Do-Calculus*), modelujemy jak wstrząsy w jednym punkcie systemu propagują się i wywołują reakcje łańcuchowe.
-""")
+<div style="background:rgba(0,204,255,0.06);border:1px solid rgba(0,204,255,0.15);
+            border-radius:12px;padding:16px;margin-bottom:20px">
+Ten moduł przenosi zarządzanie ryzykiem z <b>korelacji</b> (która bywa złudna) na <b>przyczynowość</b> (Causality). 
+Używając Skierowanych Grafów Acyklicznych (DAG) oraz wnioskowania opartego na twierdzeniu Bayesa (Interwencje <i>Do-Calculus</i>), modelujemy jak wstrząsy w jednym punkcie systemu propagują się i wywołują reakcje łańcuchowe.
+</div>
+""", unsafe_allow_html=True)
 
-st.header("Propagacja Wstrząsów (Shock Propagation)")
-
-with st.expander("📖 Co to jest i jak to działa?"):
+with st.expander("📖 Metodologia: Jak działają Causal DAGs?"):
     st.markdown("""
     **Zasada działania:**
     System składa się z węzłów (wydarzeń) połączonych strzałkami przyczynowo-skutkowymi.
@@ -152,10 +160,28 @@ with col_graph:
     
     # Portfolio Crash Result Highlighting
     crash_p = res["Crash_Portfela"]
-    st.metric("Prawdopodobieństwo Całkowitego Załamania Portfela (Crash_Portfela)", f"{crash_p*100:.1f}%", delta=f"{crash_p*100 - 3.2:.1f} p.p. vs Bazowe" if "dag_results" in st.session_state else "")
-    if crash_p > 0.5:
-        st.error("⚠️ SYSTEMIC RISK ALERT: Prawdopodobieństwo krytyczne przekracza 50%!")
-    elif crash_p > 0.2:
-        st.warning("⚠️ Ostrzeżenie: Wysokie ryzyko systemowe.")
-    else:
-        st.success("✅ System relatywnie stabilny.")
+    
+    st.markdown("---")
+    c_res1, c_res2 = st.columns([2, 1])
+    
+    with c_res1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">PRAWDOPODOBIEŃSTWO CRASHU PORTFELA</div>
+            <div class="metric-value" style="color:{'#ff1744' if crash_p > 0.5 else '#ffea00' if crash_p > 0.2 else '#00e676'}">
+                {crash_p*100:.1f}%
+            </div>
+            <div style="font-size:11px;color:var(--text-dim)">
+                {f"{crash_p*100 - 3.2:+.1f} p.p. vs Bazowe" if "dag_results" in st.session_state else "Monte Carlo Inference"}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with c_res2:
+        if crash_p > 0.5:
+            st.error("⚠️ SYSTEMIC RISK ALERT: Prawdopodobieństwo krytyczne!")
+        elif crash_p > 0.2:
+            st.warning("⚠️ Ostrzeżenie: Podwyższone ryzyko.")
+        else:
+            st.success("✅ System stabilny.")
+

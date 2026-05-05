@@ -67,10 +67,26 @@ if prices_df is None:
     st.error("Brak danych.")
     st.stop()
 
+# Align tickers and weights before filtering
+if len(weights) < len(tickers):
+    # Pad weights with 0 if shorter than tickers
+    weights = np.append(weights, np.zeros(len(tickers) - len(weights)))
+elif len(weights) > len(tickers):
+    # Truncate weights if longer than tickers
+    weights = weights[:len(tickers)]
+
+# Create a mapping for easy lookup
+ticker_weight_map = dict(zip(tickers, weights))
+
 available = [t for t in tickers if t in prices_df.columns]
 prices_a = prices_df[available].dropna()
-w_a = weights[:len(available)]
-w_a = w_a / w_a.sum()
+
+# Extract weights for available tickers and re-normalize
+w_a = np.array([ticker_weight_map[t] for t in available])
+if w_a.sum() > 0:
+    w_a = w_a / w_a.sum()
+else:
+    w_a = np.ones(len(available)) / len(available) if len(available) > 0 else np.array([])
 returns_a = prices_a.pct_change().dropna()
 
 # Portfolio equity curve & Amihud per asset

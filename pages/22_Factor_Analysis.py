@@ -89,6 +89,8 @@ def load_returns_data(tickers_tuple: tuple, period_str: str) -> pd.DataFrame:
 
 
 with st.spinner("ð¡ Pobieranie danych rynkowych..."):
+    import re
+    tickers = [x.strip().upper() for x in re.split(r'[,\s\n]+', ticker_input) if x.strip()]
     returns_df = load_returns_data(tuple(tickers), period)
 
 if returns_df.empty:

@@ -103,14 +103,19 @@ if prices_df is None or prices_df.empty:
 
 # ── Build Portfolio Equity Curve ─────────────────────────────────────────────
 # Fix variable shadowing: rename loop var to not shadow t() function
+# Align tickers and weights
+ticker_weight_map = dict(zip(tickers, weights))
 available = [ticker for ticker in tickers if ticker in prices_df.columns]
 if not available:
     st.error("Żaden ticker nie ma danych.")
     st.stop()
 
 prices_used = prices_df[available].dropna()
-w_used = np.array(weights[:len(available)])
-w_used = w_used / w_used.sum()
+w_used = np.array([ticker_weight_map[t] for t in available])
+if w_used.sum() > 0:
+    w_used = w_used / w_used.sum()
+else:
+    w_used = np.ones(len(available)) / len(available)
 
 prices_norm = prices_used / prices_used.iloc[0]
 equity_curve = (prices_norm * w_used).sum(axis=1) * 100_000  # PLN

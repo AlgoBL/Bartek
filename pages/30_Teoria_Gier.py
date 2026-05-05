@@ -4,14 +4,19 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from scipy.integrate import odeint
+from modules.styling import apply_styling, module_header
+from modules.i18n import t
 
-st.set_page_config(page_title="Teoria Gier & Strategia", page_icon="♟️", layout="wide")
+# 2. Apply Custom Styling
+st.markdown(apply_styling(), unsafe_allow_html=True)
 
-st.title("♟️ Teoria Gier: Optymalizacja Strategii Rynkowych")
-st.markdown("""
-Ten moduł symuluje zachowania uczestników rynku w sytuacjach interaktywnych – gdzie Twój zysk zależy od decyzji innych.
-Narzędzie to pomaga analizować ryzyko wojen cenowych, szukać równowagi w trudnych negocjacjach i modelować psychologię giełdową.
-""")
+# 3. Main Navigation Header
+st.markdown(module_header(
+    title="Teoria Gier",
+    subtitle="Optymalizacja strategii rynkowych: gry macierzowe, ewolucyjne oraz teoria aukcji.",
+    icon="♟️",
+    badge="Strategia Interakcyjna"
+), unsafe_allow_html=True)
 
 tabs = st.tabs([
     "⚔️ Gry Macierzowe (Dylematy)", 

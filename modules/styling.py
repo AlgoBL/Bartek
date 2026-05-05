@@ -515,6 +515,31 @@ def apply_styling() -> str:
     }
     h4 { margin-bottom: 4px !important; margin-top: 4px !important; }
 
+    /* Ukrycie okruszków nawigacji i górnego paska Streamlit */
+    header[data-testid="stHeader"], 
+    [data-testid="stHeader"] {
+        display: none !important;
+    }
+    
+    /* Ukrycie przycisku zwijania sidebara, jeśli wyświetla błędy/tekst */
+    button[data-testid="stSidebarCollapseButton"] {
+        display: none !important;
+    }
+
+    /* Jeśli Material Icons wyświetlają się jako tekst (brak fontu), ukryj je całkowicie */
+    span[data-testid="stIconMaterial"],
+    .st-emotion-cache-12bp31y, 
+    [data-testid="stIconMaterial"] {
+        display: none !important;
+        visibility: hidden !important;
+        font-size: 0 !important;
+        color: transparent !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+
+
+
     /* ═══════════════════════════════════════════════════════════════
        HEADINGS — gradient text & variable fonts (V.2)
     ═══════════════════════════════════════════════════════════════ */
@@ -702,31 +727,58 @@ def apply_styling() -> str:
         padding: 8px 14px !important;
         font-size: 13.5px !important;
         font-weight: 500 !important;
-        color: #9ca3af !important;
+        color: #e2e4f0 !important; /* Brighter color for better readability */
         transition: background 0.2s ease, color 0.2s ease !important;
     }
     [data-testid="stSidebarNavLink"]:hover {
-        background: rgba(0,230,118,0.08) !important;
-        color: #e2e4f0 !important;
+        background: rgba(0,230,118,0.12) !important;
+        color: #ffffff !important;
     }
     [data-testid="stSidebarNavLink"][aria-selected="true"] {
-        background: rgba(0,230,118,0.12) !important;
+        background: rgba(0,230,118,0.18) !important;
         color: #00e676 !important;
-        border-left: 3px solid #00e676 !important;
-        font-weight: 600 !important;
+        border-left: 4px solid #00e676 !important;
+        font-weight: 700 !important;
     }
-    /* Separatory sekcji nawigacji */
-    [data-testid="stSidebarNavSeparator"] {
-        color: rgba(255,255,255,0.3) !important;
-        font-size: 10px !important;
-        letter-spacing: 1.5px !important;
+    /* Separatory sekcji nawigacji (Nagłówki Grup) */
+    [data-testid="stSidebarNavSeparator"],
+    [data-testid="stSidebarNavItems"] div[data-testid="stCaptionContainer"] {
+        color: var(--green) !important;
+        font-size: 11px !important;
+        font-weight: 800 !important;
+        letter-spacing: 1.2px !important;
         text-transform: uppercase !important;
-        padding: 12px 14px 4px 14px !important;
+        padding: 16px 14px 6px 14px !important;
+        opacity: 0.9 !important;
     }
-    /* Tekst wewnątrz linków nawigacyjnych — wyrównaj do 13.5px */
+    /* Tekst wewnątrz linków nawigacyjnych */
     [data-testid="stSidebarNavLink"] p,
     [data-testid="stSidebarNavLink"] span {
         font-size: 13.5px !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PILLS STYLING — Premium look for st.pills
+    ═══════════════════════════════════════════════════════════════ */
+    div[data-testid="stPills"] button {
+        background-color: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: #9ca3af !important;
+        border-radius: 20px !important;
+        padding: 4px 16px !important;
+        transition: all 0.3s ease !important;
+    }
+    div[data-testid="stPills"] button:hover {
+        border-color: var(--green) !important;
+        color: white !important;
+        background-color: rgba(0, 230, 118, 0.05) !important;
+    }
+    div[data-testid="stPills"] button[aria-checked="true"] {
+        background-color: var(--green) !important;
+        color: #05060d !important;
+        border-color: var(--green) !important;
+        font-weight: 700 !important;
+        box-shadow: 0 0 15px rgba(0, 230, 118, 0.3) !important;
     }
 
     /* ═══════════════════════════════════════════════════════════════

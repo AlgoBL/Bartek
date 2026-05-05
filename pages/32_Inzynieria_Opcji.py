@@ -3,14 +3,19 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from modules.real_options import black_scholes_merton, binomial_tree_real_option, merton_structural_credit_risk
+from modules.styling import apply_styling, module_header
+from modules.i18n import t
 
-st.set_page_config(page_title="Inżynieria Opcji", page_icon="📈", layout="wide")
+# 2. Apply Custom Styling
+st.markdown(apply_styling(), unsafe_allow_html=True)
 
-st.title("📈 Inżynieria Finansowa i Opcje Realne")
-st.markdown("""
-Moduł wykorzystujący stochastyczną matematykę finansową do wyceny asymetrycznego ryzyka.
-Znajdziesz tu model **Blacka-Scholesa-Mertona**, modelowanie **Opcji Realnych** (w biznesie) oraz strukturalny model **Mertona** wyceny ryzyka bankructwa.
-""")
+# 3. Main Navigation Header
+st.markdown(module_header(
+    title="Inżynieria Finansowa",
+    subtitle="Wycena asymetrycznego ryzyka: Black-Scholes, Opcje Realne oraz strukturalny model Mertona.",
+    icon="📈",
+    badge="Stochastyczna Matematyka Finansowa"
+), unsafe_allow_html=True)
 
 tabs = st.tabs([
     "🎯 Black-Scholes & Greki", 
@@ -51,21 +56,27 @@ with tabs[0]:
         
         col_c, col_p = st.columns(2)
         with col_c:
-            st.metric("Cena Opcji CALL", f"${res_call['price']:,.2f}")
             st.markdown(f"""
-            * **Delta:** {res_call['delta']:.3f}
-            * **Gamma:** {res_call['gamma']:.4f}
-            * **Vega:** {res_call['vega']:.3f}
-            * **Theta (1 dzień):** {res_call['theta']:.3f}
-            """)
+            <div class="metric-card">
+                <div class="metric-label">OPCJA CALL</div>
+                <div class="metric-value" style="color:var(--green)">${res_call['price']:,.2f}</div>
+                <div style="font-size:11px;color:var(--text-dim)">
+                    Δ: {res_call['delta']:.3f} | Γ: {res_call['gamma']:.4f}<br>
+                    ν: {res_call['vega']:.3f} | Θ: {res_call['theta']:.3f}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         with col_p:
-            st.metric("Cena Opcji PUT", f"${res_put['price']:,.2f}")
             st.markdown(f"""
-            * **Delta:** {res_put['delta']:.3f}
-            * **Gamma:** {res_put['gamma']:.4f}
-            * **Vega:** {res_put['vega']:.3f}
-            * **Theta (1 dzień):** {res_put['theta']:.3f}
-            """)
+            <div class="metric-card">
+                <div class="metric-label">OPCJA PUT</div>
+                <div class="metric-value" style="color:var(--red)">${res_put['price']:,.2f}</div>
+                <div style="font-size:11px;color:var(--text-dim)">
+                    Δ: {res_put['delta']:.3f} | Γ: {res_put['gamma']:.4f}<br>
+                    ν: {res_put['vega']:.3f} | Θ: {res_put['theta']:.3f}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
         # Wykres profilu wypłaty
         s_range = np.linspace(S * 0.5, S * 1.5, 100)
@@ -118,9 +129,22 @@ with tabs[1]:
         
         col_r1, col_r2 = st.columns(2)
         with col_r1:
-            st.metric("Klasyczne NPV (Zrób to teraz)", f"${npv_classic:,.2f}")
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">KLASYCZNE NPV</div>
+                <div class="metric-value">${npv_classic:,.0f}</div>
+                <div style="font-size:11px;color:var(--text-dim)">Decyzja "teraz albo nigdy"</div>
+            </div>
+            """, unsafe_allow_html=True)
         with col_r2:
-            st.metric("Rozszerzone NPV (Z opcją elastyczności)", f"${real_option_val:,.2f}", delta=f"+${max(0, real_option_val - npv_classic):,.2f} Premium za elastyczność")
+            premium = max(0, real_option_val - npv_classic)
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">ROZSZERZONE NPV</div>
+                <div class="metric-value" style="color:var(--cyan)">${real_option_val:,.0f}</div>
+                <div style="font-size:11px;color:var(--green)">+{premium:,.0f} Premium za elastyczność</div>
+            </div>
+            """, unsafe_allow_html=True)
             
         if real_option_val > max(0, npv_classic):
             st.success("Wysoka zmienność rynkowa sprawia, że **czekanie z decyzją ma ogromną wartość**. Elastyczność ratuje projekt!")
@@ -160,13 +184,24 @@ with tabs[2]:
         st.subheader("Wyniki Modelu Kredytowego")
         col_m1, col_m2 = st.columns(2)
         with col_m1:
-            st.metric("Odległość do Bankructwa (Distance to Default)", f"{mert['distance_to_default']:.2f} σ")
-            pd_color = "normal" if mert['probability_of_default'] < 0.05 else "inverse"
-            st.metric("Prawdopodobieństwo Bankructwa (PD)", f"{mert['probability_of_default']*100:.2f}%", delta_color=pd_color)
+            pd_val = mert['probability_of_default'] * 100
+            pd_color = "var(--green)" if pd_val < 5 else "var(--yellow)" if pd_val < 20 else "var(--red)"
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">PROBABILITY OF DEFAULT</div>
+                <div class="metric-value" style="color:{pd_color}">{pd_val:.2f}%</div>
+                <div style="font-size:11px;color:var(--text-dim)">Dist. to Default: {mert['distance_to_default']:.2f} σ</div>
+            </div>
+            """, unsafe_allow_html=True)
         with col_m2:
-            st.metric("Kapitalizacja Akcji (Opcja Call na V)", f"${mert['equity_value']:.2f} mln")
             spread_str = f"{mert['credit_spread_bps']:.0f} bps" if mert['credit_spread_bps'] != float('inf') else "DEFAULT"
-            st.metric("Wymagany Spread Kredytowy (Ryzyko)", spread_str)
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">CREDIT SPREAD / EQUITY</div>
+                <div class="metric-value" style="color:var(--cyan)">{spread_str}</div>
+                <div style="font-size:11px;color:var(--text-dim)">Equity V: ${mert['equity_value']:.2f}M</div>
+            </div>
+            """, unsafe_allow_html=True)
             
         # Gauge chart for PD
         fig_pd = go.Figure(go.Indicator(

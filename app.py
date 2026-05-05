@@ -1222,65 +1222,56 @@ def home():
 
 
 pages = {
-    "🌐  Dashboard i Core": [
+    "🌐  Centrum Dowodzenia": [
         st.Page(home, title="Control Center", icon="📡", default=True),
-        st.Page("pages/1_Symulator.py", title="Symulator Barbell", icon="📉"),
-        st.Page("pages/28_Doradca.py", title="Doradca AI", icon="🧭"),
-        st.Page("pages/2_Skaner.py", title="Skaner Rynku", icon="🔍"),
         st.Page("pages/0_Globalne_Ustawienia.py", title="Globalne Ustawienia", icon="🌐"),
+        st.Page("pages/28_Doradca.py", title="Doradca AI", icon="🧭"),
     ],
-    "🛡️  Analiza Ryzyka i Ochrona": [
-        st.Page("pages/3_Stress_Test.py", title="Stress Test", icon="⚡"),
-        st.Page("pages/10_Drawdown_Recovery.py", title="Drawdown Recovery", icon="📉"),
-        st.Page("pages/14_Tail_Hedging.py", title="Tail Risk Hedging", icon="🛡️"),
-        st.Page("pages/13_Liquidity_Risk.py", title="Liquidity Risk", icon="💧"),
-        st.Page("pages/9_Concentration_Risk.py", title="Concentration Risk", icon="🎯"),
-        st.Page("pages/5_EVT_Analysis.py", title="EVT — Tail Risk", icon="📐"),
-        st.Page("pages/27_Systemic_Risk.py", title="Systemic Risk & CoVaR", icon="🌐"),
-        st.Page("pages/32_Inzynieria_Opcji.py", title="Inżynieria Opcji", icon="📈"),
-        st.Page("pages/33_Sieci_Przyczynowe.py", title="Sieci Przyczynowe", icon="🕸️"),
+    "📉  Środowisko Makro i Reżimy": [
+        st.Page("pages/module_makro.py", title="Makro i Reżimy", icon="📉"),
     ],
-    "♟️  Optymalizacja i Strategia": [
-        st.Page("pages/19_Wealth_Optimizer.py", title="Wealth Optimizer", icon="🏰"),
-        st.Page("pages/16_Rebalancing.py", title="Smart Rebalancing", icon="⚖️"),
-        st.Page("pages/15_Tax_Optimizer.py", title="Tax Optimizer PL", icon="💰"),
-        st.Page("pages/6_BL_Dashboard.py", title="Black-Litterman AI", icon="🎯"),
-        st.Page("pages/11_Regime_Clock.py", title="Investment Clock", icon="🕐"),
-        st.Page("pages/12_Regime_Allocation.py", title="Regime Allocation", icon="🔀"),
-        st.Page("pages/7_DCC_Dashboard.py", title="DCC — Korelacje", icon="🔗"),
-        st.Page("pages/24_HERC_Portfolio.py", title="HERC Portfolio", icon="🧬"),
-        st.Page("pages/26_Recession_Nowcasting.py", title="Recession Nowcasting", icon="🕵️"),
+    "⚖️  Zarządzanie Portfelem": [
+        st.Page("pages/module_portfel.py", title="Optymalizacja Portfela", icon="⚖️"),
     ],
-    "🧠  Kwantowe i AI": [
-        st.Page("pages/21_Day_Trading.py", title="Day Trading", icon="📈"),
-        st.Page("pages/20_Life_OS.py", title="Life OS — Łowca", icon="🎯"),
-        st.Page("pages/22_Factor_Analysis.py", title="Factor Zoo & PCA", icon="🧬"),
-        st.Page("pages/23_Walk_Forward.py", title="Walk-Forward CPCV", icon="🔄"),
-        st.Page("pages/17_Sentiment_Flow.py", title="Sentiment & Flow", icon="🌊"),
-        st.Page("pages/8_Health_Monitor.py", title="Portfolio Health Monitor", icon="🏥"),
-        st.Page("pages/18_Alt_Risk_Premia.py", title="Alt. Risk Premia", icon="⚡"),
-        st.Page("pages/4_Emerytura.py", title="Emerytura / FIRE", icon="💰"),
-        st.Page("pages/25_Decumulation.py", title="Decumulation / SWR", icon="💸"),
-        st.Page("pages/29_Kalkulator_Bayesa.py", title="Kalkulator Bayesa", icon="🧮"),
-        st.Page("pages/30_Teoria_Gier.py", title="Teoria Gier", icon="♟️"),
-        st.Page("pages/31_Asymetria_Informacji.py", title="Asymetria Informacji", icon="🤝"),
+    "🛡️  Centrum Ryzyka": [
+        st.Page("pages/module_ryzyko.py", title="Analiza Ryzyka", icon="🛡️"),
     ],
+    "🧬  Laboratorium Quant i AI": [
+        st.Page("pages/module_quant.py", title="Modele Quant", icon="🧬"),
+    ],
+    "💰  Planowanie Majątku (FIRE)": [
+        st.Page("pages/module_majatku.py", title="Emerytura i FIRE", icon="💰"),
+    ],
+    "♟️  Meta-Decyzje i Teoria": [
+        st.Page("pages/module_meta.py", title="Teoria Decyzji", icon="♟️"),
+    ],
+    "🎯  Moduły Aktywne i Trening": [
+        st.Page("pages/module_aktywne.py", title="Trening i Symulacje", icon="🎯"),
+    ]
 }
 
 gs = get_gs()
-if hasattr(gs, 'visible_modules') and gs.visible_modules:
+# --- Logic: Visibility Filtering ---
+# If user has old settings, we map them to new consolidated groups
+new_groups = ["Makro i Reżimy", "Optymalizacja Portfela", "Analiza Ryzyka", "Modele Quant", "Emerytura i FIRE", "Teoria Decyzji", "Trening i Symulacje"]
+
+# Check if visible_modules is empty or completely old
+is_completely_old = not any(n in gs.visible_modules for n in new_groups) if (hasattr(gs, 'visible_modules') and gs.visible_modules) else True
+
+if is_completely_old:
+    pages_to_display = pages
+else:
     filtered_pages = {
-        "🌐  Dashboard i Core": pages["🌐  Dashboard i Core"],
+        "🌐  Centrum Dowodzenia": pages["🌐  Centrum Dowodzenia"],
     }
     for group, group_pages in pages.items():
-        if group in ["🌐  Dashboard i Core"]:
+        if group == "🌐  Centrum Dowodzenia":
             continue
         valid_pages = [p for p in group_pages if p.title in gs.visible_modules]
         if valid_pages:
             filtered_pages[group] = valid_pages
     pages_to_display = filtered_pages
-else:
-    pages_to_display = pages
 
 pg = st.navigation(pages_to_display, position="sidebar", expanded=False)
 pg.run()
+

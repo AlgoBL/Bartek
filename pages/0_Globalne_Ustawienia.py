@@ -419,17 +419,10 @@ with tab_tech:
         # ── Widoczne moduły ───────────────────────────────────────────────
         st.markdown(f"<p class='{_SEC}'>🎛️ Widoczność Modułów w Menu</p>", unsafe_allow_html=True)
         all_mods = [
-            "Factor Zoo & PCA", "EVT — Tail Risk", "Black-Litterman AI",
-            "DCC — Korelacje", "Stress Test", "Symulator Barbell", "Skaner Rynku",
-            "Emerytura / FIRE", "Portfolio Health Monitor", "Concentration Risk",
-            "Drawdown Recovery", "Investment Clock", "Regime Allocation",
-            "Liquidity Risk", "Tail Risk Hedging", "Tax Optimizer PL",
-            "Smart Rebalancing", "Sentiment & Flow", "Alt. Risk Premia",
-            "Wealth Optimizer", "Life OS — Łowca", "Day Trading",
-            "Walk-Forward CPCV", "Systemic Risk & CoVaR",
-            "Recession Nowcasting", "Decumulation / SWR", "Doradca AI",
-            "Kalkulator Bayesa", "Teoria Gier", "Asymetria Informacji",
-            "Inżynieria Opcji", "Sieci Przyczynowe"
+            "Control Center", "Globalne Ustawienia", "Doradca AI",
+            "Makro i Reżimy", "Optymalizacja Portfela", "Analiza Ryzyka",
+            "Modele Quant", "Emerytura i FIRE", "Teoria Decyzji",
+            "Trening i Symulacje"
         ]
         default_vis = [m for m in (gs.visible_modules or all_mods) if m in all_mods]
         new_visible = st.multiselect(

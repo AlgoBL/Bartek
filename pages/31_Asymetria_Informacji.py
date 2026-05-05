@@ -3,14 +3,19 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from modules.contract_theory import nash_bargaining, rubinstein_bargaining, principal_agent_contract
+from modules.styling import apply_styling, module_header
+from modules.i18n import t
 
-st.set_page_config(page_title="Asymetria Informacji & Negocjacje", page_icon="🤝", layout="wide")
+# 2. Apply Custom Styling
+st.markdown(apply_styling(), unsafe_allow_html=True)
 
-st.title("🤝 Negocjacje i Asymetria Informacji")
-st.markdown("""
-Ten moduł przenosi teorię gier na wyższy poziom, skupiając się na **podziale nadwyżki** w negocjacjach oraz na projektowaniu optymalnych kontraktów w środowisku ukrytych informacji (Problem Pryncypała-Agenta).
-Dzięki tym narzędziom zoptymalizujesz negocjacje pensji, kontrakty B2B oraz struktury wynagrodzeń.
-""")
+# 3. Main Navigation Header
+st.markdown(module_header(
+    title="Negocjacje i Kontrakty",
+    subtitle="Asymetria informacji, problem Pryncypała-Agenta oraz modele przetargowe Nasha i Rubinsteina.",
+    icon="🤝",
+    badge="Ekonomia Kontraktów"
+), unsafe_allow_html=True)
 
 tabs = st.tabs([
     "🤝 Model Przetargowy Nasha", 
@@ -148,11 +153,27 @@ with tabs[2]:
                 
             col_k1, col_k2 = st.columns(2)
             with col_k1:
-                st.metric("Płaca za SUKCES (W_H)", f"${res_pa['w_H']:,.2f}")
-                st.metric("Płaca za PORAŻKĘ (W_L)", f"${res_pa['w_L']:,.2f}")
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">PŁACA ZA SUKCES (W_H)</div>
+                    <div class="metric-value" style="color:var(--green)">${res_pa['w_H']:,.0f}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">PŁACA ZA PORAŻKĘ (W_L)</div>
+                    <div class="metric-value" style="color:var(--red)">${res_pa['w_L']:,.0f}</div>
+                </div>
+                """, unsafe_allow_html=True)
             with col_k2:
-                st.metric("Twój Oczekiwany Zysk (Gdy się stara)", f"${res_pa['profit_with_effort']:,.2f}")
-                st.metric("Twój Oczekiwany Zysk (Gdy się leni)", f"${res_pa['profit_no_effort']:,.2f}")
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">ZYSK (WYSIŁEK)</div>
+                    <div class="metric-value" style="color:var(--cyan)">${res_pa['profit_with_effort']:,.0f}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">ZYSK (LENISTWO)</div>
+                    <div class="metric-value" style="color:var(--text-dim)">${res_pa['profit_no_effort']:,.0f}</div>
+                </div>
+                """, unsafe_allow_html=True)
                 
             fig_bar = go.Figure(data=[
                 go.Bar(name='Twój Zysk Netto', x=['Z Kontraktem (Wysiłek)', 'Bez Kontraktu (Lenistwo)'], y=[res_pa['profit_with_effort'], res_pa['profit_no_effort']], marker_color='#636EFA')

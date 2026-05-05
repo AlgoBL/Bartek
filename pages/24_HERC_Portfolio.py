@@ -11,7 +11,10 @@ from modules.styling import apply_styling, module_header, scicard
 from modules.ai.data_loader import load_data
 from modules.herc_optimizer import compute_herc_weights
 from modules.ui.widgets import tickers_area
-from config import START_DATE
+try:
+    from config import START_DATE
+except ImportError:
+    START_DATE = "2020-01-01"
 
 st.markdown(apply_styling(), unsafe_allow_html=True)
 
@@ -25,7 +28,8 @@ st.markdown(module_header(
 st.sidebar.markdown("### 1. Ekosystem Aktywów")
 default_assets = "SPY, QQQ, TLT, IEF, GLD, GSG, VNQ, BTC-USD, EEM"
 assets_input = tickers_area("Koszyk Inwestycyjny", value=default_assets, height=100, parent=st.sidebar)
-tickers = [x.strip().upper() for x in assets_input.split(",") if x.strip()]
+import re
+tickers = [x.strip().upper() for x in re.split(r'[,\s\n]+', assets_input) if x.strip()]
 
 n_clusters_opt = st.sidebar.selectbox("Liczba Klastrów (Machine Learning)", ["Auto (Heurystyka)", "2", "3", "4", "5", "6"])
 n_clust = None if n_clusters_opt.startswith("Auto") else int(n_clusters_opt)
@@ -106,12 +110,13 @@ if st.button("🧬 Zoptymalizuj HERC", type="primary"):
     def render_herc_chart():
         st.plotly_chart(fig_w, use_container_width=True)
         
-    scicard(
-        title="Hierarchical Equal Risk Contribution (HERC)",
-        icon="🧬",
-        level0_html=f"<div style='font-size:18px'>Max Skoncentrowane Aktywo (HERC): <span class='neon-cyan'>{herc_weights.idxmax()} ({herc_weights.max():.1%})</span></div>",
-        chart_fn=None, # Already rendered above, we keep logic simple
-        explanation_md="Algorytm HERC grupuje aktywa w reżimy wg ich korelacji (np. Akcje, Kruszce, Obligacje), a następnie rozdziela budżet ryzyka **równo na klastry**, a nie na wybrane instrumenty. Chroni to portfel przed efektem 'Double Risking' w przypadku dużej ilości skorelowanych instrumentów np. 10 ETF-ów SP500, QQQ, VOO, DIA.",
-        formula_code="w_cluster_i = 1 / Risk_i // w_asset_in_cluster = 1 / Vol_asset",
-        reference="Raffinot (2018) 'Hierarchical clustering-based asset allocation'"
-    )
+    if 'herc_weights' in locals() and herc_weights is not None:
+        scicard(
+            title="Hierarchical Equal Risk Contribution (HERC)",
+            icon="🧬",
+            level0_html=f"<div style='font-size:18px'>Max Skoncentrowane Aktywo (HERC): <span class='neon-cyan'>{herc_weights.idxmax()} ({herc_weights.max():.1%})</span></div>",
+            chart_fn=None, # Already rendered above, we keep logic simple
+            explanation_md="Algorytm HERC grupuje aktywa w reżimy wg ich korelacji (np. Akcje, Kruszce, Obligacje), a następnie rozdziela budżet ryzyka **równo na klastry**, a nie na wybrane instrumenty. Chroni to portfel przed efektem 'Double Risking' w przypadku dużej ilości skorelowanych instrumentów np. 10 ETF-ów SP500, QQQ, VOO, DIA.",
+            formula_code="w_cluster_i = 1 / Risk_i // w_asset_in_cluster = 1 / Vol_asset",
+            reference="Raffinot (2018) 'Hierarchical clustering-based asset allocation'"
+        )

@@ -18,7 +18,7 @@ from modules.ai.scanner_engine import ScannerEngine
 from modules.ai.asset_universe import get_sp500_tickers, get_global_etfs
 from modules.ui.status_manager import StatusManager
 from modules.stress_test import run_stress_test, CRISIS_SCENARIOS
-from modules.market_conditions import detect_current_regime
+
 from modules.ui.widgets import ticker_input
 from modules.frontier import compute_efficient_frontier
 from modules.emerytura import render_emerytura_module

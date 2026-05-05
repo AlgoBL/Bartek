@@ -82,20 +82,24 @@ if prices is None or prices.empty:
     st.error("Brak danych.")
     st.stop()
 
+# Align tickers and weights
+ticker_target_map = dict(zip(tickers, target_w))
 available = [tick for tick in tickers if tick in prices.columns]
 prices_a = prices[available].dropna()
-tw = target_w[:len(available)]
-tw = tw / tw.sum()
+
+tw = np.array([ticker_target_map[t] for t in available])
+if tw.sum() > 0:
+    tw = tw / tw.sum()
+else:
+    tw = np.ones(len(available)) / len(available) if len(available) > 0 else np.array([])
 
 # BUG-18 FIX: Aktualne wagi portfela pobieramy od użytkownika, nie losujemy
 if use_custom_weights:
     try:
         raw_vals = [float(v.strip()) for v in custom_values_input.strip().split("\n") if v.strip()]
-        raw_vals = raw_vals[:len(available)]  # dopasuj do dostępnych tickerów
-        # Wypełnij zerami jeśli za mało wartości
-        while len(raw_vals) < len(available):
-            raw_vals.append(0.0)
-        current_values = np.array(raw_vals, dtype=float)
+        # Align custom values with available tickers
+        ticker_value_map = dict(zip(tickers, raw_vals))
+        current_values = np.array([ticker_value_map.get(t, 0.0) for t in available])
         current_values = np.maximum(current_values, 0.0)
         if current_values.sum() < 1:
             st.sidebar.warning("⚠️ Suma wartości pozycji jest bliska 0 — sprawdź dane wejściowe.")
