@@ -513,10 +513,6 @@ def apply_styling() -> str:
         padding-right: 2rem !important;
         max-width: 100% !important;
     }
-    div[data-testid="stVerticalBlock"] > div { gap: 0.2rem; }
-    /* UI FIX: Usunięto margin-top: -14px który przesuwał wykresy w górę zakrywając nagłówki sekcji.
-       Gauges w Control Center mają własny override lokalnie w app.py. */
-    .stPlotlyChart { margin-bottom: 0; margin-top: 0; }
     h4 { margin-bottom: 4px !important; margin-top: 4px !important; }
 
     /* ═══════════════════════════════════════════════════════════════

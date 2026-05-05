@@ -637,8 +637,9 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
             medical_expense_multiplier = (1 - health_proxy_pct) + health_proxy_pct * med_inf_comp
 
             if withdrawal_strategy == "flexible":
-                # R5 - Usunięto błąd double-dipping. Procent od nominalnego kapitału = nominalna wypłata
+                # Dla strategii elastycznej % portfela to bezpośrednia wartość wypłaty.
                 eff_withdrawal = flexible_pct * w_new * spending_factor * medical_expense_multiplier
+                eff_withdrawal_net = eff_withdrawal # ZUS jest oddzielnym filarem, nie redukujemy % z portfela
             else:
                 # Inicjalizacja pierwszej kwoty na starcie emerytury (R1 - Guardrails Bug)
                 if y == years_to_retirement:
@@ -657,18 +658,11 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
                     pmr_mask = (adj_withdrawal / np.maximum(w_new, 1.0)) > (1.20 * initial_wr)
                     adj_withdrawal = np.where(pmr_mask, current_withdrawal, adj_withdrawal)
                     current_withdrawal = np.maximum(adj_withdrawal, 0)
-                    eff_withdrawal = current_withdrawal * spending_factor * medical_expense_multiplier
+                    base_withdrawal = current_withdrawal * medical_expense_multiplier
 
                 elif withdrawal_strategy == "ratchet":
-                    # Ratchet Strategy — Kitces (2024):
-                    # Inflacja-adjusted wypłata z możliwością trwałej podwyżki gdy portfel rośnie.
-                    # Reguła: jeśli portfolio > ratchet_peak → podwyższ wypłatę o ratchet_increase%
-                    # Podwyżka jest trwała (nie cofa się gdy portfel spada).
-                    # Referencja: Kitces M. (2024) 'The Ratcheting Safe Withdrawal Rate', Kitces.com.
                     inf_rate = inf_matrix[:, y] if stochastic_inflation else inflation_base
-                    # Bazowa indeksacja inflacyjna
                     current_withdrawal = current_withdrawal * (1 + inf_rate)
-                    # Sprawdź czy portfel osiągnął nowy szczyt wymagający ratchetu
                     ratchet_mask = w_new >= ratchet_peak
                     ratchet_peak = np.where(ratchet_mask, w_new * ratchet_threshold, ratchet_peak)
                     current_withdrawal = np.where(
@@ -676,13 +670,15 @@ def run_mc_retirement(init_cap, annual_expenses, annual_contrib,
                         current_withdrawal * (1 + ratchet_increase),
                         current_withdrawal
                     )
-                    eff_withdrawal = current_withdrawal * spending_factor * medical_expense_multiplier
+                    base_withdrawal = current_withdrawal * medical_expense_multiplier
 
                 elif withdrawal_strategy == "constant":
-                    eff_withdrawal = annual_expenses * spending_factor * inf_cum * medical_expense_multiplier
+                    base_withdrawal = annual_expenses * inf_cum * medical_expense_multiplier
 
-            # ZUS i floor: redukuj potrzebne wypłaty z portfela
-            eff_withdrawal_net = np.maximum(eff_withdrawal - zus_cum, 0)
+                # Aplikujemy ZUS do całkowitych potrzeb przed nałożeniem mnożnika "spending smile"
+                net_needs_after_zus = np.maximum(base_withdrawal - zus_cum, 0)
+                eff_withdrawal_net = net_needs_after_zus * spending_factor
+
             floor_adj = np.maximum(floor_amount, 0)
             required_portfolio_withdrawal = np.maximum(eff_withdrawal_net - floor_adj, 0)
 

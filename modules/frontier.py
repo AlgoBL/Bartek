@@ -147,13 +147,12 @@ def compute_hrp(returns_df: pd.DataFrame, risk_free_rate: float = 0.04) -> dict:
 
     port_return = float(w @ mu)
     port_vol    = float(np.sqrt(w @ cov @ w))
-    rf_taxed    = risk_free_rate * 0.81  # efektywna stopa wolna od ryzyka po Belce
-    sharpe      = (port_return - rf_taxed) / port_vol if port_vol > 0 else 0
+    sharpe      = (port_return - risk_free_rate) / port_vol if port_vol > 0 else 0
     daily_r     = (returns.values @ w)
     omega       = float(min(calculate_omega(daily_r), 10.0))
     # CVaR portfela (5%)
     var_5 = np.percentile(daily_r, 5)
-    port_cvar = float(-np.mean(daily_r[daily_r <= var_5])) * 252 if np.any(daily_r <= var_5) else 0.0
+    port_cvar = float(-np.mean(daily_r[daily_r <= var_5])) * np.sqrt(252) if np.any(daily_r <= var_5) else 0.0
 
     tickers = returns_df.columns.tolist()
     return {
@@ -197,7 +196,7 @@ def compute_min_cvar(
     T, n = R.shape
     mu  = R.mean(axis=0) * 252
     cov = _compute_covariance(R)
-    rf  = risk_free_rate * 0.81
+    rf  = risk_free_rate
 
     def _cvar(w: np.ndarray) -> float:
         port_r = R @ w
@@ -283,7 +282,7 @@ def compute_black_litterman(
     n       = len(tickers)
     mu_hist = returns.mean().values * 252
     Sigma   = _compute_covariance(returns.values)
-    rf      = risk_free_rate * 0.81
+    rf      = risk_free_rate
 
     # Market weights — equal weight prior (proxy for market cap)
     w_mkt = np.ones(n) / n
@@ -329,7 +328,7 @@ def compute_black_litterman(
 
     port_ret = float(w_bl @ mu_bl)
     port_vol = float(np.sqrt(w_bl @ Sigma @ w_bl))
-    sharpe   = (port_ret - rf) / port_vol if port_vol > 0 else 0.0
+    sharpe   = (port_ret - risk_free_rate) / port_vol if port_vol > 0 else 0.0
     omega    = float(min(calculate_omega(returns.values @ w_bl), 10.0))
 
     return {
@@ -396,14 +395,13 @@ def compute_efficient_frontier(
         port_r = returns_taxed.values @ w
         ret = float(np.dot(w, mean_returns))
         vol = float(np.sqrt(w @ cov_matrix.values @ w))
-        sh  = (ret - rf_taxed) / vol if vol > 0 else 0
+        sh  = (ret - risk_free_rate) / vol if vol > 0 else 0
         om  = min(calculate_omega(port_r), 10.0)
 
-        # BUG-09 FIX: CVaR nie skaluj przez sqrt(252) — CVaR to oczekiwana strata,
-        # nie odchylenie standardowe. Annualizacja CVaR = CVaR_dzienny * 252 (nie sqrt).
+        # BUG-09 FIX: CVaR skalowany przez sqrt(252)
         var_5 = np.percentile(port_r, 5)
         tail = port_r[port_r <= var_5]
-        cv = -float(np.mean(tail)) * 252 if len(tail) > 0 else 0.0  # annualizacja przez 252
+        cv = -float(np.mean(tail)) * np.sqrt(252) if len(tail) > 0 else 0.0
 
         results["Return"].append(ret)
         results["Volatility"].append(vol)
@@ -542,7 +540,7 @@ def compute_efficient_frontier(
             w_arr /= s
         bb_ret  = float(np.dot(w_arr, mean_returns))
         bb_vol  = float(np.sqrt(w_arr @ cov_matrix.values @ w_arr))
-        bb_sh   = (bb_ret - rf_taxed) / bb_vol if bb_vol > 0 else 0
+        bb_sh   = (bb_ret - risk_free_rate) / bb_vol if bb_vol > 0 else 0
         bb_om   = float(min(calculate_omega(returns_taxed.values @ w_arr), 10.0))
         fig.add_trace(go.Scatter(
             x=[bb_vol * 100], y=[bb_ret * 100], mode="markers+text",
@@ -620,7 +618,7 @@ def compute_nco(
     mu       = returns.mean().values * 252
     cov      = _compute_covariance(returns.values)
     corr     = returns.corr().values
-    rf       = risk_free_rate * 0.81
+    rf       = risk_free_rate
 
     if n < 3:
         # Degenerate case — fallback to HRP
@@ -749,7 +747,7 @@ def compute_wasserstein_dro(
     R        = returns.values          # (T, n)
     mu       = R.mean(axis=0) * 252    # Annual expected returns
     cov      = _compute_covariance(R)  # Annual covariance
-    rf       = risk_free_rate * 0.81
+    rf       = risk_free_rate
 
     # Cholesky of covariance (for Wasserstein robustification)
     try:

@@ -49,6 +49,7 @@ def _compute_garch_variance(var_series, eps, omega_g, alpha_g, beta_g, total_day
 @jit(nopython=True)
 def _compute_wealth_paths(val_safe, val_risky, wealth_paths, daily_safe_rate, risky_returns, alloc_safe, threshold_percent, total_days, days_per_year, rebalance_strategy_id):
     n_sims = val_safe.shape[0]
+    cost_basis = np.copy(val_risky[:, 0])
     for day in range(1, total_days + 1):
         for s in range(n_sims):
             vs = val_safe[s, day-1] * (1.0 + daily_safe_rate)
@@ -69,14 +70,27 @@ def _compute_wealth_paths(val_safe, val_risky, wealth_paths, daily_safe_rate, ri
                     should_rebalance = True
                     
             if should_rebalance:
-                vs = cw * alloc_safe
-                vr = cw * (1.0 - alloc_safe)
+                vr_new = cw * (1.0 - alloc_safe)
+                if vr > vr_new:
+                    sell_amount = vr - vr_new
+                    avg_cost_ratio = min(cost_basis[s] / max(vr, 1.0), 1.0)
+                    gain_portion = sell_amount * (1.0 - avg_cost_ratio)
+                    tax_paid = gain_portion * 0.19
+                    cw -= tax_paid
+                    vs = cw * alloc_safe
+                    vr = cw * (1.0 - alloc_safe)
+                    cost_basis[s] = max(0.0, cost_basis[s] - sell_amount * avg_cost_ratio)
+                else:
+                    buy_amount = vr_new - vr
+                    cost_basis[s] += buy_amount
+                    vs = cw * alloc_safe
+                    vr = cw * (1.0 - alloc_safe)
                 
             val_safe[s, day] = vs
             val_risky[s, day] = vr
             wealth_paths[s, day] = cw
 
-    return wealth_paths
+    return wealth_paths, cost_basis
 
 def generate_student_t_copula_shocks(n_sims, n_days, n_assets, df=4, correlation_matrix=None):
     """
@@ -555,9 +569,9 @@ def simulate_rough_hawkes_heston(
             if n_jumps > 0:
                 # Jump sizes: log-normal mixture
                 j_sizes = np.random.normal(jump_mean, jump_vol, n_jumps)
-                # Total jump return: sum of individual jumps
-                jump_ret = np.sum(np.exp(j_sizes) - 1.0)
-                jump_returns[s, day] = float(np.clip(jump_ret, -0.50, 0.30))
+                # Total jump return: sum of individual jumps (log-returns)
+                jump_ret = np.sum(j_sizes)
+                jump_returns[s, day] = float(np.clip(jump_ret, -2.0, 2.0))
 
                 # Hawkes self-excitation: intensity spike after each jump
                 lambda_t += hawkes_alpha * n_jumps
@@ -622,14 +636,11 @@ def simulate_rough_bergomi_vol_fft(
     # Standardowe osadzanie cykliczne (Wood & Chan 1994):
     # row = [gamma(0), gamma(1),...,gamma(N-1), 0, gamma(N-1),...,gamma(1)]
     # lub po prostu symetryczny embedding rozmiaru 2N
-    embed_size = 2 * n_days
-    # Budujemy wiersz cyrkulantu: gamma + symetryczne odbićcie
-    # gamma ma długość n_days; gamma[-2:0:-1] ma długość n_days-2
-    # Razem: n_days + n_days - 2 = 2*n_days - 2 ≠ embed_size
-    # Poprawka: użijmy pełne zaślepienie zerami do dokładnie embed_size
-    half_mirror = gamma[-1:0:-1]  # odwrócone gamma bez gamma[0] -> length n_days-1
-    row = np.concatenate([gamma, half_mirror, np.zeros(embed_size - len(gamma) - len(half_mirror))])
-    # row ma teraz dokładnie embed_size elementów
+    embed_size = 2 * n_days - 2
+    if n_days <= 1:
+        return np.zeros((n_sims, n_days))
+        
+    row = np.concatenate([gamma, gamma[-2:0:-1]])
     assert len(row) == embed_size, f"Row length mismatch: {len(row)} != {embed_size}"
 
     # ── 3. FFT eigenvalues — gwarantuje PSD (Wood & Chan 1994) ───────────────
@@ -890,7 +901,7 @@ def simulate_barbell_strategy(
         jump_mean_annual = jump_lambda * (np.exp(jump_mean + 0.5*jump_std**2) - 1) if use_jump_diffusion else 0
         diff_mean = risky_mean - jump_mean_annual
         daily_mean = diff_mean * dt
-        risky_returns = np.exp(daily_mean + rough_daily_vols * standardized_shocks) - 1 + jump_returns
+        risky_returns = np.exp(daily_mean + rough_daily_vols * standardized_shocks + jump_returns) - 1
     elif use_garch:
         alpha_g = 0.10
         beta_g  = 0.85
@@ -913,7 +924,7 @@ def simulate_barbell_strategy(
         diff_mean = risky_mean - jump_mean_annual - 0.5 * target_diff_var
         daily_mean = diff_mean * dt
         
-        risky_returns = np.exp(daily_mean + daily_vols * standardized_shocks) - 1 + jump_returns
+        risky_returns = np.exp(daily_mean + daily_vols * standardized_shocks + jump_returns) - 1
     else:
         jump_var_annual = jump_lambda * (jump_mean**2 + jump_std**2) if use_jump_diffusion else 0
         target_diff_var = max(0.0001, (risky_vol ** 2) - jump_var_annual)
@@ -924,7 +935,7 @@ def simulate_barbell_strategy(
         daily_mean = diff_mean * dt
         daily_vol = np.sqrt(target_diff_var / days_per_year)
         
-        risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks) - 1 + jump_returns
+        risky_returns = np.exp(daily_mean + daily_vol * standardized_shocks + jump_returns) - 1
 
     # ─── Ryzyko Walutowe (USD/PLN) ───────────────────────────────────────────
     if use_currency_risk:
@@ -975,18 +986,16 @@ def simulate_barbell_strategy(
     rebalance_map = {"None": 0, "Yearly": 1, "Monthly": 2, "Threshold": 3}
     reb_id = rebalance_map.get(rebalance_strategy, 0)
 
-    wealth_paths = _compute_wealth_paths(
+    wealth_paths, cost_basis = _compute_wealth_paths(
         val_safe, val_risky, wealth_paths, daily_safe_rate, risky_returns,
         alloc_safe, threshold_percent, total_days, days_per_year, reb_id
     )
 
     # Podatek Belka na ZYSK z części ryzykownej (naliczany przy realizacji — koniec symulacji)
-    # Izolujemy wartość ryzykowną końcową z val_risky i nakładamy podatek na sam zysk.
-    # val_risky[:, 0] = kapitał startowy ryzykowny; val_risky[:, -1] = końcowy ryzykowny
-    risky_start = val_risky[:, 0]  # (n_simulations,)
     risky_end = val_risky[:, -1]   # (n_simulations,)
-    risky_gain = np.maximum(0.0, risky_end - risky_start)   # tylko zysk (nie strata)
-    tax_on_gain = risky_gain * 0.19  # 19% Belka
+    avg_cost_ratio = np.minimum(cost_basis / np.maximum(risky_end, 1.0), 1.0)
+    risky_gain = risky_end * (1.0 - avg_cost_ratio)
+    tax_on_gain = np.maximum(0.0, risky_gain * 0.19)  # 19% Belka
 
     # Odejmujemy podatek od końcowego bogactwa
     wealth_paths[:, -1] = np.maximum(0.0, wealth_paths[:, -1] - tax_on_gain)

@@ -440,8 +440,8 @@ with tabs[4]:
         if -3 <= opt_x <= 3 and -3 <= opt_y <= 3:
             fig_kkt.add_trace(go.Scatter(x=[opt_x], y=[opt_y], mode='markers', name='Optimum KKT', marker=dict(color='yellow', size=12, symbol='star')))
             
-        fig_kkt.update_layout(title="Optymalizacja KKT: Minimalizacja x²+y² z więzami", template="plotly_dark", height=600, width=800)
-        st.plotly_chart(fig_kkt, use_container_width=False)
+        fig_kkt.update_layout(title="Optymalizacja KKT: Minimalizacja x²+y² z więzami", template="plotly_dark", height=600)
+        st.plotly_chart(fig_kkt, use_container_width=True)
 
     with adv_tabs[3]:
         st.subheader("Twierdzenie graniczne de Finettiego")
