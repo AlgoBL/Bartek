@@ -81,7 +81,7 @@ with tabs[1]:
         st.markdown("""
         **Zasada działania:**
         W rzeczywistości negocjacje to proces w czasie. A czas kosztuje.
-        Współczynnik dyskontowy (Cierpliwość $\delta$) od 0 do 1 określa, jak bardzo tracisz na odkładaniu porozumienia w czasie (1 = w ogóle nie tracisz, 0 = tracisz wszystko natychmiast).
+        Współczynnik dyskontowy (Cierpliwość $\\delta$) od 0 do 1 określa, jak bardzo tracisz na odkładaniu porozumienia w czasie (1 = w ogóle nie tracisz, 0 = tracisz wszystko natychmiast).
         
         **Kluczowe wnioski:**
         1. **Zaletą pierwszego ruchu:** Gracz, który składa pierwszą ofertę, zawsze ma drobną przewagę (tzw. First Mover Advantage).

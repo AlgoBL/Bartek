@@ -55,7 +55,8 @@ with st.sidebar:
     show_midas = st.checkbox("PokaÅ¼ GARCH-MIDAS", value=True)
     show_ff5   = st.checkbox("PokaÅ¼ Fama-French 5-Factor", value=True)
 
-# âââ DATA LOADING âââââââââââââââââââââââââââââââââââââ@st.cache_data(ttl=3600, show_spinner=False)
+# --- DATA LOADING ---
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_returns_data(tickers_tuple: tuple, period_str: str) -> pd.DataFrame:
     """Load price data and compute daily returns."""
     from modules.isin_resolver import ISINResolver

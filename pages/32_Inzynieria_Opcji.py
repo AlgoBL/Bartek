@@ -33,10 +33,10 @@ with tabs[0]:
         Pozwala precyzyjnie wycenić europejskie opcje Call (Kupna) i Put (Sprzedaży).
         
         Kluczową potęgą modelu są **Greki** – miary wrażliwości:
-        *   **Delta ($\Delta$)**: O ile zmieni się cena opcji, gdy cena aktywa wzrośnie o $1. (Miara kierunkowa)
-        *   **Gamma ($\Gamma$)**: Jak szybko rośnie Delta. (Miernik wypukłości i ryzyka nagłych skoków)
-        *   **Vega ($\nu$)**: Jak rośnie wartość opcji, gdy wzrasta strach na rynku (zmienność $\sigma$).
-        *   **Theta ($\Theta$)**: Koszt upływu czasu (Time decay). Ile tracisz dziennie na samym trzymaniu opcji.
+        *   **Delta ($\\Delta$)**: O ile zmieni się cena opcji, gdy cena aktywa wzrośnie o $1. (Miara kierunkowa)
+        *   **Gamma ($\\Gamma$)**: Jak szybko rośnie Delta. (Miernik wypukłości i ryzyka nagłych skoków)
+        *   **Vega ($\\nu$)**: Jak rośnie wartość opcji, gdy wzrasta strach na rynku (zmienność $\\sigma$).
+        *   **Theta ($\\Theta$)**: Koszt upływu czasu (Time decay). Ile tracisz dziennie na samym trzymaniu opcji.
         """)
         
     col1, col2 = st.columns([1, 2])
