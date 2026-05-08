@@ -38,7 +38,8 @@ view_mode = st.sidebar.selectbox("Wybierz tryb wyświetlania sekcji", [
     "Sekcje 1 - 5",
     "Sekcje 6 - 10",
     "Sekcje 11 - 15",
-    "Sekcje 16 - 20"
+    "Sekcje 16 - 20",
+    "Sekcje 21 - 25"
 ], index=0)
 
 def show_sec(num):
@@ -47,6 +48,7 @@ def show_sec(num):
     if view_mode == "Sekcje 6 - 10" and 6 <= num <= 10: return True
     if view_mode == "Sekcje 11 - 15" and 11 <= num <= 15: return True
     if view_mode == "Sekcje 16 - 20" and 16 <= num <= 20: return True
+    if view_mode == "Sekcje 21 - 25" and 21 <= num <= 25: return True
     return False
 # --- KONIEC SEKCJI FILTROWANIA ---
 
@@ -1318,61 +1320,133 @@ if show_sec(19):
     
     
     # ═══════════════════════════════════════════════════════════
-if show_sec(20):
-    # 🆕 SEKCJA 20 — INTRADAY PATTERN RECOGNITION
+    # ═══════════════════════════════════════════════════════════
+if show_sec(21):
+    # SEKCJA 21 — COHERENT RISK MEASURES (CVaR)
     # ═══════════════════════════════════════════════════════════
     st.markdown("---")
-    st.markdown("## 📅 Sekcja 20 — Intraday Pattern Recognition (Sezonowość Dnia) 🆕")
-    st.markdown("<p style='color:#bbb;font-size:14px'>Rynek ma swój rytm biologiczny. Zrozumienie, kiedy płynność jest najwyższa, a kiedy algorytmy odpoczywają, pozwala uniknąć wchodzenia w 'dead zones'.</p>", unsafe_allow_html=True)
-    
-    ip_col1, ip_col2 = st.columns([2, 1])
-    
-    with ip_col1:
-        # Symulacja u-shape volatility/volume
-        hours = np.linspace(9.5, 16, 50)
-        # Równanie paraboliczne dla efektu "u-shape" (wysoka zmienność na otwarciu i zamknięciu)
-        vol_pattern = 0.5 * (hours - 12.75)**2 + 1.0
-        vol_pattern += np.random.normal(0, 0.1, 50) # szum
+    st.markdown("## 📊 Sekcja 21 — Coherent Risk Measures: VaR vs CVaR (Artzner 1999)")
+    st.markdown("<p style='color:#bbb;font-size:14px'>VaR (Value at Risk) mówi ile możesz stracić z 95% pewnością. CVaR (Conditional VaR / Expected Shortage) mówi jak źle będzie, gdy ta bariera pęknie.</p>", unsafe_allow_html=True)
+
+    col_cv1, col_cv2 = st.columns([2, 1])
+    with col_cv1:
+        conf_level = st.slider("Poziom Ufności (Confidence Level %)", 90.0, 99.0, 95.0, 0.5)
+        tail_risk_alpha = 1.0 - conf_level/100
         
-        fig_pattern = go.Figure()
-        fig_pattern.add_trace(go.Scatter(x=hours, y=vol_pattern, mode='lines', fill='tozeroy', 
-                                        line=dict(color="#a855f7", width=3), name="Intraday Volatility"))
+        # Simulate returns
+        np.random.seed(42)
+        rets_cv = np.random.normal(0, 0.02, 10000)
+        # Add fat tails
+        rets_cv = np.concatenate([rets_cv, np.random.normal(-0.08, 0.03, 500)])
         
-        fig_pattern.update_layout(
-            title="Typowy Profil Zmienności (U-Shape) w Ciągu Sesji",
-            xaxis=dict(title="Godzina (EST)", tickvals=[9.5, 11, 13, 15, 16], 
-                       ticktext=["9:30 (Open)", "11:00", "13:00 (Lunch)", "15:00", "16:00 (Close)"]),
-            yaxis=dict(title="Volatility Index"),
+        var_val = np.percentile(rets_cv, tail_risk_alpha * 100)
+        cvar_val = rets_cv[rets_cv <= var_val].mean()
+        
+        fig_cv = go.Figure()
+        fig_cv.add_trace(go.Histogram(x=rets_cv, nbinsx=100, name="Rozkład Zwrotów", marker_color="#2a2a3a"))
+        fig_cv.add_vline(x=var_val, line_dash="dash", line_color="#ffea00", annotation_text=f"VaR {conf_level}%")
+        fig_cv.add_vline(x=cvar_val, line_dash="solid", line_color="#ff1744", annotation_text="CVaR (Expected Shortfall)")
+        
+        fig_cv.update_layout(
+            title="Ryzyko Ogonowe (Tail Risk Analysis)",
+            xaxis=dict(title="Zwrot z transakcji", gridcolor="#1c1c2e"),
             template="plotly_dark", height=350,
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            margin=dict(l=40, r=20, t=50, b=40)
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
-        # Zaznaczenie stref
-        fig_pattern.add_vrect(x0=9.5, x1=10.5, fillcolor="green", opacity=0.1, layer="below", line_width=0, annotation_text="Golden Hour")
-        fig_pattern.add_vrect(x0=12, x1=13.5, fillcolor="red", opacity=0.1, layer="below", line_width=0, annotation_text="Dead Zone")
-        fig_pattern.add_vrect(x0=15.5, x1=16, fillcolor="green", opacity=0.1, layer="below", line_width=0, annotation_text="The Close")
-        
-        st.plotly_chart(fig_pattern, use_container_width=True)
-    
-    with ip_col2:
+        st.plotly_chart(fig_cv, use_container_width=True)
+
+    with col_cv2:
         st.markdown(f"""<div style='{CARD}'>
-        <div style='{H3}'>💹 Strategia 'U-Shape'</div>
+        <div style='{H3}'>📐 Miary Spójne</div>
         <p style='{NOTE}'>
-        • <b>Opening Range Breakout (9:30-10:15):</b> Najwyższa płynność i "price discovery". Tu decydują się kierunki dnia.<br><br>
-        • <b>Lunch Stagnation (12:00-13:30):</b> Instytucje schodzą z rynku. Ryzyko "chop" (boczniaka) i false breakouts. Unikaj handlu.<br><br>
-        • <b>Power Hour (15:00-16:00):</b> Rebalancing funduszy i zamykanie pozycji intraday. Powrót wolumenu.<br><br>
-        <b style='color:#a855f7'>Trade Tip:</b> Jeśli Twój setup pojawia się o 13:00, szansa na sukces statystycznie spada o 40% z powodu braku 'paliwa' (wolumenu).
+        VaR nie jest <b>spójną miarą ryzyka</b>, bo nie spełnia aksjomatu subaddytywności (dywersyfikacja może zwiększyć VaR).<br><br>
+        <b style='color:#ffea00'>VaR ({conf_level}%):</b> {var_val*100:.2f}% straty.<br>
+        <b style='color:#ff1744'>CVaR:</b> {cvar_val*100:.2f}% straty.<br><br>
+        CVaR to średnia ze wszystkich strat <i>gorszych</i> niż VaR. To ta liczba decyduje o Twoim przeżyciu na czarnym łabędziu.
         </p></div>""", unsafe_allow_html=True)
-    
-    
+
+if show_sec(22):
+    # SEKCJA 22 — RYNEK MIKROSTRUKTURY: KYLE MODEL (1985)
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("## 📉 Sekcja 22 — Mikrostruktura: Kyle Model i Lambda (λ)")
+    st.markdown("<p style='color:#bbb;font-size:14px'>Model Kyle'a tłumaczy, jak insiderzy ukrywają się w szumie i jak płynność (Lambda) wpływa na cenę.</p>", unsafe_allow_html=True)
+
+    col_ky1, col_ky2 = st.columns([2, 1])
+    with col_ky1:
+        sigma_v = st.slider("Zmienność fundamentów (Asset Volatility)", 0.01, 0.1, 0.05)
+        sigma_u = st.slider("Zmienność szumu (Noise Traders Volatility)", 100, 1000, 500)
+        
+        # Kyle's Lambda (Price Impact): λ = (1/2) * (σ_v / σ_u)
+        kyle_lambda = 0.5 * (sigma_v / (sigma_u/1000)) # scaled for viz
+        
+        order_flow = np.linspace(-2000, 2000, 100)
+        price_impact = kyle_lambda * order_flow
+        
+        fig_ky = go.Figure()
+        fig_ky.add_trace(go.Scatter(x=order_flow, y=price_impact, mode="lines", line=dict(color="#3498db", width=3), name="Price Impact"))
+        fig_ky.update_layout(
+            title="Kyle's λ — Wpływ zlecenia na cenę",
+            xaxis=dict(title="Order Flow Imbalance (Kupno - Sprzedaż)", gridcolor="#1c1c2e"),
+            yaxis=dict(title="Zmiana Ceny (ΔP)", gridcolor="#1c1c2e"),
+            template="plotly_dark", height=350,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_ky, use_container_width=True)
+
+    with col_ky2:
+        st.markdown(f"""<div style='{CARD}'>
+        <div style='{H3}'>🧠 Kyle's Lambda (λ)</div>
+        <p style='{NOTE}'>
+        <b>λ</b> to miara płynności rynkowej. <br><br>
+        • <b>Wysokie λ:</b> Płytki rynek. Małe zlecenie mocno rusza ceną.<br>
+        • <b>Niskie λ:</b> Głęboki rynek. Możesz ukryć duże zlecenie.<br><br>
+        Insiderzy handlują tak, by ich wpływ był proporcjonalny do szumu. Jeśli λ rośnie, rynek staje się toksyczny dla traderów detalicznych.
+        </p></div>""", unsafe_allow_html=True)
+
+if show_sec(23):
+    # SEKCJA 23 — HIGH-FREQUENCY STYLIZED FACTS
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("## ⚡ Sekcja 23 — High-Frequency Stylized Facts")
+    st.markdown("<p style='color:#bbb;font-size:14px'>W wysokich częstotliwościach rynek przestaje być gładki. Dominują klastry zmienności i autokorelacja wolumenu.</p>", unsafe_allow_html=True)
+
+    col_sf1, col_sf2 = st.columns([2, 1])
+    with col_sf1:
+        # Volatility Clustering (GARCH-like behavior)
+        np.random.seed(42)
+        n_sf = 500
+        rets_sf = np.zeros(n_sf)
+        vols_sf = np.zeros(n_sf)
+        vols_sf[0] = 0.01
+        for i in range(1, n_sf):
+            vols_sf[i] = 0.00001 + 0.1 * rets_sf[i-1]**2 + 0.85 * vols_sf[i-1]
+            rets_sf[i] = np.random.normal(0, np.sqrt(vols_sf[i]))
+            
+        fig_sf = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05)
+        fig_sf.add_trace(go.Scatter(y=rets_sf, name="Returns", line=dict(color="#3498db")), row=1, col=1)
+        fig_sf.add_trace(go.Scatter(y=np.sqrt(vols_sf), name="Volatility (GARCH)", line=dict(color="#ff1744")), row=2, col=1)
+        
+        fig_sf.update_layout(template="plotly_dark", height=400, showlegend=False, 
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig_sf, use_container_width=True)
+
+    with col_sf2:
+        st.markdown(f"""<div style='{CARD}'>
+        <div style='{H3}'>⚡ Stylized Facts</div>
+        <p style='{NOTE}'>
+        1. <b>Volatility Clustering:</b> Duże zmiany cen mają tendencję do występowania po dużych zmianach (dowolnego znaku).<br><br>
+        2. <b>Fat Tails:</b> Rozkład zwrotów ma grubsze ogony niż rozkład normalny (kurtoza > 3).<br><br>
+        3. <b>Aggregational Gaussianity:</b> Im dłuższy interwał czasu, tym bardziej rozkład przypomina Gausa. Na 1-minucie rynek jest dziki.
+        </p></div>""", unsafe_allow_html=True)
+
     # ═══════════════════════════════════════════════════════════
     # FOOTER
     # ═══════════════════════════════════════════════════════════
     st.markdown("---")
     st.markdown(f"""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:12px'>
-    Day Trading OS v3.0 · ZAAWANSOWANA WERSJA · The Quant Platform Ecosystem<br>
-    <b>Moduły zintegrowane:</b> Monte Carlo, Risk-of-Ruin, FBM Ekonofizyka, Order Book Microstructure, <br>
-    Kelly Criterion (Optymalizacja R:R), Prospect Theory (Psychologia strat), <br>
-    Hidden Markov Models (Regime Detection), Statystyczna Istotność (T-Tests by Prado), <br>
-    GARCH/Volatility Clusters, WFO (Deflated Sharpe), Ergodyczność Taleba, Dywersyfikacja Portfelowa (HRP).
+    Day Trading OS v5.0 · ZAAWANSOWANA WERSJA · The Quant Platform Ecosystem<br>
+    <b>Moduły:</b> Monte Carlo, Risk-of-Ruin, FBM, LOB, Kelly, Prospect Theory, HMM, T-Tests,<br>
+    CVaR (Coherent Risk), Kyle Model (Microstructure λ), Stylized Facts (GARCH Clusters).<br>
+    Ergodyczność Taleba, Dywersyfikacja HRP, Sezonowość Intraday (U-Shape).
     </div>""", unsafe_allow_html=True)

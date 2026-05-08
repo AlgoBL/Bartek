@@ -2596,15 +2596,310 @@ if show_sec(35):
     
     
     # ═══════════════════════════════════════════════════════════
+if show_sec(36):
+    # SEKCJA 36 — ALLOSTAZA vs HOMEOSTAZA (Peter Sterling)
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("## ⚖️ Sekcja 36 — Allostaza i Dryfujący Baseline (Peter Sterling)")
+    st.markdown("<p style='color:#bbb;font-size:14px'>Allostaza: ciało osiąga stabilność przez zmianę. Chronic stress przesuwa baseline trwale — to allostatic load.</p>", unsafe_allow_html=True)
+
+    col_al1, col_al2 = st.columns([3, 2])
+    with col_al1:
+        days_stress = st.slider("Dni chronicznego stresu (tygodnie × 7)", 0, 365, 90, 7, key="al_days")
+        stress_intensity = st.slider("Intensywność stresu (1-10)", 1, 10, 6, key="al_int")
+        recovery_quality = st.slider("Jakość regeneracji nocnej (1-10)", 1, 10, 5, key="al_rec")
+
+        # Model: baseline dryfuje w górę z chronicznym stresem
+        t_al = np.arange(0, days_stress + 1)
+        drift_rate = stress_intensity * 0.03 - recovery_quality * 0.015
+        baseline_drift = 100 + np.cumsum(np.full(len(t_al), drift_rate))
+        acute_response = baseline_drift + stress_intensity * 15 * np.sin(2 * np.pi * t_al / 7)**2
+
+        fig_al = go.Figure()
+        fig_al.add_trace(go.Scatter(x=t_al, y=baseline_drift, mode="lines",
+                                     name="Dryfujący Baseline (Allostatic Set Point)",
+                                     line=dict(color="#ff1744", width=3)))
+        fig_al.add_trace(go.Scatter(x=t_al, y=acute_response, mode="lines",
+                                     name="Kortyzol (Ostry Stres)", fill="tonexty",
+                                     fillcolor="rgba(255,23,68,0.08)",
+                                     line=dict(color="#ffea00", width=1.5, dash="dot")))
+        fig_al.add_hline(y=100, line_dash="dash", line_color="#00e676",
+                         annotation_text="Zdrowy Baseline (Homeostaza)")
+        fig_al.update_layout(
+            title="Allostatic Load — Dryfowanie Punktu Równowagi",
+            xaxis=dict(title="Dni", gridcolor="#1c1c2e"),
+            yaxis=dict(title="Poziom Kortyzolu / Pobudzenia", gridcolor="#1c1c2e"),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", family="Inter"), height=320,
+            margin=dict(l=50, r=20, t=50, b=50)
+        )
+        st.plotly_chart(fig_al, use_container_width=True)
+
+    with col_al2:
+        load = baseline_drift[-1] - 100
+        load_color = "#ff1744" if load > 30 else "#f39c12" if load > 10 else "#00e676"
+        st.markdown(f"""<div style='{CARD}'>
+        <div style='{H3}'>⚖️ Allostaza vs Homeostaza</div>
+        <p style='{NOTE}'>
+        <b>Homeostaza (Cannon):</b> Ciało wraca do stałego punktu równowagi.<br><br>
+        <b>Allostaza (Sterling & Eyer, 1988):</b> Ciało osiąga stabilność <i>przez zmianę</i> — baseline sam w sobie dryfuje.<br><br>
+        Chroniczny stres przesuwa oś HPA (kortyzolem) na wyższy punkt startowy.<br>
+        Efekt: <b>to co było stresem</b>, teraz jest normą. Układ traci czułość.<br><br>
+        <b style='color:{load_color}'>Twój Allostatic Load: +{load:.0f}</b>
+        </p></div>""", unsafe_allow_html=True)
+        if load > 30:
+            st.error("⚠️ WYSOKI ALLOSTATIC LOAD: Konieczna aktywna regeneracja (sen, przyroda, odcięcie od stresorów).")
+        elif load > 10:
+            st.warning("⚠️ Umiarkowany drift. Priorytetuj recovery okna.")
+        else:
+            st.success("✅ Baseline stabilny — regeneracja skuteczna.")
+
+
+    # ═══════════════════════════════════════════════════════════
+if show_sec(37):
+    # SEKCJA 37 — PREDICTIVE CODING (Andy Clark)
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("## 🔮 Sekcja 37 — Predictive Coding (Andy Clark & Karl Friston)")
+    st.markdown("<p style='color:#bbb;font-size:14px'>Mózg nie reaguje na bodźce — generuje predykcje i minimalizuje błąd predykcji (prediction error).</p>", unsafe_allow_html=True)
+
+    col_pc1, col_pc2 = st.columns([3, 2])
+    with col_pc1:
+        precision_weight = st.slider("Precyzja predykcji (pewność modelu, 1-10)", 1, 10, 7, key="pc_prec")
+        surprise_level = st.slider("Poziom zaskoczenia (rozbieżność ze światem)", 0, 100, 30, key="pc_surp")
+        update_rate = st.slider("Szybkość aktualizacji modelu (plastyczność)", 1, 10, 5, key="pc_upd")
+
+        t_pc = np.linspace(0, 10, 200)
+        prediction = 50 + 20 * np.sin(t_pc)
+        reality = prediction + (surprise_level / 10) * np.random.randn(200) * 5
+        pred_error = reality - prediction
+        precision = precision_weight / 10
+        updated_model = prediction + update_rate / 10 * pred_error
+
+        fig_pc = go.Figure()
+        fig_pc.add_trace(go.Scatter(x=t_pc, y=prediction, mode="lines",
+                                     name="Predykcja Mózgu (Prior)",
+                                     line=dict(color="#3498db", width=2.5)))
+        fig_pc.add_trace(go.Scatter(x=t_pc, y=reality, mode="lines",
+                                     name="Sygnał Sensoryczny (Rzeczywistość)",
+                                     line=dict(color="#ff1744", width=1.5, dash="dot")))
+        fig_pc.add_trace(go.Scatter(x=t_pc, y=updated_model, mode="lines",
+                                     name="Zaktualizowany Model (Posterior)",
+                                     line=dict(color="#00e676", width=2.5)))
+        fig_pc.update_layout(
+            title="Predictive Coding — Hierarchia Predykcji i Błędów",
+            xaxis=dict(title="Czas", gridcolor="#1c1c2e"),
+            yaxis=dict(title="Aktywacja", gridcolor="#1c1c2e"),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", family="Inter"), height=300,
+            margin=dict(l=50, r=20, t=50, b=50)
+        )
+        st.plotly_chart(fig_pc, use_container_width=True)
+
+    with col_pc2:
+        st.markdown(f"""<div style='{CARD}'>
+        <div style='{H3}'>🔮 Hierarchia Predykcji</div>
+        <p style='{NOTE}'>
+        Mózg to <b>generatywna maszyna predykcji</b>. Każda warstwa kory generuje predykcje dla warstwy niżej.<br><br>
+        <b style='color:#3498db'>Prediction Error (PE)</b> = Rzeczywistość − Predykcja<br><br>
+        Minimalizacja PE przez:<br>
+        1. <b>Perception</b>: Aktualizacja modelu (learning)<br>
+        2. <b>Action</b>: Zmiana świata by pasował do predykcji<br><br>
+        <b style='color:#ffea00'>Precision weighting:</b> Silny prior (wysoka precyzja) → mniej aktualizacji z zewnątrz.
+        </p></div>""", unsafe_allow_html=True)
+
+
+    # ═══════════════════════════════════════════════════════════
+if show_sec(38):
+    # SEKCJA 38 — β-δ MODEL (LAIBSON QUASI-HYPERBOLIC)
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("## 📉 Sekcja 38 — Quasi-Hiperboliczne Dyskonto (Laibson β-δ Model)")
+    st.markdown("<p style='color:#bbb;font-size:14px'>Precyzyjniejszy model niż klasyczna hiperbola: β (natychmiastowe nastawienie) × δ (cierpliwość długoterminowa).</p>", unsafe_allow_html=True)
+
+    col_bd1, col_bd2 = st.columns([3, 2])
+    with col_bd1:
+        beta_param = st.slider("β — present bias (0=skrajny impulsywny, 1=konsekwentny)", 0.1, 1.0, 0.7, 0.05, key="bd_beta")
+        delta_param = st.slider("δ — długoterminowa cierpliwość (0.9=zdrowy, 1.0=nie dyskontuje)", 0.80, 1.0, 0.95, 0.01, key="bd_delta")
+        reward = 1000.0
+        days_range = np.arange(0, 180, 1)
+
+        # Klasyczna hiperbola
+        k_hyp = 0.04
+        val_hyp = reward / (1 + k_hyp * days_range)
+        # β-δ model: V(t) = β × δ^t dla t>0, V(0) = β×reward
+        val_bd = np.where(days_range == 0, reward, beta_param * delta_param**days_range * reward)
+        # Eksponencjalne (racjonalne)
+        val_exp = reward * (delta_param**days_range)
+
+        fig_bd = go.Figure()
+        fig_bd.add_trace(go.Scatter(x=days_range, y=val_exp, mode="lines",
+                                     name="Eksponencyjne (Homo Economicus)",
+                                     line=dict(color="#3498db", width=2, dash="dash")))
+        fig_bd.add_trace(go.Scatter(x=days_range, y=val_hyp, mode="lines",
+                                     name="Hiperbola (klasyczna)",
+                                     line=dict(color="#ffea00", width=2, dash="dot")))
+        fig_bd.add_trace(go.Scatter(x=days_range, y=val_bd, mode="lines",
+                                     name=f"β-δ Model (β={beta_param}, δ={delta_param})",
+                                     line=dict(color="#ff1744", width=3)))
+        fig_bd.update_layout(
+            title="β-δ Quasi-Hiperboliczne Dyskonto (Laibson 1997)",
+            xaxis=dict(title="Dni oczekiwania", gridcolor="#1c1c2e"),
+            yaxis=dict(title="Odczuwana Wartość Nagrody (PLN)", gridcolor="#1c1c2e"),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", family="Inter"), height=320,
+            margin=dict(l=50, r=20, t=50, b=50)
+        )
+        st.plotly_chart(fig_bd, use_container_width=True)
+
+    with col_bd2:
+        present_bias_cost = reward * (1 - beta_param) * (1 - delta_param**30)
+        st.markdown(f"""<div style='{CARD}'>
+        <div style='{H3}'>📐 Formalizacja</div>
+        <p style='{NOTE}'>
+        V(0) = reward<br>
+        V(t>0) = <b>β × δ^t</b> × reward<br><br>
+        <b style='color:#ff1744'>β (present bias):</b> skok dyskontowania między <i>teraz</i> a <i>jutro</i>.<br>
+        β=1: brak natychmiastowego uprzedzenia (konsekwentny).<br>
+        β=0.5: jutrzejsza nagroda warta tylko połowę.<br><br>
+        <b style='color:#3498db'>δ (long-run patience):</b> standardowe dyskontowanie.<br><br>
+        <b>Szacowany koszt Twojego present bias:</b>
+        <span style='color:#ff1744;font-size:16px'>{present_bias_cost:.0f} PLN/mies.</span>
+        (przybliżenie dla 30-dniowego horyzontu)
+        </p></div>""", unsafe_allow_html=True)
+
+
+    # ═══════════════════════════════════════════════════════════
+if show_sec(39):
+    # SEKCJA 39 — SLEEP ARCHITECTURE & MEMORY CONSOLIDATION
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("## 💤 Sekcja 39 — Architektura Snu i Konsolidacja Pamięci (Walker 2024)")
+    st.markdown("<p style='color:#bbb;font-size:14px'>Cykl NREM/REM decyduje o konsolidacji pamięci, kreatywności i resetowaniu emocjonalnym.</p>", unsafe_allow_html=True)
+
+    col_sl1, col_sl2 = st.columns([3, 2])
+    with col_sl1:
+        sleep_hours = st.slider("Godziny snu", 3.0, 10.0, 7.5, 0.5, key="sl_hrs")
+        sleep_quality = st.slider("Jakość snu (1-10, bez alkoholu/latency)", 1, 10, 7, key="sl_qual")
+        sleep_debt_days = st.slider("Dni deficytu snu z rzędu", 0, 14, 3, key="sl_debt")
+
+        # Sleep architecture simulation
+        n_cycles = int(sleep_hours / 1.5)
+        cycle_t = []
+        stages = []
+        colors_sl = []
+        stage_map = {0: "Czuwanie", 1: "N1 (lekki)", 2: "N2 (środkowy)", 3: "N3 (głęboki)", 4: "REM"}
+        color_map = {0: "#ff1744", 1: "#888", 2: "#3498db", 3: "#a855f7", 4: "#00e676"}
+
+        t_sl = 0
+        for cyc in range(n_cycles):
+            # NREM domination early, REM late
+            nrem_dur = max(5, 45 - cyc * 8)
+            rem_dur = min(30, 10 + cyc * 10)
+            for stage in [1, 2, 3, 2, 4]:
+                dur = (nrem_dur // 4 if stage < 4 else rem_dur) * sleep_quality / 10
+                dur = max(2, dur)
+                cycle_t.extend([t_sl, t_sl + dur])
+                stages.extend([stage, stage])
+                colors_sl.extend([color_map[stage], color_map[stage]])
+                t_sl += dur
+
+        fig_sl = go.Figure()
+        for stage_id, stage_name in stage_map.items():
+            if stage_id == 0:
+                continue
+            t_s = [cycle_t[i] for i in range(len(stages)) if stages[i] == stage_id]
+            fig_sl.add_trace(go.Scatter(
+                x=t_s,
+                y=[stage_id] * len(t_s),
+                mode="markers",
+                name=stage_name,
+                marker=dict(color=color_map[stage_id], size=6, symbol="square")
+            ))
+
+        fig_sl.update_layout(
+            title=f"Hipnogram — Architektura {n_cycles} Cykli Snu",
+            xaxis=dict(title="Czas (minuty)", gridcolor="#1c1c2e"),
+            yaxis=dict(title="Faza Snu", tickvals=[1, 2, 3, 4],
+                       ticktext=["N1 Lekki", "N2 Środkowy", "N3 Głęboki", "REM"],
+                       gridcolor="#1c1c2e"),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", family="Inter"), height=280,
+            margin=dict(l=80, r=20, t=50, b=50)
+        )
+        st.plotly_chart(fig_sl, use_container_width=True)
+
+    with col_sl2:
+        # Sleep debt cognitive impact
+        debt_impact = min(40, sleep_debt_days * 4 * (8 - sleep_hours) / 2)
+        perf_remaining = max(60, 100 - debt_impact)
+        st.markdown(f"""<div style='{CARD}'>
+        <div style='{H3}'>🧠 Konsolidacja Pamięci</div>
+        <p style='{NOTE}'>
+        <b>N3 (SWS):</b> Konsolidacja pamięci deklaratywnej (fakty, daty).<br>
+        <b>REM:</b> Konsolidacja pamięci proceduralnej i emocjonalne przetwarzanie.<br><br>
+        <b>Deficyt snu:</b> {sleep_debt_days} dni × {max(0, 8-sleep_hours):.0f}h = <span style='color:#ff1744'>{debt_impact:.0f}h długu</span><br>
+        <b>Wydajność poznawcza:</b> <span style='color:{"#00e676" if perf_remaining > 85 else "#ffea00" if perf_remaining > 70 else "#ff1744"}'>{perf_remaining:.0f}%</span><br><br>
+        <b style='color:#ffea00'>Walker's Rule of 5:</b><br>
+        Po 5 nocach z 6h snu → wydajność jak po 24h bez snu (BAC 0.1%!), ale bez subiektywnego poczucia senności.
+        </p></div>""", unsafe_allow_html=True)
+        if sleep_hours < 7:
+            st.error(f"⚠️ {sleep_hours}h < 7h: WHO minimum. Ryzyko demencji, CVD, immunosupresji.")
+        elif sleep_hours >= 8:
+            st.success(f"✅ {sleep_hours}h — optymalny zakres dla pełnej konsolidacji i regeneracji.")
+
+
+    # ═══════════════════════════════════════════════════════════
+if show_sec(40):
+    # SEKCJA 40 — GUT-BRAIN AXIS (Oś Jelitowo-Mózgowa)
+    # ═══════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("## 🦠 Sekcja 40 — Oś Jelitowo-Mózgowa (Gut-Brain Axis)")
+    st.markdown("<p style='color:#bbb;font-size:14px'>70% serotoniny pochodzi z jelit. Mikrobiom wpływa bezpośrednio na decyzje finansowe przez nerw błędny.</p>", unsafe_allow_html=True)
+
+    col_gb1, col_gb2 = st.columns([1, 1])
+    with col_gb1:
+        diet_quality = st.slider("Jakość diety (przetworzone ← → roślinne)", 0, 100, 50, key="gb_diet")
+        stress_gut = st.slider("Stres (kortyzol) → dysbioza mikrobiomu", 0, 100, 40, key="gb_str")
+        sleep_gut = st.slider("Jakość snu → modulacja mikrobiomu", 0, 100, 60, key="gb_slp")
+        antibiotics = st.checkbox("Antybiotyki w ostatnich 3 miesiącach", key="gb_ab")
+
+        micro_score = (diet_quality * 0.4 + sleep_gut * 0.3 - stress_gut * 0.2 -
+                       (30 if antibiotics else 0))
+        micro_score = max(0, min(100, micro_score))
+
+        serotonin_est = 60 + micro_score * 0.4
+        decision_quality = 50 + micro_score * 0.3 - stress_gut * 0.2
+
+        m1, m2 = st.columns(2)
+        m1.metric("Szacowany Stan Mikrobiomu", f"{micro_score:.0f}/100")
+        m2.metric("Szac. Serotonina (jelitowa)", f"{serotonin_est:.0f}%")
+        st.metric("Jakość Decyzji (model)", f"{max(30, decision_quality):.0f}/100")
+
+    with col_gb2:
+        st.markdown(f"""<div style='{CARD}'>
+        <div style='{H3}'>🦠 Oś Jelitowo-Mózgowa</div>
+        <p style='{NOTE}'>
+        <b>Nerw Błędny (Vagus):</b> Dwukierunkowy highway: jelita ↔ mózg.<br>
+        90% sygnałów biegnie <i>z jelit do mózgu</i> (nie odwrotnie!)<br><br>
+        <b style='color:#00e676'>Serotonina:</b> ~70% produkowana w enterochromofilnych komórkach jelita.<br>
+        Dysbioza → ↓ serotonina → ↑ impulsywność, ↑ risk-seeking, ↓ delayed gratification.<br><br>
+        <b style='color:#ffea00'>Cortisol → Gut:</b> Stres niszczy tight junctions (Leaky Gut) → LPS do krwiobiegu → neuroinflammation → fog kognitywny.<br><br>
+        <b style='color:#ff1744'>Implikacja Finansowa:</b> Trader ze słabym mikrobiomem podejmuje gorsze decyzje przez neuroinflammation i niedobór serotoniny.
+        </p></div>""", unsafe_allow_html=True)
+        if antibiotics:
+            st.warning("⚠️ Antybiotyki wymazują 40-90% mikrobiomu. Odbudowa: 6-12 miesięcy z probiotykami + dietary fiber.")
+
+    # ═══════════════════════════════════════════════════════════
     # ZAKTUALIZOWANY FOOTER
     # ═══════════════════════════════════════════════════════════
     st.markdown("---")
     st.markdown("""<div style='text-align:center;color:#2a2a3a;font-size:11px;padding:16px'>
-    Life OS v4.6 · Advanced Quant Platform Ecosystem · 35 Sekcji Naukowych<br>
+    Life OS v5.0 · Advanced Quant Platform Ecosystem · 40 Sekcji Naukowych<br>
     Ergodicity (Peters) · RPE (Schultz) · Network Centrality (Burt) · Barbell &amp; Extremistan (Taleb) · Kelly Criterion<br>
     Chronobiology (Panda) · Flow 3D (Csíkszentmihályi) · Fogg Behavior Model · Nudges (Kahneman/Thaler)<br>
     Mechanism Design · IPD (Axelrod/Nowak) · Multi-Armed Bandit · Costly Signaling · Hawkes Processes<br>
-    <b>NEW v4.6:</b> Non-linear Risk Engineering (Ito vs Stratonovich) · Stochastic Noise Scaling · Taylor Expansion Decision Making<br>
-    SOC &amp; Edge of Chaos (Per Bak/SFI) · AI Cognitive Surrender (Wharton 2025) · Active Inference (Friston 2022)<br>
+    <b>NEW v5.0:</b> Allostaza (Sterling) · Predictive Coding (Clark/Friston) · β-δ Model (Laibson)<br>
+    Sleep Architecture (Walker) · Gut-Brain Axis · SOC &amp; Edge of Chaos · Active Inference (Friston 2022)<br>
     Network Neuroscience (DMN/TPN) · Polyvagal Theory (Porges) · Noise (Kahneman 2021)
     </div>""", unsafe_allow_html=True)

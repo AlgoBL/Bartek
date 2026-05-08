@@ -60,47 +60,103 @@ def fetch_control_center_data_from_cache():
     return {}, {}
 
 def calculate_regime_score(macro, geo_report):
-    score = 50.0
-    vix_ts = macro.get("VIX_TS_Ratio", 1.0)
-    if vix_ts > 1.05: score += 15.0
+    """Bayesian-inspired Weighted Regime Score (0-100)"""
+    # Weights for different categories (Probabilities/Impact)
+    weights = {
+        "vix_term": 0.20,
+        "gex": 0.15,
+        "ted_spread": 0.10,
+        "fin_stress": 0.15,
+        "yield_curve": 0.10,
+        "credit_spread": 0.10,
+        "sentiment": 0.10,
+        "breadth": 0.10
+    }
+    
+    # Normalized signals (0 = Good, 1 = Crisis)
+    signals = {}
+    
+    # 1. VIX Term Structure
+    vts = macro.get("VIX_TS_Ratio", 1.0)
+    signals["vix_term"] = 1.0 if vts > 1.05 else (vts - 0.8) / 0.25
+    
+    # 2. GEX
     gex = macro.get("total_gex_billions", 0)
-    if gex < 0: score += 10.0
-    ted = macro.get("FRED_TED_Spread")
-    if ted and ted > 0.5: score += 10.0
-    fci = macro.get("FRED_Financial_Stress_Index")
-    if fci and fci > 0: score += 15.0
-    if macro.get("Yield_Curve_Inverted", False): score += 10.0
-    ry = macro.get("FRED_Real_Yield_10Y")
-    if ry and ry > 2.0: score += 5.0
-    hy = macro.get("FRED_HY_Spread")
-    if hy and hy > 600: score += 10.0
-    cs = macro.get("FRED_Credit_Spread_BAA_AAA")
-    if cs and cs > 3.0: score += 5.0
+    signals["gex"] = 1.0 if gex < -5 else (1.0 if gex < 0 else 0.0)
+    
+    # 3. TED Spread
+    ted = macro.get("FRED_TED_Spread", 0.2)
+    signals["ted_spread"] = min(1.0, max(0.0, (ted - 0.2) / 0.8))
+    
+    # 4. Financial Stress
+    fci = macro.get("FRED_Financial_Stress_Index", -0.5)
+    signals["fin_stress"] = min(1.0, max(0.0, (fci + 1.0) / 3.0))
+    
+    # 5. Yield Curve
+    yc = macro.get("Yield_Curve_Spread", 0.5)
+    signals["yield_curve"] = 1.0 if yc < 0 else (0.5 if yc < 0.3 else 0.0)
+    
+    # 6. Credit Spreads (BAA-AAA)
+    cs = macro.get("FRED_Credit_Spread_BAA_AAA", 2.0)
+    signals["credit_spread"] = min(1.0, max(0.0, (cs - 1.5) / 2.0))
+    
+    # 7. Sentiment
     sent = geo_report.get("compound_sentiment", 0.0)
-    score -= sent * 15.0
-    breadth = macro.get("Breadth_Momentum")
-    if breadth is not None and breadth < -0.02: score += 10.0
-    return max(1.0, min(100.0, score))
+    signals["sentiment"] = (1.0 - (sent + 1.0) / 2.0) # Inverse: -1 -> 1, 1 -> 0
+    
+    # 8. Breadth
+    breadth = macro.get("Breadth_Momentum", 0.0)
+    signals["breadth"] = 1.0 if breadth < -0.05 else (0.5 if breadth < 0 else 0.0)
+    
+    # Weighted average
+    total_score = sum(signals[k] * weights[k] for k in weights if k in signals) * 100
+    return max(1.0, min(100.0, total_score))
 
 def determine_business_cycle(macro):
-    yc = macro.get("Yield_Curve_Spread", 0)
-    claims = macro.get("FRED_Initial_Jobless_Claims", 250000)
+    """8-Phase Fidelity-inspired Investment Clock"""
+    yc = macro.get("Yield_Curve_Spread", 0.5)
     pmi = macro.get("FRED_ISM_Manufacturing_PMI", 50.0)
+    cpi = macro.get("FRED_CPI_YoY", 2.0)
+    
+    # Growth (PMI) and Inflation (CPI) dynamics
+    # Thresholds
+    growth_up = pmi > 50
+    inflation_up = cpi > 3.0 # or rising
+    
+    # 1. EARLY RECOVERY (Growth Rising, Inflation Falling)
+    if growth_up and not inflation_up and yc > 0.5:
+        return "Early Recovery", "Growth starts to pick up, inflation is low.", "🌱", "#3498db"
+    
+    # 2. MID-CYCLE EXPANSION (Growth Rising, Inflation Stable/Low)
+    if growth_up and cpi < 4.0 and yc > 0:
+        return "Mid-Cycle", "Strongest phase for equities.", "🚀", "#2ecc71"
+    
+    # 3. LATE CYCLE (Growth Peaking, Inflation Rising)
+    if pmi > 55 and inflation_up:
+        return "Late Cycle", "Capacity constraints, rising rates.", "⌛", "#f1c40f"
+    
+    # 4. OVERHEATING (Growth High, Inflation High)
+    if pmi > 60 and inflation_up:
+        return "Overheating", "Central bank aggressive tightening.", "🔥", "#e67e22"
+    
+    # 5. STAGFLATION (Growth Falling, Inflation High)
+    if not growth_up and inflation_up:
+        return "Stagflation", "Worst case: weak growth + high inflation.", "☢️", "#9b59b6"
+    
+    # 6. SLOWDOWN (Growth Falling, Inflation Falling)
+    if not growth_up and not inflation_up and yc < 0.3:
+        return "Slowdown", "Defensive phase, bonds preferred.", "📉", "#f39c12"
+    
+    # 7. RECESSION (Growth Negative/Very Low, Inflation Falling)
+    if pmi < 45 and not inflation_up:
+        return "Recession", "Economic contraction, rates falling.", "💀", "#e74c3c"
+    
+    # 8. REFLATION (Growth Bottoming, Policy Easing)
+    if pmi < 50 and yc > 1.0:
+        return "Reflation", "Bottom reached, liquidity entering.", "⚓", "#1abc9c"
 
-    # Inwersja krzywej jest dominującym sygnałem restrykcji / spowolnienia
-    if yc is not None and yc < 0:
-        return t("bc_slowdown"), t("bc_slowdown_desc"), "📉", "#f39c12"
-
-    # Recesja: wysokie bezrobocie (claims) i yc >= 0 (często po "un-inversion")
-    if claims is not None and claims > 300000 and (yc is None or yc >= 0):
-        return t("bc_recession"), t("bc_recession_desc"), "💀", "#e74c3c"
-
-    # Odrodzenie: PMI poniżej 50 (ciągle słabo), ale krzywa już stroma (>0.5)
-    if pmi is not None and pmi < 50 and yc is not None and yc > 0.5:
-        return t("bc_recovery"), t("bc_recovery_desc"), "🌱", "#3498db"
-
-    # Domyślnie Ekspansja
-    return t("bc_expansion"), t("bc_expansion_desc"), "🚀", "#2ecc71"
+    # Default
+    return "Expansion", "Normal growth phase.", "🚀", "#2ecc71"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  KONTEKSTOWE OPISY WSKAŹNIKÓW (DYMKI)
@@ -651,13 +707,19 @@ def home():
         _oil_val  = macro.get("Crude_Oil") or 0
         _usd_val  = macro.get("US_Dollar_Index") or 0
         _hy_val   = macro.get("FRED_HY_Spread") or 0
+        _btc_val  = macro.get("Bitcoin") or 0
+        _eur_val  = macro.get("EUR_USD") or 0
+        _tnx_val  = macro.get("10Y_Treasury") or 0
+        
         _ticker_items = [
             {"name": "VIX",        "value": _vix_val,  "change": macro.get("VIX_1M_change", 0.0), "suffix": ""},
-            {"name": "Gold",       "value": _gold_val,  "change": macro.get("Gold_change", 0.0), "suffix": "$"},
-            {"name": "WTI",        "value": _oil_val,   "change": macro.get("Crude_Oil_change", 0.0), "suffix": "$"},
-            {"name": "DXY",        "value": _usd_val,   "change": macro.get("US_Dollar_Index_change", 0.0), "suffix": ""},
-            {"name": "HY Spread",  "value": _hy_val,    "change": macro.get("FRED_HY_Spread_change", 0.0), "suffix": "", },
-            {"name": "SCORE",      "value": score,       "change": 0.0, "suffix": ""},
+            {"name": "BTC",        "value": _btc_val,  "change": macro.get("Bitcoin_change", 0.0), "suffix": "$"},
+            {"name": "Gold",       "value": _gold_val, "change": macro.get("Gold_change", 0.0), "suffix": "$"},
+            {"name": "EUR/USD",    "value": _eur_val,  "change": macro.get("EUR_USD_change", 0.0), "suffix": ""},
+            {"name": "10Y Yield",  "value": _tnx_val,  "change": macro.get("10Y_Treasury_change", 0.0), "suffix": "%"},
+            {"name": "WTI",        "value": _oil_val,  "change": macro.get("Crude_Oil_change", 0.0), "suffix": "$"},
+            {"name": "HY Spread",  "value": _hy_val,   "change": macro.get("FRED_HY_Spread_change", 0.0), "suffix": "", },
+            {"name": "SCORE",      "value": score,     "change": 0.0, "suffix": ""},
         ]
         _ticker_items = [i for i in _ticker_items if i["value"] > 0]
         if _ticker_items:

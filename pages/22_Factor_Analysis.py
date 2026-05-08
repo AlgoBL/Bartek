@@ -2,7 +2,7 @@
 22_Factor_Analysis.py â Factor Zoo PCA & Fama-French 5-Factor Decomposition
 
 Zawiera:
-  - PCA Eigen-Portfolio Analysis (ile czynnikÃ³w wyjaÅnia >=95% zmiennoÅci)
+  - PCA Eigen-Portfolio Analysis (ile czynników wyjaÅnia >=95% zmiennoÅci)
   - Fama-French 5-Factor regression (Market, SMB, HML, RMW, CMA)
   - GARCH-MIDAS Volatility Decomposition
   - Principal Risk Factor visualization
@@ -45,15 +45,15 @@ with st.sidebar:
         "Tickers portfela (jeden per linia lub przecinek)",
         value="SPY\nQQQ\nTLT\nGLD\nIWM",
         height=120,
-        help="Wpisz tickery aktywÃ³w portfela. Dane pobierane z Yahoo Finance.",
+        help="Wpisz tickery aktywów portfela. Dane pobierane z Yahoo Finance.",
     )
     period = st.selectbox("Okres historyczny", ["1y", "2y", "3y", "5y"], index=2)
     pca_variance_threshold = st.slider(
-        "PrÃ³g wariancji PCA (%)", 80, 99, 95,
-        help="Ile % caÅkowitej wariancji powinny wyjaÅniaÄ wybrane czynniki gÅÃ³wne?"
+        "Próg wariancji PCA (%)", 80, 99, 95,
+        help="Ile % caÅkowitej wariancji powinny wyjaÅniaÄ wybrane czynniki gÅówne?"
     )
-    show_midas = st.checkbox("PokaÅ¼ GARCH-MIDAS", value=True)
-    show_ff5   = st.checkbox("PokaÅ¼ Fama-French 5-Factor", value=True)
+    show_midas = st.checkbox("Pokaż GARCH-MIDAS", value=True)
+    show_ff5   = st.checkbox("Pokaż Fama-French 5-Factor", value=True)
 
 # --- DATA LOADING ---
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -61,7 +61,7 @@ def load_returns_data(tickers_tuple: tuple, period_str: str) -> pd.DataFrame:
     """Load price data and compute daily returns."""
     from modules.isin_resolver import ISINResolver
     from modules.data_provider import fetch_data
-    # Transparentne tÅumaczenie ISIN â ticker dla kaÅ¼dego elementu krotki
+    # Transparentne tÅumaczenie ISIN â ticker dla każdego elementu krotki
     resolved_map = {t: ISINResolver.resolve(t) for t in tickers_tuple}
     resolved_list = [resolved_map[t] for t in tickers_tuple]
     try:
@@ -78,7 +78,7 @@ def load_returns_data(tickers_tuple: tuple, period_str: str) -> pd.DataFrame:
                 prices = raw.iloc[:, 0].to_frame()
         else:
             prices = raw.copy()
-        # PrzywroÄ oryginalne etykiety (ISIN lub ticker podany przez uÅ¼ytkownika)
+        # PrzywroÄ oryginalne etykiety (ISIN lub ticker podany przez użytkownika)
         reverse_map = {v: k for k, v in resolved_map.items()}
         prices.columns = [reverse_map.get(c, c) for c in prices.columns]
         returns = prices.pct_change().dropna()
@@ -95,7 +95,7 @@ with st.spinner("ð¡ Pobieranie danych rynkowych..."):
     returns_df = load_returns_data(tuple(tickers), period)
 
 if returns_df.empty:
-    st.error("â Nie udaÅo siÄ pobraÄ danych. SprawdÅº tickery i poÅÄczenie z internetem.")
+    st.error("â Nie udaÅo siÄ pobraÄ danych. Sprawdź tickery i poÅÄczenie z internetem.")
     st.stop()
 
 # Keep only tickers with sufficient data
@@ -112,7 +112,7 @@ n_assets = len(valid_cols)
 # âââ METRICS ROW âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 m1, m2, m3, m4 = st.columns(4)
 with m1:
-    st.metric("AktywÃ³w", n_assets)
+    st.metric("Aktywów", n_assets)
 with m2:
     st.metric("Obserwacji", f"{n_obs:,}")
 with m3:
@@ -138,7 +138,7 @@ tab_pca, tab_ff5, tab_midas, tab_timing = st.tabs([
 with tab_pca:
     st.markdown("### ð PCA â Dekompozycja Ryzyka Portfela")
     st.caption(
-        "PCA wykrywa ile **prawdziwych niezaleÅ¼nych czynnikÃ³w** napÄdza TwÃ³j portfel. "
+        "PCA wykrywa ile **prawdziwych niezależnych czynników** napÄdza Twój portfel. "
         "JeÅli 1 czynnik wyjaÅnia >80% â portfel jest sÅabo zdywersyfikowany."
     )
 
@@ -166,7 +166,7 @@ with tab_pca:
     n_components_threshold = min(n_components_threshold, n_assets)
 
     # ââ KMO Test (simplified) ââââââââââââââââââââââââââââââââââââââââââââââââ
-    # Bartlett test: ÏÂ² = -(n-1 - (2p+5)/6) * ln|R|
+    # Bartlett test: Ï² = -(n-1 - (2p+5)/6) * ln|R|
     try:
         sign, log_det = np.linalg.slogdet(corr_matrix)
         chisq = -(n_obs - 1 - (2 * n_assets + 5) / 6) * log_det
@@ -183,7 +183,7 @@ with tab_pca:
         st.markdown(f"""<div class='metric-card'>
             <div class='metric-label'>Czynniki do {pca_variance_threshold}% var.</div>
             <div class='metric-value' style='color:{color_nc}'>{n_components_threshold}</div>
-            <div style='font-size:10px;color:#6b7280;'>min. PC wyjaÅniajÄce prÃ³g</div>
+            <div style='font-size:10px;color:#6b7280;'>min. PC wyjaÅniajÄce próg</div>
         </div>""", unsafe_allow_html=True)
     with c2:
         pc1_pct = explained[0] * 100
@@ -198,7 +198,7 @@ with tab_pca:
         st.markdown(f"""<div class='metric-card'>
             <div class='metric-label'>PC1-3 ÅÄcznie</div>
             <div class='metric-value'>{top3_pct:.1f}%</div>
-            <div style='font-size:10px;color:#6b7280;'>3 czynniki gÅÃ³wne</div>
+            <div style='font-size:10px;color:#6b7280;'>3 czynniki gÅówne</div>
         </div>""", unsafe_allow_html=True)
     with c4:
         bart_status = "â Istotna" if bartlett_ok else "â Niska"
@@ -235,7 +235,7 @@ with tab_pca:
         # Threshold line
         fig_scree.add_hline(
             y=pca_variance_threshold, line_dash="dash", line_color="#ffea00",
-            annotation_text=f"{pca_variance_threshold}% prÃ³g",
+            annotation_text=f"{pca_variance_threshold}% próg",
             annotation_font_color="#ffea00",
             yref="y2",
         )
@@ -319,9 +319,9 @@ with tab_pca:
     with st.expander("ð§® Co to jest PCA Eigen-Portfolio?"):
         st.markdown(math_explainer(
             "PCA Eigen-Portfolio",
-            "Î£ = V Â· Î Â· Váµ â PC_k = V_k Â· r (portfel czynnikowy)",
-            "PCA rozkÅada macierz kowariancji na niezaleÅ¼ne kierunki ryzyka. "
-            "PC1 to portfel maksymalizujÄcy wyjaÅnionÄ wariancjÄ â to gÅÃ³wny 'czynnik rynkowy'. "
+            "Σ = V · Î · Váµ â PC_k = V_k · r (portfel czynnikowy)",
+            "PCA rozkÅada macierz kowariancji na niezależne kierunki ryzyka. "
+            "PC1 to portfel maksymalizujÄcy wyjaÅnionÄ wariancjÄ â to gÅówny 'czynnik rynkowy'. "
             "JeÅli PC1 wyjaÅnia >70% â portfel zachowuje siÄ jak jeden aktyw.",
             "Jolliffe (2002) Principal Component Analysis; Ang (2014) Asset Management",
         ), unsafe_allow_html=True)
@@ -334,12 +334,12 @@ with tab_pca:
 with tab_ff5:
     st.markdown("### ðï¸ Fama-French 5-Factor Decomposition")
     st.caption(
-        "Regresja OLS portfela na 5 czynnikÃ³w: Market (Rm-Rf), SMB, HML, RMW, CMA. "
+        "Regresja OLS portfela na 5 czynników: Market (Rm-Rf), SMB, HML, RMW, CMA. "
         "Proxy: ETF (SPY/BIL, IWM/IVV, IVE/IVW, QUAL/XLY, VTV/VUG)."
     )
 
     if not show_ff5:
-        st.info("WÅÄcz 'PokaÅ¼ Fama-French 5-Factor' w sidebarze.", icon="â¹ï¸")
+        st.info("WÅÄcz 'Pokaż Fama-French 5-Factor' w sidebarze.", icon="â¹ï¸")
     else:
         with st.spinner("ð¡ Pobieranie danych FF5 proxy ETF..."):
             factor_df = build_factor_returns({})
@@ -347,7 +347,7 @@ with tab_ff5:
         if factor_df.empty:
             st.warning(
                 "â ï¸ Nie udaÅo siÄ pobraÄ danych czynnikowych FF5. "
-                "SprawdÅº poÅÄczenie z internetem (wymaga: SPY, BIL, IWM, IVV, IVE, IVW, QUAL, XLY, VTV, VUG).",
+                "Sprawdź poÅÄczenie z internetem (wymaga: SPY, BIL, IWM, IVV, IVE, IVW, QUAL, XLY, VTV, VUG).",
                 icon="â ï¸"
             )
         else:
@@ -368,13 +368,13 @@ with tab_ff5:
                     st.markdown(f"""<div class='metric-card'>
                         <div class='metric-label'>Alpha Jensena (roczna)</div>
                         <div class='metric-value' style='color:{alpha_color}'>{alpha_pct:+.2f}%</div>
-                        <div style='font-size:10px;color:#6b7280;'>nadwyÅ¼kowy zwrot vs czynniki</div>
+                        <div style='font-size:10px;color:#6b7280;'>nadwyżkowy zwrot vs czynniki</div>
                     </div>""", unsafe_allow_html=True)
                 with c2:
                     r2 = decomp["r_squared"]
                     r2_color = "#ff1744" if r2 > 0.90 else "#f39c12" if r2 > 0.70 else "#00e676"
                     st.markdown(f"""<div class='metric-card'>
-                        <div class='metric-label'>RÂ² modelu</div>
+                        <div class='metric-label'>R² modelu</div>
                         <div class='metric-value' style='color:{r2_color}'>{r2:.1%}</div>
                         <div style='font-size:10px;color:#6b7280;'>wariancja wyjaÅniona przez FF5</div>
                     </div>""", unsafe_allow_html=True)
@@ -425,10 +425,10 @@ with tab_ff5:
                 with st.expander("ð§® Jak interpretowaÄ Fama-French 5?"):
                     st.markdown(math_explainer(
                         "Fama-French 5-Factor",
-                        "Rp - Rf = Î± + Î²â(Rm-Rf) + Î²âSMB + Î²âHML + Î²âRMW + Î²âCMA + Îµ",
-                        "KaÅ¼de Î² mierzy ekspozycjÄ portfela na dany czynnik. "
-                        "Î± = nadwyÅ¼kowy zwrot niemoÅ¼liwy do wyjaÅnienia przez czynniki (prawdziwa 'umiejÄtnoÅÄ'). "
-                        "Wysoki RÂ² z maÅÄ alfÄ â portfel zachowuje siÄ jak fundusz indeksowy.",
+                        "Rp - Rf = α + βâ(Rm-Rf) + βâSMB + βâHML + βâRMW + βâCMA + Îµ",
+                        "Każde β mierzy ekspozycjÄ portfela na dany czynnik. "
+                        "α = nadwyżkowy zwrot niemożliwy do wyjaÅnienia przez czynniki (prawdziwa 'umiejÄtnoÅÄ'). "
+                        "Wysoki R² z maÅÄ alfÄ â portfel zachowuje siÄ jak fundusz indeksowy.",
                         "Fama & French (2015) JFE; Kenneth French Data Library",
                     ), unsafe_allow_html=True)
 
@@ -440,13 +440,13 @@ with tab_ff5:
 with tab_midas:
     st.markdown("### ð GARCH-MIDAS Volatility")
     st.markdown("""
-        **Ekstrakcja KomponentÃ³w:**
-        Model dzieli zmiennoÅÄ na czÄÅÄ krÃ³tko- i dÅugoterminowÄ bazujÄc na zmiennych makro. Kiedy DÅugoterminowa roÅnie, oznacza to trwalszy reÅ¼im wysokiego ryzyka (nie warto sprzedawaÄ opcji straddle).
+        **Ekstrakcja Komponentów:**
+        Model dzieli zmiennoÅÄ na czÄÅÄ krótko- i dÅugoterminowÄ bazujÄc na zmiennych makro. Kiedy DÅugoterminowa roÅnie, oznacza to trwalszy reżim wysokiego ryzyka (nie warto sprzedawaÄ opcji straddle).
         *GARCH-MIDAS by Engle, Ghysels, Sohn (2013)*
         """)
 
     if not show_midas:
-        st.info("WÅÄcz 'PokaÅ¼ GARCH-MIDAS' w sidebarze.", icon="â¹ï¸")
+        st.info("WÅÄcz 'Pokaż GARCH-MIDAS' w sidebarze.", icon="â¹ï¸")
     else:
         with st.spinner("âï¸ Kalibracja GARCH-MIDAS (MLE)..."):
             port_returns_midas = returns_df.mean(axis=1)
@@ -460,39 +460,40 @@ with tab_midas:
             sigma_color = "#ff1744" if sigma_now > 25 else "#f39c12" if sigma_now > 15 else "#00e676"
             st.markdown(f"""<div class='metric-card'>
                 <div class='metric-label'>Ï_MIDAS (aktualna)</div>
+                <div class='metric-label'>σ_MIDAS (aktualna)</div>
                 <div class='metric-value' style='color:{sigma_color}'>{sigma_now:.1f}%</div>
-                <div style='font-size:10px;color:#6b7280;'>roczna zmiennoÅÄ</div>
+                <div style='font-size:10px;color:#6b7280;'>roczna zmienność</div>
             </div>""", unsafe_allow_html=True)
         with c2:
             tau_now = result["ann_tau_current"] * 100
             st.markdown(f"""<div class='metric-card'>
-                <div class='metric-label'>âÏ Makro trend</div>
+                <div class='metric-label'>√τ Makro trend</div>
                 <div class='metric-value'>{tau_now:.1f}%</div>
-                <div style='font-size:10px;color:#6b7280;'>dÅugookresowy poziom</div>
+                <div style='font-size:10px;color:#6b7280;'>długookresowy poziom</div>
             </div>""", unsafe_allow_html=True)
         with c3:
             persis = result["persistence"]
             persis_color = "#ff1744" if persis > 0.97 else "#00e676"
             st.markdown(f"""<div class='metric-card'>
-                <div class='metric-label'>Persistence Î±+Î²</div>
+                <div class='metric-label'>Persistence α+β</div>
                 <div class='metric-value' style='color:{persis_color}'>{persis:.4f}</div>
-                <div style='font-size:10px;color:#6b7280;'>{'â ï¸ Wysoka trwaÅoÅÄ' if persis>0.97 else 'â Normalna'}</div>
+                <div style='font-size:10px;color:#6b7280;'>{'⚠️ Wysoka trwałość' if persis>0.97 else '✅ Normalna'}</div>
             </div>""", unsafe_allow_html=True)
         with c4:
             hl = result["half_life_days"]
-            hl_str = f"{hl:.0f} dni" if hl < 500 else "â"
+            hl_str = f"{hl:.0f} dni" if hl < 500 else "∞"
             st.markdown(f"""<div class='metric-card'>
                 <div class='metric-label'>Half-life szoku</div>
                 <div class='metric-value'>{hl_str}</div>
-                <div style='font-size:10px;color:#6b7280;'>czas powrotu do Ï</div>
+                <div style='font-size:10px;color:#6b7280;'>czas powrotu do τ</div>
             </div>""", unsafe_allow_html=True)
 
-        # ââ MACRO REGIME BADGE ââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ——————————————————————————————————————————————————————————————————————
         macro_regime = result["macro_regime"]
         st.markdown(f"""
         <div style='background:#0f111a;border:1px solid #2a2a3a;border-radius:8px;
                     padding:10px 16px;margin:12px 0;display:inline-block;'>
-            <span style='color:#aaa;font-size:12px;'>ReÅ¼im Makro-ZmiennoÅci: </span>
+            <span style='color:#aaa;font-size:12px;'>Reżim Makro-ZmiennoÅci: </span>
             <b style='font-size:14px;'>{macro_regime}</b>
         </div>
         """, unsafe_allow_html=True)
@@ -500,10 +501,10 @@ with tab_midas:
         # ââ PARAMETERS âââââââââââââââââââââââââââââââââââââââââââââââââââââââ
         with st.expander("ð§ Skalibrowane parametry GARCH-MIDAS"):
             pc1, pc2, pc3, pc4 = st.columns(4)
-            pc1.metric("Î± (ARCH)", f"{result['alpha']:.4f}")
-            pc2.metric("Î² (GARCH)", f"{result['beta']:.4f}")
-            pc3.metric("Î³ (MIDAS)", f"{result['gamma']:.4f}")
-            pc4.metric("Î¸ (baseline)", f"{result['theta']:.6f}")
+            pc1.metric("α (ARCH)", f"{result['alpha']:.4f}")
+            pc2.metric("β (GARCH)", f"{result['beta']:.4f}")
+            pc3.metric("γ (MIDAS)", f"{result['gamma']:.4f}")
+            pc4.metric("θ (baseline)", f"{result['theta']:.6f}")
 
         # ââ MAIN CHART ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
         fig_midas = plot_garch_midas_decomposition(result, "Dekompozycja ZmiennoÅci â GARCH-MIDAS")
@@ -516,30 +517,27 @@ with tab_midas:
         advice_color = "#ff1744" if tau_ratio > 0.7 else "#f39c12" if tau_ratio > 0.4 else "#00e676"
         if tau_ratio > 0.7:
             advice = (
-                "ð´ **Wysoka makro-zmiennoÅÄ** â sugerujemy uÅ¼ycie Ï_MIDAS zamiast domyÅlnej "
+                "ð´ **Wysoka makro-zmiennoÅÄ** â sugerujemy użycie Ï_MIDAS zamiast domyÅlnej "
                 f"wartoÅci w Symulatorze: **{sigma_now_pct*100:.1f}%** roczna zmiennoÅÄ "
-                "moÅ¼e significantnie zmieniÄ rozkÅad wynikÃ³w Monte Carlo."
+                "może significantnie zmieniÄ rozkÅad wyników Monte Carlo."
             )
         elif tau_ratio > 0.4:
             advice = (
-                f"ð¡ **PodwyÅ¼szona makro-zmiennoÅÄ** â Ï_MIDAS={sigma_now_pct*100:.1f}%. "
-                "RozwaÅ¼ uÅ¼ycie tej wartoÅci jako wejÅcia do Symulatora Monte Carlo."
+                f"🟠 **Podwyższona makro-zmienność** — σ_MIDAS={sigma_now_pct*100:.1f}%. "
+                "Rozważ użycie tej wartości jako wejścia do Symulatora Monte Carlo."
             )
         else:
             advice = (
-                f"ð¢ **Niska makro-zmiennoÅÄ** â rynek spokojny. "
-                f"Ï_MIDAS={sigma_now_pct*100:.1f}% â zbliÅ¼one do historycznej normy."
+                f"🟢 **Niska makro-zmienność** — rynek spokojny. "
+                f"σ_MIDAS={sigma_now_pct*100:.1f}% — zbliżone do historycznej normy."
             )
 
-        st.info(advice, icon="ð¡")
+        st.info(advice, icon="💡")
 
-        with st.expander("ð§® Jak dziaÅa GARCH-MIDAS?"):
+        with st.expander("🧮 Jak działa GARCH-MIDAS?"):
             st.markdown(math_explainer(
                 "GARCH-MIDAS",
-                "ÏÂ²(t) = Ï(t) Â· g(t)  gdzie  Ï(t) = Î¸ + Î³ Â· Î£ Ï_k Â· RV_{t-k}",
-                "Ï(t) to dÅugoterminowy poziom zmiennoÅci zaleÅ¼ny od makro (PMI, claims, M2). "
-                "g(t) to typowy GARCH(1,1): g_t = (1-Î±-Î²) + Î±Â·(r_{t-1}/âÏ_{t-1})Â² + Î²Â·g_{t-1}. "
-                "Kalibracja przez MLE: minimalizacja logarytmicznej funkcji wiarygodnoÅci.",
+                 "g_t = (1-α-β) + α·(r_{t-1}/√τ_{t-1})² + β·g_{t-1}", "Kalibracja przez MLE: minimalizacja logarytmicznej funkcji wiarygodności.",
             ), unsafe_allow_html=True)
 
 
@@ -549,10 +547,10 @@ with tab_midas:
 
 with tab_timing:
     st.markdown("### â³ Factor Timing vs Zegar Macierzowy (Regime Clock)")
-    st.markdown("OkreÅlanie historycznych korelacji miÄdzy danym faktorem Fama-French a fazami zegara gospodarczego (Trending, Chaotic). Pozwala to odradzaÄ lub faworyzowaÄ wybrane ryzyka w zaleÅ¼noÅci od tego, gdzie aktualnie znajduje siÄ gospodarka.")
+    st.markdown("OkreÅlanie historycznych korelacji miÄdzy danym faktorem Fama-French a fazami zegara gospodarczego (Trending, Chaotic). Pozwala to odradzaÄ lub faworyzowaÄ wybrane ryzyka w zależnoÅci od tego, gdzie aktualnie znajduje siÄ gospodarka.")
     
     # Symulowane korelacje 
-    st.info("Algorytm mapuje historyczne premie faktorowe na stany ukryte modelu Markowa (HMM) z Zegara ReÅ¼imÃ³w.")
+    st.info("Algorytm mapuje historyczne premie faktorowe na stany ukryte modelu Markowa (HMM) z Zegara Reżimów.")
     
     timing_data = pd.DataFrame({
         "Faktor": ["MKT (Rynek)", "SMB (Size)", "HML (Value)", "RMW (Profitability)", "CMA (Investment)"],
@@ -569,7 +567,7 @@ with tab_timing:
         st.markdown("""
         <div style='background:rgba(255, 234, 0, 0.1); border-left:4px solid #ffea00; padding:10px;'>
         <b>ð¡ Hipoteza RMW (Profitability) w Stagflacji:</b>
-        Gdy inflacja roÅnie, a wzrost gospodarczy dÅawi (Stagflacja - Chaos z modeli Entropy), spÃ³Åki wysoko-rentowne wykazujÄ ogromny premium. MoÅ¼na wtedy zmniejszaÄ Beta na Market i zwiÄkszaÄ wagÄ faktoru RMW.
+        Gdy inflacja roÅnie, a wzrost gospodarczy dÅawi (Stagflacja - Chaos z modeli Entropy), spóÅki wysoko-rentowne wykazujÄ ogromny premium. Można wtedy zmniejszaÄ Beta na Market i zwiÄkszaÄ wagÄ faktoru RMW.
         </div>
         """, unsafe_allow_html=True)
         
@@ -577,6 +575,6 @@ with tab_timing:
         st.markdown("""
         <div style='background:rgba(0, 230, 118, 0.1); border-left:4px solid #00e676; padding:10px;'>
         <b>ð¡ Hipoteza SMB (Small Caps) w Reflacji:</b>
-        Kiedy rozpoczyna siÄ dodruk (Fed obniÅ¼a stopy, spadajÄ rentownoÅci), kapitaÅ najsilniej wÄdruje na kraÅce ryzyka - spÃ³Åki o maÅej kapitalizacji reagujÄ silniej niÅ¼ giganci.
+        Kiedy rozpoczyna siÄ dodruk (Fed obniża stopy, spadajÄ rentownoÅci), kapitaÅ najsilniej wÄdruje na kraÅce ryzyka - spóÅki o maÅej kapitalizacji reagujÄ silniej niż giganci.
         </div>
         """, unsafe_allow_html=True)

@@ -1022,7 +1022,7 @@ def render_emerytura_module():
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Projekcja", "🛡️ SWR & Strategie", "🧪 Scenariusze",
         "💰 Cash Flow", "🧬 Zaawansowane", "🪣 Bucket Strategy"
-    ])
+    ], key="rem_tabs_root")
 
     # ══════════════════════════════════════════════════════════════════════════
     with tab1:

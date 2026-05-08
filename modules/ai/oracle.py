@@ -20,6 +20,11 @@ FRED_SERIES = {
     "Financial_Stress_Index": ("STLFSI4", ""), # St. Louis Fed Financial Stress Index
 }
 
+# Update FRED_SERIES to include CPI
+FRED_SERIES.update({
+    "CPI_YoY": ("CPIAUCSL", "units=pc1"), # Consumer Price Index for All Urban Consumers: All Items in U.S. City Average
+})
+
 async def _fetch_fred_series_async(session: aiohttp.ClientSession, series_data: tuple) -> tuple[str, float | None, float | None]:
     """Pobiera ostatnią wartość serii FRED asynchronicznie (aiohttp)."""
     series_id, params = series_data
@@ -72,6 +77,8 @@ class TheOracle:
             "VIX_3M":         "^VIX",     # Proxy (Yahoo nie ma VIX3M — zastąpimy VXMT manualnie)
             "VXMT_MidTerm":   "^VXMT",    # VIX Mid-Term (3M) — jeśli dostępne
             "US_Dollar_Index":"DX-Y.NYB",
+            "EUR_USD":        "EURUSD=X",
+            "Bitcoin":        "BTC-USD",
             "Gold":           "GC=F",
             "Copper":         "HG=F",     # Doktor Miedź — ogólny wzrost gosp.
             "Crude_Oil":      "CL=F",
@@ -87,6 +94,7 @@ class TheOracle:
             "https://news.google.com/rss/search?q=economy+finance+markets+geopolitics&hl=en-US&gl=US&ceid=US:en",
             "https://news.google.com/rss/search?q=recession+inflation+fed+rates&hl=en-US&gl=US&ceid=US:en",
         ]
+
 
     # ── Makro Snapshot ──────────────────────────────────────────────────────
     async def _fetch_ticker_async(self, name: str, ticker: str) -> tuple[str, float | None, float | None]:

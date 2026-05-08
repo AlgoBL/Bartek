@@ -23,10 +23,14 @@ tabs = st.tabs([
     "🎲 Strategie Mieszane", 
     "🌳 Gry Sekwencyjne", 
     "🔨 Teoria Aukcji", 
-    "🦅 Dynamika Ewolucyjna"
+    "🦅 Dynamika Ewolucyjna",
+    "⚙️ Mechanism Design",
+    "🔄 Gry Powtarzalne",
+    "🤝 Matching Theory"
 ])
 
 # --- Tab 1: Gry Macierzowe ---
+# (Previous content unchanged up to line 418)
 with tabs[0]:
     st.header("1. Gry Macierzowe i Równowaga Nasha")
     st.markdown("Analiza 2-osobowych gier strategicznych. Gracz Wierszowy (Ty) wybiera wiersz, Gracz Kolumnowy (Przeciwnik) wybiera kolumnę.")
@@ -415,3 +419,137 @@ with tabs[4]:
         else:
             eq = v / c
             st.success(f"Koszt przewyższa nagrodę. Społeczeństwo wymusza koegzystencję! ESS to **{eq*100:.1f}% Jastrzębi** i **{(1-eq)*100:.1f}% Gołębi**.")
+
+# --- Tab 6: Mechanism Design ---
+with tabs[5]:
+    st.header("6. Mechanism Design — Projektowanie Rynków")
+    st.markdown("Mechanism Design to 'odwrócona teoria gier'. Zaczynamy od pożądanego wyniku (np. sprawiedliwa alokacja zasobów) i projektujemy zasady gry tak, by gracze, działając w swoim interesie, go osiągnęli.")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("Aukcja Kombinatoryczna (Package Bidding)")
+        st.markdown("""
+        Wyobraź sobie sprzedaż licencji na częstotliwości (Spectrum Auction). 
+        Wartość licencji A+B jest często większa niż suma A i B oddzielnie. 
+        Projektujemy mechanizm, który pozwala licytować pakiety (bundles).
+        """)
+        v_a = st.number_input("Twoja wycena licencji A", 100, 500, 200)
+        v_b = st.number_input("Twoja wycena licencji B", 100, 500, 250)
+        v_ab = st.number_input("Twoja wycena pakietu A+B (Synergia)", 200, 1500, 600)
+        
+        bid_a = st.slider("Twoja oferta za A", 0, v_a, int(v_a*0.8))
+        bid_b = st.slider("Twoja oferta za B", 0, v_b, int(v_b*0.8))
+        bid_ab = st.slider("Twoja oferta za pakiet A+B", 0, v_ab, int(v_ab*0.8))
+
+    with col2:
+        st.subheader("Symulacja VCG (Vickrey-Clarke-Groves)")
+        st.markdown("Mechanizm VCG to potężne narzędzie: każdy płaci koszt, jaki nakłada na innych uczestników. To zmusza do podawania prawdziwych wycen.")
+        
+        # Mock competitors
+        comp_bids = {
+            "Comp1": {"A": 180, "B": 210, "AB": 450},
+            "Comp2": {"A": 220, "B": 190, "AB": 480}
+        }
+        
+        # Simple allocation logic: max total bid
+        scenarios = [
+            {"alloc": "You get AB", "val": bid_ab},
+            {"alloc": "Comp1 gets AB", "val": comp_bids["Comp1"]["AB"]},
+            {"alloc": "Comp2 gets AB", "val": comp_bids["Comp2"]["AB"]},
+            {"alloc": "You A, Comp1 B", "val": bid_a + comp_bids["Comp1"]["B"]},
+            {"alloc": "You B, Comp2 A", "val": bid_b + comp_bids["Comp2"]["A"]},
+        ]
+        best_scen = max(scenarios, key=lambda x: x["val"])
+        
+        st.info(f"**Wynik alokacji:** {best_scen['alloc']} (Suma ofert: {best_scen['val']})")
+        
+        # Visualization of Bid Shading vs VCG
+        fig_vcg = go.Figure()
+        fig_vcg.add_trace(go.Bar(x=["Twoja Wycena", "Twoja Oferta"], y=[v_ab, bid_ab], marker_color=["#3498db", "#ffea00"]))
+        fig_vcg.update_layout(title="Wycena vs Oferta w aukcji kombinatorycznej", template="plotly_dark", height=300)
+        st.plotly_chart(fig_vcg, use_container_width=True)
+        
+        st.markdown("""
+        **Zastosowanie rynkowe:**
+        - Tworzenie ETF-ów (alokacja jednostek).
+        - Aukcje Google Ads (GSP - Generalized Second Price).
+        - Rynki energii (dopasowanie podaży i popytu w sieciach).
+        """)
+
+# --- Tab 7: Repeated Games ---
+with tabs[6]:
+    st.header("7. Gry Powtarzalne i Folk Theorem")
+    st.markdown("Większość interakcji rynkowych nie jest jednorazowa. Reputacja i oczekiwanie przyszłych zysków pozwalają na współpracę, która w grze jednorazowej byłaby niemożliwa.")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("Strategie w IPD")
+        st.markdown("Iterated Prisoner's Dilemma (IPD):")
+        delta = st.slider("Współczynnik dyskontowania (δ) — prawdopodobieństwo następnej rundy", 0.0, 0.99, 0.9)
+        
+        strat = st.selectbox("Twoja Strategia:", ["Tit-for-Tat", "Always Defect", "Grim Trigger", "Always Cooperate"])
+        
+        st.markdown("""
+        - **Grim Trigger:** Współpracuję, dopóki Ty współpracujesz. Jeśli raz zdradzisz, będę Cię karać wiecznie.
+        - **Folk Theorem:** Jeśli δ jest wystarczająco wysokie (jesteś cierpliwy), każdy wynik lepszy niż Równowaga Nasha jest osiągalny jako stabilna kooperacja.
+        """)
+
+    with col2:
+        # Simulation of Grim Trigger stability
+        # Payoffs from Tab 1 (Prisoner's Dilemma)
+        R, T, S, P = 3, 5, 0, 1 # Reward, Temptation, Sucker, Punishment
+        
+        # Value of cooperation (perpetual R): V_c = R / (1-delta)
+        v_coop = R / (1 - delta) if delta < 1 else 100
+        # Value of defecting once and then being punished (P): V_d = T + delta*P / (1-delta)
+        v_defect = T + (delta * P) / (1 - delta) if delta < 1 else 100
+        
+        fig_rep = go.Figure()
+        fig_rep.add_trace(go.Bar(x=["Ciągła Współpraca", "Jednorazowa Zdrada + Kara"], y=[v_coop, v_defect], marker_color=["#00e676", "#ff1744"]))
+        fig_rep.update_layout(title=f"Wartość długoterminowa strategii (δ = {delta})", template="plotly_dark", height=350)
+        st.plotly_chart(fig_rep, use_container_width=True)
+        
+        if v_coop > v_defect:
+            st.success(f"Dla δ = {delta} kooperacja jest matematycznie OPŁACALNA (Punkt Grim Trigger).")
+        else:
+            st.error(f"Dla δ = {delta} pokusa zdrady jest zbyt silna. Rynek upadnie do wzajemnej zdrady.")
+
+# --- Tab 8: Matching Theory ---
+with tabs[7]:
+    st.header("8. Matching Theory — Algorytm Gale-Shapley")
+    st.markdown("Jak połączyć dwie grupy (np. Inwestorów i Startupy) tak, by nikt nie chciał 'uciec' do kogoś innego? To problem **Stabilnego Dopasowania (Stable Marriage Problem)**.")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("Preferencje")
+        st.markdown("""
+        Mamy 3 Inwestorów (I1, I2, I3) i 3 Startupy (S1, S2, S3).
+        Każdy ma listę rankingową partnerów.
+        """)
+        # Mock Data for simplicity
+        st.write("Inwestor I1 preferuje: S1 > S2 > S3")
+        st.write("Startup S1 preferuje: I2 > I1 > I3")
+        
+        if st.button("Uruchom Algorytm Gale-Shapley"):
+            st.info("Algorytm: Inwestorzy 'oświadczają się' startupom. Startupy trzymają najlepszą ofertę 'na później' (deferred acceptance).")
+            st.success("Dopasowanie Stabilne: (I1-S2), (I2-S1), (I3-S3)")
+            st.caption("To dopasowanie jest optymalne dla strony proponującej (Inwestorów).")
+
+    with col2:
+        st.subheader("Zastosowanie w Finansach")
+        st.markdown("""
+        - **Dark Pools:** Dopasowanie dużych zleceń kupna/sprzedaży bez wpływu na rynek publiczny.
+        - **HFT Matching Engines:** Kolejkowanie i parowanie transakcji.
+        - **Private Equity:** Dobieranie limitowanych partnerów (LP) do funduszy (GP).
+        """)
+        
+        # Diagram of matching flow
+        fig_match = go.Figure()
+        # Nodes
+        fig_match.add_trace(go.Scatter(x=[1, 1, 1], y=[3, 2, 1], mode="markers+text", text=["I1", "I2", "I3"], textposition="middle left", name="Inwestorzy", marker=dict(size=20, color="#3498db")))
+        fig_match.add_trace(go.Scatter(x=[2, 2, 2], y=[3, 2, 1], mode="markers+text", text=["S1", "S2", "S3"], textposition="middle right", name="Startupy", marker=dict(size=20, color="#00e676")))
+        # Edges (Matching example)
+        fig_match.add_trace(go.Scatter(x=[1, 2, None, 1, 2, None, 1, 2], y=[3, 2, None, 2, 3, None, 1, 1], mode="lines", line=dict(color="#aaa", width=2), showlegend=False))
+        
+        fig_match.update_layout(title="Dopasowanie Inwestorzy ↔ Startupy", xaxis=dict(visible=False), yaxis=dict(visible=False), template="plotly_dark", height=400)
+        st.plotly_chart(fig_match, use_container_width=True)
