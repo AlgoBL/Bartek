@@ -6,6 +6,14 @@ import plotly.express as px
 from scipy.integrate import odeint
 from modules.styling import apply_styling, module_header
 from modules.i18n import t
+from modules.game_theory_engine import (
+    find_pure_nash, find_all_nash,
+    find_correlated_equilibrium,
+    gale_shapley, check_stability,
+    solve_bne_two_types,
+    stackelberg_cournot,
+    lq_mean_field_game,
+)
 
 # 2. Apply Custom Styling
 st.markdown(apply_styling(), unsafe_allow_html=True)
@@ -19,14 +27,19 @@ st.markdown(module_header(
 ), unsafe_allow_html=True)
 
 tabs = st.tabs([
-    "⚔️ Gry Macierzowe (Dylematy)", 
-    "🎲 Strategie Mieszane", 
-    "🌳 Gry Sekwencyjne", 
-    "🔨 Teoria Aukcji", 
+    "⚔️ Gry Macierzowe (Dylematy)",
+    "🎲 Strategie Mieszane",
+    "🌳 Gry Sekwencyjne",
+    "🔨 Teoria Aukcji",
     "🦅 Dynamika Ewolucyjna",
     "⚙️ Mechanism Design",
     "🔄 Gry Powtarzalne",
-    "🤝 Matching Theory"
+    "🤝 Matching Theory",
+    "🧩 Solver NxM (Ogólny Nash)",
+    "📡 Równowaga Korelatywna",
+    "🔮 Bayesowska RN (BNE)",
+    "👑 Równowaga Stackelberga",
+    "🌊 Mean-Field Games",
 ])
 
 # --- Tab 1: Gry Macierzowe ---
@@ -516,40 +529,385 @@ with tabs[6]:
 
 # --- Tab 8: Matching Theory ---
 with tabs[7]:
-    st.header("8. Matching Theory — Algorytm Gale-Shapley")
-    st.markdown("Jak połączyć dwie grupy (np. Inwestorów i Startupy) tak, by nikt nie chciał 'uciec' do kogoś innego? To problem **Stabilnego Dopasowania (Stable Marriage Problem)**.")
-
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.subheader("Preferencje")
+    st.header("8. Matching Theory — Algorytm Gale-Shapley (Interaktywny)")
+    with st.expander("📖 Jak działa Deferred Acceptance?"):
         st.markdown("""
-        Mamy 3 Inwestorów (I1, I2, I3) i 3 Startupy (S1, S2, S3).
-        Każdy ma listę rankingową partnerów.
-        """)
-        # Mock Data for simplicity
-        st.write("Inwestor I1 preferuje: S1 > S2 > S3")
-        st.write("Startup S1 preferuje: I2 > I1 > I3")
+        **Algorytm Gale-Shapley (1962, Nobel 2012 — Roth & Shapley):**
+        1. Proponenci (Inwestorzy) składają oferty wg listy preferencji.
+        2. Akceptanci (Startupy) trzymają *tymczasowo* najlepszą ofertę i odrzucają gorsze.
+        3. Odrzuceni proponenci składają kolejne oferty. Powtarzamy aż nikt nowy nie proponuje.
         
-        if st.button("Uruchom Algorytm Gale-Shapley"):
-            st.info("Algorytm: Inwestorzy 'oświadczają się' startupom. Startupy trzymają najlepszą ofertę 'na później' (deferred acceptance).")
-            st.success("Dopasowanie Stabilne: (I1-S2), (I2-S1), (I3-S3)")
-            st.caption("To dopasowanie jest optymalne dla strony proponującej (Inwestorów).")
+        **Wynik:** Stabilne dopasowanie (brak blokujących par) optymalne dla proponentów.
+        **Nobel 2012:** Alvin Roth i Lloyd Shapley.
+        """)
+    st.subheader("Edytuj preferencje (wpisz ranking oddzielony przecinkami)")
+    participants = ["I1", "I2", "I3"]
+    targets = ["S1", "S2", "S3"]
+    prop_prefs = {}
+    rec_prefs = {}
+    c_p, c_r = st.columns(2)
+    with c_p:
+        st.markdown("**Preferencje Inwestorów →**")
+        defaults_p = {"I1": "S1, S2, S3", "I2": "S2, S1, S3", "I3": "S1, S3, S2"}
+        for p in participants:
+            val = st.text_input(f"{p} preferuje:", value=defaults_p[p], key=f"pp_{p}")
+            prop_prefs[p] = [x.strip() for x in val.split(",") if x.strip() in targets]
+    with c_r:
+        st.markdown("**Preferencje Startupów →**")
+        defaults_r = {"S1": "I2, I1, I3", "S2": "I1, I3, I2", "S3": "I3, I2, I1"}
+        for r in targets:
+            val = st.text_input(f"{r} preferuje:", value=defaults_r[r], key=f"rp_{r}")
+            rec_prefs[r] = [x.strip() for x in val.split(",") if x.strip() in participants]
+    if st.button("▶ Uruchom Algorytm Gale-Shapley", type="primary"):
+        try:
+            matching = gale_shapley(prop_prefs, rec_prefs)
+            blocking = check_stability(matching, prop_prefs, rec_prefs)
+            st.success("✅ Stabilne dopasowanie znalezione!" if not blocking else f"⚠️ Niestabilne! Blokujące pary: {blocking}")
+            match_df = pd.DataFrame(list(matching.items()), columns=["Inwestor", "Startup"])
+            st.dataframe(match_df, use_container_width=True, hide_index=True)
+            # Wizualizacja
+            fig_match = go.Figure()
+            py = {p: (len(participants) - i) for i, p in enumerate(participants)}
+            ry = {r: (len(targets) - i) for i, r in enumerate(targets)}
+            fig_match.add_trace(go.Scatter(
+                x=[1]*len(participants), y=list(py.values()),
+                mode="markers+text", text=list(py.keys()),
+                textposition="middle left", name="Inwestorzy",
+                marker=dict(size=24, color="#3498db")))
+            fig_match.add_trace(go.Scatter(
+                x=[2]*len(targets), y=list(ry.values()),
+                mode="markers+text", text=list(ry.keys()),
+                textposition="middle right", name="Startupy",
+                marker=dict(size=24, color="#00e676")))
+            for inv, sta in matching.items():
+                fig_match.add_trace(go.Scatter(
+                    x=[1, 2], y=[py[inv], ry[sta]],
+                    mode="lines", line=dict(color="#f1c40f", width=3),
+                    showlegend=False))
+            fig_match.update_layout(
+                title="Dopasowanie Inwestorzy ↔ Startupy",
+                xaxis=dict(visible=False), yaxis=dict(visible=False),
+                template="plotly_dark", height=350)
+            st.plotly_chart(fig_match, use_container_width=True)
+        except Exception as e:
+            st.error(f"Błąd algorytmu: {e}")
+    else:
+        st.info("Skonfiguruj preferencje i kliknij ▶ Uruchom.")
 
-    with col2:
-        st.subheader("Zastosowanie w Finansach")
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 9: Solver NxM
+# ─────────────────────────────────────────────────────────────────────────────
+with tabs[8]:
+    st.header("9. Solver NxM — Wszystkie Równowagi Nasha")
+    with st.expander("📖 Jak to działa?"):
         st.markdown("""
-        - **Dark Pools:** Dopasowanie dużych zleceń kupna/sprzedaży bez wpływu na rynek publiczny.
-        - **HFT Matching Engines:** Kolejkowanie i parowanie transakcji.
-        - **Private Equity:** Dobieranie limitowanych partnerów (LP) do funduszy (GP).
+        Klasyczny 2×2 to za mało. Ten solver używa **Support Enumeration Method** —
+        sprawdza każdą możliwą kombinację nośników strategii i rozwiązuje układ równań
+        indifferentności. Zwraca **wszystkie** czyste i mieszane równowagi.
         """)
+    size_n = st.slider("Liczba strategii Gracza A (wiersze)", 2, 4, 3)
+    size_m = st.slider("Liczba strategii Gracza B (kolumny)", 2, 4, 3)
+    st.markdown("**Macierz wypłat Gracza A**")
+    default_r = np.random.randint(-2, 6, (size_n, size_m)).tolist()
+    default_c = np.random.randint(-2, 6, (size_n, size_m)).tolist()
+    col_r, col_c = st.columns(2)
+    with col_r:
+        st.caption("Wypłaty Gracza A")
+        input_r = []
+        for i in range(size_n):
+            row_vals = st.text_input(f"Wiersz {i+1} (Gracz A)",
+                value=", ".join(str(v) for v in default_r[i]), key=f"nr_{i}")
+            try:
+                input_r.append([float(x) for x in row_vals.split(",")])
+            except:
+                input_r.append(default_r[i])
+    with col_c:
+        st.caption("Wypłaty Gracza B")
+        input_c = []
+        for i in range(size_n):
+            row_vals = st.text_input(f"Wiersz {i+1} (Gracz B)",
+                value=", ".join(str(v) for v in default_c[i]), key=f"nc_{i}")
+            try:
+                input_c.append([float(x) for x in row_vals.split(",")])
+            except:
+                input_c.append(default_c[i])
+    try:
+        PR = np.array(input_r)
+        PC = np.array(input_c)
+        if PR.shape == (size_n, size_m) and PC.shape == (size_n, size_m):
+            all_ne = find_all_nash(PR, PC)
+            if not all_ne:
+                st.warning("Brak równowag Nasha (sprawdź macierz).")
+            else:
+                st.success(f"Znaleziono **{len(all_ne)}** równowag(i) Nasha.")
+                for idx, ne in enumerate(all_ne):
+                    label = "Czysta" if ne['type'] == 'pure' else "Mieszana"
+                    with st.expander(f"RN #{idx+1} ({label}) — Zysk A: {ne['payoff_r']:.2f}, Zysk B: {ne['payoff_c']:.2f}"):
+                        df_ne = pd.DataFrame({
+                            "Strategia": [f"S{i+1}" for i in range(size_n)],
+                            "σ Gracz A": [f"{v:.3f}" for v in ne['sigma_r']],
+                        })
+                        df_ne2 = pd.DataFrame({
+                            "Strategia": [f"S{j+1}" for j in range(size_m)],
+                            "σ Gracz B": [f"{v:.3f}" for v in ne['sigma_c']],
+                        })
+                        c1, c2 = st.columns(2)
+                        c1.dataframe(df_ne, hide_index=True)
+                        c2.dataframe(df_ne2, hide_index=True)
+            # Heatmap czystych
+            pure_ne = find_pure_nash(PR, PC)
+            color_m = np.zeros((size_n, size_m))
+            for (ri, ci) in pure_ne:
+                color_m[ri, ci] = 1
+            text_m = [[f"A:{PR[i,j]:.0f} B:{PC[i,j]:.0f}" for j in range(size_m)] for i in range(size_n)]
+            fig_hm = go.Figure(go.Heatmap(
+                z=color_m,
+                text=text_m, texttemplate="%{text}",
+                colorscale=[[0,"#1f2937"],[1,"#10b981"]], showscale=False,
+                x=[f"B-S{j+1}" for j in range(size_m)],
+                y=[f"A-S{i+1}" for i in range(size_n)],
+            ))
+            fig_hm.update_layout(title="Heatmapa czystych RN (zielony = NE)",
+                template="plotly_dark", height=300)
+            fig_hm.update_yaxes(autorange="reversed")
+            st.plotly_chart(fig_hm, use_container_width=True)
+    except Exception as e:
+        st.error(f"Błąd: {e}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 10: Correlated Equilibrium
+# ─────────────────────────────────────────────────────────────────────────────
+with tabs[9]:
+    st.header("10. Równowaga Korelatywna (Aumann 1987)")
+    with st.expander("📖 Czym różni się od NE?"):
+        st.markdown("""
+        **Równowaga Korelatywna** to rozszerzenie NE. Wprowadza **zewnętrznego koordynatora**
+        (np. sygnał Fed, rekomendacja analityczna), który wysyła prywatne sugestie graczom.
+        Gracze dobrowolnie je słuchają, bo im to odpowiada (warunek IC).
         
-        # Diagram of matching flow
-        fig_match = go.Figure()
-        # Nodes
-        fig_match.add_trace(go.Scatter(x=[1, 1, 1], y=[3, 2, 1], mode="markers+text", text=["I1", "I2", "I3"], textposition="middle left", name="Inwestorzy", marker=dict(size=20, color="#3498db")))
-        fig_match.add_trace(go.Scatter(x=[2, 2, 2], y=[3, 2, 1], mode="markers+text", text=["S1", "S2", "S3"], textposition="middle right", name="Startupy", marker=dict(size=20, color="#00e676")))
-        # Edges (Matching example)
-        fig_match.add_trace(go.Scatter(x=[1, 2, None, 1, 2, None, 1, 2], y=[3, 2, None, 2, 3, None, 1, 1], mode="lines", line=dict(color="#aaa", width=2), showlegend=False))
+        🔑 **Kluczowe fakty:**
+        - Każda RN jest szczególnym przypadkiem CE (zbiór CE ⊇ zbiór NE).
+        - CE może dawać **wyższy dobrobyt społeczny** niż NE.
+        - Rozwiązywalne przez programowanie liniowe (LP).
+        - **Nobel 2005 (Aumann)** za teorię powtarzalnych gier i CE.
         
-        fig_match.update_layout(title="Dopasowanie Inwestorzy ↔ Startupy", xaxis=dict(visible=False), yaxis=dict(visible=False), template="plotly_dark", height=400)
-        st.plotly_chart(fig_match, use_container_width=True)
+        **Zastosowania rynkowe:** Sygnały makro Fed → koordynacja portfeli.
+        """)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Macierz 2×2")
+        ce_preset = st.selectbox("Preset:", ["Dylemat Więźnia", "Tchórz", "Polowanie na Jelenia", "Własny"])
+        presets = {
+            "Dylemat Więźnia": (np.array([[3,0],[5,1]]), np.array([[3,5],[0,1]])),
+            "Tchórz": (np.array([[0,-1],[1,-10]]), np.array([[0,1],[-1,-10]])),
+            "Polowanie na Jelenia": (np.array([[5,0],[2,2]]), np.array([[5,2],[0,2]])),
+            "Własny": (np.array([[4,0],[6,2]]), np.array([[4,6],[0,2]])),
+        }
+        ce_pr, ce_pc = presets[ce_preset]
+        obj = st.radio("Cel optymalizacji:", ["welfare","row","col"],
+            format_func=lambda x: {"welfare":"Dobrobyt społeczny","row":"Max Gracz A","col":"Max Gracz B"}[x])
+    with c2:
+        ce_res = find_correlated_equilibrium(ce_pr, ce_pc, objective=obj)
+        if ce_res["success"]:
+            dist = ce_res["distribution"]
+            st.success(f"✅ CE znalezione! Dobrobyt: **{ce_res['social_welfare']:.3f}** | A: {ce_res['payoff_r']:.3f} | B: {ce_res['payoff_c']:.3f}")
+            fig_ce = go.Figure(go.Heatmap(
+                z=dist,
+                text=[[f"{dist[i,j]:.3f}" for j in range(2)] for i in range(2)],
+                texttemplate="%{text}",
+                colorscale="Teal", showscale=True,
+                x=["B: Współpraca","B: Zdrada"],
+                y=["A: Współpraca","A: Zdrada"],
+            ))
+            fig_ce.update_layout(title="Rozkład sygnałów CE p(i,j)",
+                template="plotly_dark", height=350)
+            fig_ce.update_yaxes(autorange="reversed")
+            st.plotly_chart(fig_ce, use_container_width=True)
+            # Porównanie CE vs NE
+            ne_list = find_all_nash(ce_pr, ce_pc)
+            ne_welfares = [ne['payoff_r']+ne['payoff_c'] for ne in ne_list]
+            best_ne_w = max(ne_welfares) if ne_welfares else 0
+            delta_w = ce_res['social_welfare'] - best_ne_w
+            st.metric("Zysk z koordynacji (CE − najlepsza NE)",
+                f"{delta_w:+.3f}", delta_color="normal")
+        else:
+            st.error("LP nie znalazł rozwiązania.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 11: Bayesian NE
+# ─────────────────────────────────────────────────────────────────────────────
+with tabs[10]:
+    st.header("11. Bayesowska Równowaga Nasha (BNE)")
+    with st.expander("📖 Czym jest BNE?"):
+        st.markdown("""
+        **BNE** (Harsanyi 1967–68, Nobel 1994) rozszerza NE o **prywatną informację**.
+        Każdy gracz ma *typ* (np. koszt produkcji, wycenę aktywa), który zna tylko on.
+        Strategia jest teraz funkcją warunkową: *co robię, jeśli jestem typem X?*
+        
+        **Przykład rynkowy:** Gracz H = insider (zna wyniki kwartalne),
+        Gracz L = retail investor. Jakie strategie są równowagą Bayesowską?
+        """)
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        prob_H = st.slider("P(Gracz jest typem H — informed)", 0.05, 0.95, 0.4)
+        st.markdown("**Wypłaty Typ H vs Typ H:**")
+        bHH = np.array([[st.number_input("HH(0,0)",value=4.0,key="hh00"),
+                         st.number_input("HH(0,1)",value=0.0,key="hh01")],
+                        [st.number_input("HH(1,0)",value=6.0,key="hh10"),
+                         st.number_input("HH(1,1)",value=2.0,key="hh11")]])
+    with bc2:
+        st.markdown("**Wypłaty Typ H vs Typ L / Typ L vs reszta:**")
+        bHL = np.array([[3.0,0.0],[5.0,1.0]])
+        bLH = np.array([[2.0,0.0],[4.0,1.0]])
+        bLL = np.array([[1.0,0.0],[3.0,1.0]])
+        st.info("Uproszczenie: HL/LH/LL używają presetów Dylematu Więźnia z obniżonymi stawkami.")
+    bne_res = solve_bne_two_types(bHH, bHL, bLH, bLL, prob_H)
+    eqs = bne_res["equilibria"]
+    st.subheader(f"Znalezione BNE: {len(eqs)}")
+    if not eqs:
+        st.warning("Brak BNE w zadanej siatce.")
+    else:
+        rows = []
+        for eq in eqs:
+            rows.append({
+                "Typ H gra S1 z p=": eq["p_H"],
+                "Typ L gra S1 z p=": eq["p_L"],
+                "E[u] Typ H": eq["eu_H"],
+                "E[u] Typ L": eq["eu_L"],
+                "Rodzaj": eq["type"],
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        # Wykres przestrzeni BNE
+        pure_bne = [e for e in eqs if e["type"]=="pure"]
+        mixed_bne = [e for e in eqs if e["type"]=="mixed"]
+        fig_bne = go.Figure()
+        if mixed_bne:
+            fig_bne.add_trace(go.Scatter(
+                x=[e["p_H"] for e in mixed_bne],
+                y=[e["p_L"] for e in mixed_bne],
+                mode="markers", name="Mieszane BNE",
+                marker=dict(color="cyan", size=10, symbol="circle")))
+        if pure_bne:
+            fig_bne.add_trace(go.Scatter(
+                x=[e["p_H"] for e in pure_bne],
+                y=[e["p_L"] for e in pure_bne],
+                mode="markers", name="Czyste BNE",
+                marker=dict(color="magenta", size=14, symbol="star")))
+        fig_bne.update_layout(
+            title="Przestrzeń BNE (os X = p_H, os Y = p_L)",
+            xaxis_title="P(Typ H gra S1)", yaxis_title="P(Typ L gra S1)",
+            template="plotly_dark", height=380,
+            xaxis=dict(range=[-0.05,1.05]), yaxis=dict(range=[-0.05,1.05]))
+        st.plotly_chart(fig_bne, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 12: Stackelberg
+# ─────────────────────────────────────────────────────────────────────────────
+with tabs[11]:
+    st.header("12. Równowaga Stackelberga — Lider i Naśladowca")
+    with st.expander("📖 Stackelberg vs Cournot vs Nash"):
+        st.markdown("""
+        **Stackelberg (1934):** Lider ogłasza ilość produkcji *jako pierwszy*, 
+        wiedząc że Follower zoptymalizuje odpowiedź. Kluczowe: **commitment** — 
+        wiarygodne zobowiązanie do pierwszego ruchu daje *First Mover Advantage*.
+        
+        **Zastosowania finansowe:**
+        - Fed (Lider) → banki komercyjne (Follower)
+        - Dominant market maker → pozostałe biura kwotujące
+        - Emitent obligacji → inwestorzy na rynku wtórnym
+        """)
+    sc1, sc2 = st.columns([1, 2])
+    with sc1:
+        a_d = st.slider("Parametr popytu (a)", 50.0, 200.0, 100.0)
+        b_d = st.slider("Nachylenie krzywej popytu (b)", 0.1, 5.0, 1.0)
+        c_l = st.slider("Koszt marginalny Lidera", 0.0, 30.0, 10.0)
+        c_f = st.slider("Koszt marginalny Followera", 0.0, 30.0, 15.0)
+    with sc2:
+        sk = stackelberg_cournot(a_d, b_d, c_l, c_f)
+        # Wykres — krzywe reakcji
+        q1_range = np.linspace(0, (a_d - c_l) / b_d, 200)
+        br_f = np.maximum(0, (a_d - c_f - b_d * q1_range) / (2 * b_d))
+        br_l_follower = np.maximum(0, (a_d - c_l - b_d * q1_range) / (2 * b_d))
+        fig_sk = go.Figure()
+        fig_sk.add_trace(go.Scatter(x=q1_range, y=br_f, mode='lines',
+            name='Funkcja reakcji Followera (BR₂)', line=dict(color='cyan')))
+        fig_sk.add_trace(go.Scatter(x=q1_range, y=br_l_follower, mode='lines',
+            name='Funkcja reakcji Lidera (BR₁)', line=dict(color='orange', dash='dash')))
+        fig_sk.add_trace(go.Scatter(
+            x=[sk['q_leader']], y=[sk['q_follower']], mode='markers',
+            name='Stackelberg NE', marker=dict(color='magenta', size=14, symbol='star')))
+        cournot_q = sk['nash_q_symmetric']
+        fig_sk.add_trace(go.Scatter(
+            x=[cournot_q], y=[cournot_q], mode='markers',
+            name='Cournot NE (symultaniczny)', marker=dict(color='gold', size=12, symbol='diamond')))
+        fig_sk.update_layout(
+            title="Krzywe Reakcji i Równowagi",
+            xaxis_title="Ilość Lidera (q₁)", yaxis_title="Ilość Followera (q₂)",
+            template="plotly_dark", height=400)
+        st.plotly_chart(fig_sk, use_container_width=True)
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("Ilość Lidera", f"{sk['q_leader']:.2f}")
+        col_m2.metric("Ilość Followera", f"{sk['q_follower']:.2f}")
+        col_m3.metric("Zysk Lidera", f"{sk['profit_leader']:.2f}")
+        col_m4.metric("First Mover Advantage", f"{sk['first_mover_advantage']:+.2f}")
+        st.success(f"Cena rynkowa: **{sk['price']:.2f}** | Łączna produkcja: **{sk['total_output']:.2f}**")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 13: Mean-Field Games
+# ─────────────────────────────────────────────────────────────────────────────
+with tabs[12]:
+    st.header("13. Mean-Field Games — Populacje Agentów")
+    with st.expander("📖 Czym są MFG?"):
+        st.markdown("""
+        **Mean-Field Games** (Lasry & Lions 2006; Huang, Malhamé, Caines 2006) 
+        modelują gry z **nieskończenie wieloma** racjonalnymi agentami. Zamiast śledzić
+        każdego z osobna, śledzimy tylko **rozkład** stanu populacji (mean field).
+        
+        🔥 **Gorący temat 2024-2025:**
+        - DeFi: Automated Market Makers (Bergault et al. 2024)
+        - HFT: miliony mikrozleceń jako pole średnie (NeurIPS 2024)
+        - Bitcoin mining: równowaga przy centralizacji nagród
+        
+        **Model LQ (Linear-Quadratic):** Każdy inwestor minimalizuje koszt 
+        odchylenia od średniego portfela rynkowego (tracking error) plus koszt transakcji.
+        """)
+    mf1, mf2 = st.columns([1, 2])
+    with mf1:
+        mf_alpha = st.slider("α — siła mean field (presja do konformizmu)", 0.01, 2.0, 0.5)
+        mf_beta = st.slider("β — koszt transakcji", 0.1, 3.0, 1.0)
+        mf_sigma = st.slider("σ — zmienność rynku", 0.0, 1.0, 0.3)
+        mf_T = st.slider("Horyzont T (lata)", 1.0, 20.0, 10.0)
+        mf_x0 = st.slider("x₀ — startowy poziom portfela", 0.5, 2.0, 1.3)
+        st.info("Agent startuje z x₀ > 1.0 (przeważony). MFG wyznacza optymalną ścieżkę powrotu do środka.")
+    with mf2:
+        mfg = lq_mean_field_game(T=mf_T, n_steps=300, alpha=mf_alpha,
+                                  beta=mf_beta, sigma=mf_sigma, x0=mf_x0)
+        t = mfg["t"]
+        fig_mf = go.Figure()
+        fig_mf.add_trace(go.Scatter(
+            x=t, y=mfg["mean_field"], mode='lines',
+            name='Mean Field m(t) — śr. portfel rynku',
+            line=dict(color='#00e676', width=3)))
+        fig_mf.add_trace(go.Scatter(
+            x=t, y=mfg["agent_path"], mode='lines',
+            name='Trajektoria agenta x(t)',
+            line=dict(color='#ff6d00', width=2, dash='dot')))
+        fig_mf.update_layout(
+            title="LQ Mean-Field Game: Optymalny Tracking Portfela",
+            xaxis_title="Czas", yaxis_title="Poziom portfela",
+            template="plotly_dark", height=360,
+            legend=dict(x=0.01, y=0.99))
+        st.plotly_chart(fig_mf, use_container_width=True)
+        fig_ctrl = go.Figure(go.Scatter(
+            x=t[:-1], y=mfg["optimal_control"], mode='lines',
+            name='u*(t) — optymalne sterowanie',
+            line=dict(color='#e040fb', width=2)))
+        fig_ctrl.add_hline(y=0, line_dash='dash', line_color='gray')
+        fig_ctrl.update_layout(
+            title="Optymalny Sygnał Transakcji u*(t)",
+            xaxis_title="Czas", yaxis_title="Intensywność transakcji",
+            template="plotly_dark", height=250)
+        st.plotly_chart(fig_ctrl, use_container_width=True)
+        avg_tracking_error = float(np.mean((mfg["agent_path"] - mfg["mean_field"])**2))
+        st.metric("Średni Błąd Śledzenia (MSE)", f"{avg_tracking_error:.4f}",
+                  help="Jak daleko agent był od mean field przez cały horyzont")
