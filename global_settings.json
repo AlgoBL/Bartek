@@ -55,7 +55,7 @@
   "ret_zus_monthly": 0,
   "ret_ppk_capital": 0,
   "ret_tax_regime": "IKE/IKZE (0% Belki)",
-  "ret_pit_bracket": 32,
+  "ret_pit_bracket": 19,
   "ret_use_spending_smile": true,
   "ret_use_glide_path": true,
   "ret_cape_ratio": 33.0,
@@ -74,6 +74,6 @@
   ],
   "ui_mode": "educational",
   "profile_name": "Domyślny",
-  "last_updated": "2026-05-08T13:58:09",
+  "last_updated": "2026-05-13T15:36:35",
   "portfolio_assets": []
 }
