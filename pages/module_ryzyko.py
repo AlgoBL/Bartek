@@ -1,5 +1,15 @@
 import streamlit as st
 import runpy
+from modules.styling import apply_styling, module_header
+
+st.markdown(apply_styling(), unsafe_allow_html=True)
+
+st.markdown(module_header(
+    title="Centrum Ryzyka",
+    subtitle="Kompleksowa analiza ryzyka ogona, koncentracji, płynności i scenariuszowego stress-testingu.",
+    icon="🛡️",
+    badge="Risk Management"
+), unsafe_allow_html=True)
 
 options = [
     "Stress Test", "Concentration Risk", "Liquidity Risk",
@@ -9,19 +19,15 @@ options = [
 sel = st.pills("Wybierz analizę ryzyka:", options, default=options[0])
 st.divider()
 
-if sel == "Stress Test":
-    runpy.run_path("pages/3_Stress_Test.py", run_name="__main__")
-elif sel == "Concentration Risk":
-    runpy.run_path("pages/9_Concentration_Risk.py", run_name="__main__")
-elif sel == "Liquidity Risk":
-    runpy.run_path("pages/13_Liquidity_Risk.py", run_name="__main__")
-elif sel == "EVT — Tail Risk":
-    runpy.run_path("pages/5_EVT_Analysis.py", run_name="__main__")
-elif sel == "Systemic Risk & CoVaR":
-    runpy.run_path("pages/27_Systemic_Risk.py", run_name="__main__")
-elif sel == "Drawdown Recovery":
-    runpy.run_path("pages/10_Drawdown_Recovery.py", run_name="__main__")
-elif sel == "Tail Risk Hedging":
-    runpy.run_path("pages/14_Tail_Hedging.py", run_name="__main__")
-elif sel == "Inżynieria Opcji":
-    runpy.run_path("pages/32_Inzynieria_Opcji.py", run_name="__main__")
+_MAP = {
+    "Stress Test":           "pages/3_Stress_Test.py",
+    "Concentration Risk":    "pages/9_Concentration_Risk.py",
+    "Liquidity Risk":        "pages/13_Liquidity_Risk.py",
+    "EVT — Tail Risk":       "pages/5_EVT_Analysis.py",
+    "Systemic Risk & CoVaR": "pages/27_Systemic_Risk.py",
+    "Drawdown Recovery":     "pages/10_Drawdown_Recovery.py",
+    "Tail Risk Hedging":     "pages/14_Tail_Hedging.py",
+    "Inżynieria Opcji":      "pages/32_Inzynieria_Opcji.py",
+}
+if sel in _MAP:
+    runpy.run_path(_MAP[sel], run_name="__main__")

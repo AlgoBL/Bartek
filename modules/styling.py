@@ -1238,6 +1238,220 @@ def apply_styling() -> str:
         font-variant-numeric: tabular-nums;
     }
 
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P3-F: WCAG Kontrast (text-dim #9da8b8 → 5.1:1)
+    ═══════════════════════════════════════════════════════════════ */
+    :root {
+        --text-dim: #9da8b8;  /* podwyższony kontrast z 8b95a5 → 5.1:1 WCAG AA */
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P3-G: Focus visible (dostępność klawiatury)
+    ═══════════════════════════════════════════════════════════════ */
+    .stButton > button:focus-visible,
+    [data-testid="stSidebarNavLink"]:focus-visible,
+    div[data-testid="stPills"] button:focus-visible,
+    div[data-testid="stExpander"] summary:focus-visible {
+        outline: 2px solid var(--green) !important;
+        outline-offset: 2px !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P3-D: Button ripple / active press effect
+    ═══════════════════════════════════════════════════════════════ */
+    .stButton > button:active {
+        transform: translateY(0px) scale(0.97) !important;
+        box-shadow: 0 0 12px rgba(0, 230, 118, 0.18) !important;
+        transition: all 0.07s ease !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P2-F: Expander — szerszy obszar kliknięcia
+    ═══════════════════════════════════════════════════════════════ */
+    div[data-testid="stExpander"] summary {
+        padding: 11px 16px !important;
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        user-select: none !important;
+        cursor: pointer !important;
+    }
+    div[data-testid="stExpander"] summary:hover {
+        background: rgba(0, 204, 255, 0.05) !important;
+        border-radius: 8px !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P2-E: Zakładki st.tabs — animacja fade-in
+    ═══════════════════════════════════════════════════════════════ */
+    @keyframes tabFadeIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    div[data-testid="stTabContent"] {
+        animation: tabFadeIn 0.22s ease-out !important;
+    }
+    /* Aktywna zakładka — podkreślenie neonowe */
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: var(--green) !important;
+        border-bottom-color: var(--green) !important;
+    }
+    button[data-baseweb="tab"] {
+        font-family: var(--font) !important;
+        font-size: 13px !important;
+        transition: color 0.15s ease, border-bottom-color 0.15s ease !important;
+    }
+    button[data-baseweb="tab"]:hover {
+        color: #e2e4f0 !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P2-D: st.dataframe — cyberpunk theme
+    ═══════════════════════════════════════════════════════════════ */
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        overflow: hidden !important;
+    }
+    [data-testid="stDataFrame"] th {
+        background: rgba(0, 230, 118, 0.07) !important;
+        color: var(--green) !important;
+        font-family: var(--font) !important;
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.4px !important;
+        border-bottom: 1px solid rgba(0, 230, 118, 0.15) !important;
+        padding: 8px 12px !important;
+    }
+    [data-testid="stDataFrame"] td {
+        font-family: var(--mono) !important;
+        font-size: 12px !important;
+        color: var(--text) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+        padding: 7px 12px !important;
+        font-variant-numeric: tabular-nums !important;
+    }
+    [data-testid="stDataFrame"] tr:hover td {
+        background: rgba(0, 230, 118, 0.04) !important;
+    }
+    [data-testid="stDataFrame"] tr:nth-child(even) td {
+        background: rgba(255, 255, 255, 0.015) !important;
+    }
+    /* Scrollbar wewnątrz dataframe */
+    [data-testid="stDataFrame"] ::-webkit-scrollbar { height: 4px; }
+    [data-testid="stDataFrame"] ::-webkit-scrollbar-thumb {
+        background: rgba(0, 230, 118, 0.2);
+        border-radius: 4px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P1-B: Sidebar max-width (13" laptopy)
+    ═══════════════════════════════════════════════════════════════ */
+    [data-testid="stSidebar"] > div:first-child {
+        min-width: 220px !important;
+        max-width: 268px !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — P1-A: Media Queries — Responsywność mobilna
+    ═══════════════════════════════════════════════════════════════ */
+    @media (max-width: 1280px) {
+        div.block-container {
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+        }
+        /* Metryki sparkline — mniejsza czcionka na ściśniętych kolumnach */
+        .metric-value { font-size: 18px !important; }
+    }
+
+    @media (max-width: 1024px) {
+        div.block-container {
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+        }
+        /* 5-kolumnowy pillar grid → wrap do 2-3 kolumn */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+            gap: 0.5rem !important;
+        }
+        [data-testid="stColumn"] {
+            min-width: 30% !important;
+            flex: 1 1 30% !important;
+        }
+        /* Ticker bar — mniejsza czcionka */
+        .ticker-bar { font-size: 11px !important; }
+        .ticker-item { margin: 0 14px !important; }
+    }
+
+    @media (max-width: 768px) {
+        div.block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            padding-top: 1rem !important;
+        }
+        [data-testid="stColumn"] {
+            min-width: 45% !important;
+            flex: 1 1 45% !important;
+        }
+        /* Nagłówki modułów — mniejszy rozmiar */
+        .module-title { font-size: 1.4rem !important; }
+        h1 { font-size: 1.8rem !important; }
+        /* Ticker bar — ukryj na bardzo małych ekranach */
+        .ticker-bar { display: none !important; }
+    }
+
+    @media (max-width: 480px) {
+        [data-testid="stColumn"] {
+            min-width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+        .module-title { font-size: 1.2rem !important; }
+        div.block-container {
+            padding-left: 0.25rem !important;
+            padding-right: 0.25rem !important;
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — Skeleton Loader dla pustych wartości N/A
+    ═══════════════════════════════════════════════════════════════ */
+    @keyframes shimmer {
+        0%   { background-position: -200% 0; }
+        100% { background-position:  200% 0; }
+    }
+    .skeleton {
+        background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.03) 25%,
+            rgba(255,255,255,0.08) 50%,
+            rgba(255,255,255,0.03) 75%
+        ) !important;
+        background-size: 200% 100% !important;
+        animation: shimmer 1.8s infinite !important;
+        border-radius: 4px !important;
+        color: transparent !important;
+        user-select: none !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PHASE 1 UX — Stale Data Badge
+    ═══════════════════════════════════════════════════════════════ */
+    .stale-badge {
+        display: inline-block;
+        font-size: 9px;
+        color: #f39c12;
+        border: 1px solid rgba(243, 156, 18, 0.3);
+        border-radius: 4px;
+        padding: 1px 6px;
+        margin-left: 6px;
+        vertical-align: middle;
+        font-family: var(--mono);
+        letter-spacing: 0.5px;
+        animation: blinkBg 3s infinite;
+    }
+
     </style>
 
     """
@@ -1315,7 +1529,15 @@ def module_header(title: str, subtitle: str = "", icon: str = "", badge: str = "
     icon_prefix = f"{icon} " if icon else ""
     return f"""
     <div class='module-header fade-up'>
-        <div class='module-breadcrumb'>🏠 Dashboard → {title}</div>
+        <div class='module-breadcrumb'>
+            <a href='/' target='_self'
+               style='color:var(--green);text-decoration:none;opacity:0.85;
+                      transition:opacity 0.15s ease;'
+               onmouseover="this.style.opacity='1'"
+               onmouseout="this.style.opacity='0.85'">🏠 Dashboard</a>
+            <span style='margin:0 6px;opacity:0.4;'>›</span>
+            <span style='opacity:0.7;'>{title}</span>
+        </div>
         <div class='module-title'>{icon_prefix}{title}</div>
         {subtitle_html}
         {badge_html}
@@ -1568,6 +1790,22 @@ def metric_spark_html(
 
     safe_help = help_text.replace('"', "'").replace("\n", " ")
 
+    # Czy wartość jest niedostępna — zastosuj skeleton
+    is_na = str(value).strip().upper() in ("N/A", "NONE", "", "--", "—")
+    val_style = (
+        f"font-family:'JetBrains Mono',monospace;font-size:20px;"
+        f"font-weight:700;color:{accent_color};font-variant-numeric:tabular-nums;"
+        f"line-height:1.1;"
+    )
+    val_html = (
+        f"<div class='skeleton' style='height:24px;width:60%;margin:4px 0;border-radius:4px;'>&nbsp;</div>"
+        if is_na else
+        f"<div style='{val_style}'>{value}"
+        f"<span style='font-size:11px;color:#9ca3af;font-weight:400;margin-left:2px;'>"
+        f"{suffix}</span></div>"
+        f"{d_html}{spark}"
+    )
+
     return (
         f'<div title="{safe_help}" style="'
         f'background:linear-gradient(135deg,rgba(15,17,26,0.95),rgba(20,22,35,0.9));'
@@ -1578,12 +1816,7 @@ def metric_spark_html(
         f'onmouseout="this.style.borderColor=\'rgba(255,255,255,0.06)\';">'
         f'<div style="font-size:9px;color:#6b7280;letter-spacing:0.8px;'
         f'text-transform:uppercase;font-weight:600;margin-bottom:4px;">{label}</div>'
-        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;'
-        f'font-weight:700;color:{accent_color};font-variant-numeric:tabular-nums;'
-        f'line-height:1.1;">{value}'
-        f'<span style="font-size:11px;color:#9ca3af;font-weight:400;margin-left:2px;">'
-        f'{suffix}</span></div>'
-        f'{d_html}{spark}'
+        f'{val_html}'
         f'</div>'
     )
 

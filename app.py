@@ -377,6 +377,8 @@ def draw_regime_radar(score):
         margin=dict(l=40, r=40, t=90, b=20),
         paper_bgcolor="rgba(0,0,0,0)",
         font={'color': "white", 'family': 'Inter'},
+        # Płynna animacja igły (Plotly native transition)
+        transition=dict(duration=800, easing="cubic-in-out"),
         # Czytelne etykiety stref POZA łukiem (poza kolizją z tickami)
         annotations=[
             dict(text=t("hossa_label"),   x=0.12, y=0.08, xref="paper", yref="paper",
@@ -689,8 +691,27 @@ def home():
 
         status_color = "#00e676" if gs.bg_refresh_enabled else "#aaa"
         status_text = t("cc_engine_active") if gs.bg_refresh_enabled else t("cc_engine_inactive")
+
+        # Sprawdź świeżość danych
+        stale_badge = ""
+        try:
+            import datetime as _dt
+            ts_str = last_ts
+            # Próbuj sparsować timestamp (format ISO lub YYYY-MM-DD HH:MM:SS)
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+                try:
+                    ts_dt = _dt.datetime.strptime(ts_str[:19], fmt[:len(fmt)])
+                    age_h = (_dt.datetime.now() - ts_dt).total_seconds() / 3600
+                    if age_h > 2:
+                        stale_badge = f"<span class='stale-badge'>⚠ STALE {age_h:.0f}h</span>"
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+
         st.markdown(f"<div style='text-align:right;font-size:10px;color:#aaa;margin-top:-35px;margin-bottom:10px;'>"
-                    f"{t('cc_last_sync')}: <b>{last_ts}</b> | {t('cc_engine_label')}: <span style='color:{status_color};'><b>{status_text}</b></span></div>",
+                    f"{t('cc_last_sync')}: <b>{last_ts}</b>{stale_badge} | {t('cc_engine_label')}: <span style='color:{status_color};'><b>{status_text}</b></span></div>",
                     unsafe_allow_html=True)
 
     if not macro:
@@ -747,19 +768,18 @@ def home():
             phase, desc, icon, color = determine_business_cycle(macro)
             yc = macro.get("Yield_Curve_Spread", 0)
             claims = macro.get("FRED_Initial_Jobless_Claims")
-            st.markdown(f"""
-            <div style='background:linear-gradient(135deg,#0f111a,#1a1c28);padding:18px 14px;
-                        border-radius:12px;text-align:center;border:1px solid #2a2a3a;
-                        height:310px;display:flex;flex-direction:column;justify-content:center;'>
-                <div style='font-size:52px;line-height:1;'>{icon}</div>
-                <div style='color:{color};margin-top:8px;font-size:18px;font-weight:700;'>{phase}</div>
-                <div style='color:#888;font-size:11px;margin-top:6px;line-height:1.35;'>{desc}</div>
-                <div style='margin-top:14px;border-top:1px solid #2a2a3a;padding-top:10px;'>
-                    <span style='color:#aaa;font-size:10px;'>10Y-3M: <b style='color:{color}'>{yc:+.2f}%</b></span>
-                    {"&nbsp;&nbsp;|&nbsp;&nbsp;<span style='color:#aaa;font-size:10px;'>Claims: <b style='color:#f39c12'>" + f"{claims/1000:.0f}k</b></span>" if claims else ""}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            _claims_html = (f"&nbsp;&nbsp;|&nbsp;&nbsp;<span style='color:#aaa;font-size:10px;'>Claims: <b style='color:#f39c12'>{claims/1000:.0f}k</b></span>" if claims else "")
+            st.markdown(
+                f"<div style='background:linear-gradient(135deg,#0f111a,#1a1c28);padding:18px 14px;border-radius:12px;text-align:center;border:1px solid #2a2a3a;height:310px;display:flex;flex-direction:column;justify-content:center;'>"
+                f"<div style='font-size:52px;line-height:1;'>{icon}</div>"
+                f"<div style='color:{color};margin-top:8px;font-size:18px;font-weight:700;'>{phase}</div>"
+                f"<div style='color:#888;font-size:11px;margin-top:6px;line-height:1.35;'>{desc}</div>"
+                f"<div style='margin-top:14px;border-top:1px solid #2a2a3a;padding-top:10px;'>"
+                f"<span style='color:#aaa;font-size:10px;'>10Y-3M: <b style='color:{color}'>{yc:+.2f}%</b></span>"
+                f"{_claims_html}"
+                f"</div></div>",
+                unsafe_allow_html=True
+            )
 
         with col_vts:
             vix_1m = macro.get("VIX_1M")

@@ -25,7 +25,7 @@ def render_decumulation_module():
         inflation = st.slider("Inflacja bazowa (%)", 0.0, 0.10, 0.035, key="dec_inf")
 
     with st.container(key="dec_container"):
-        tab1, tab2, tab3 = st.tabs(["⚠️ Safe Withdrawal Rate (SWR)", "🔄 Variable Percentage Withdrawal (VPW)", "📉 Sequence of Returns Risk"], key="dec_tabs_root")
+        tab1, tab2, tab3 = st.tabs(["⚠️ Safe Withdrawal Rate (SWR)", "🔄 Variable Percentage Withdrawal (VPW)", "📉 Sequence of Returns Risk"])
 
     with tab1:
         st.markdown("### Klasyczna Reguła 4% (Bengen's SWR)")
@@ -81,7 +81,7 @@ def render_decumulation_module():
             xaxis_title="Rok emerytury", yaxis_title="Wartość Portfela (PLN)",
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
-        st.plotly_chart(fig_swr, use_container_width=True, key="chart_swr")
+        st.plotly_chart(fig_swr, use_container_width=True)
         
         with st.expander("🧮 SWR The 4% Rule Explained"):
             st.markdown(math_explainer(
@@ -129,7 +129,7 @@ def render_decumulation_module():
              xaxis_title="Wiek", yaxis_title="Siła Nabywcza Wypłaty (Wartość Dzisiejsza PLN)",
              paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
-        st.plotly_chart(fig_vpw_drw, use_container_width=True, key="chart_vpw")
+        st.plotly_chart(fig_vpw_drw, use_container_width=True)
 
         with st.expander("🧮 Jak działa VPW?"):
             st.markdown(math_explainer(
@@ -174,7 +174,7 @@ def render_decumulation_module():
              xaxis_title="Lata Emerytury", yaxis_title="Kapitał z ujemnymi rzędowymi",
              paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
-        st.plotly_chart(fig_seq, use_container_width=True, key="chart_seq")
+        st.plotly_chart(fig_seq, use_container_width=True)
 
 if __name__ == "__main__":
     st.markdown(apply_styling(), unsafe_allow_html=True)

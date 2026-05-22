@@ -707,31 +707,34 @@ with tabs[9]:
         obj = st.radio("Cel optymalizacji:", ["welfare","row","col"],
             format_func=lambda x: {"welfare":"Dobrobyt społeczny","row":"Max Gracz A","col":"Max Gracz B"}[x])
     with c2:
-        ce_res = find_correlated_equilibrium(ce_pr, ce_pc, objective=obj)
-        if ce_res["success"]:
-            dist = ce_res["distribution"]
-            st.success(f"✅ CE znalezione! Dobrobyt: **{ce_res['social_welfare']:.3f}** | A: {ce_res['payoff_r']:.3f} | B: {ce_res['payoff_c']:.3f}")
-            fig_ce = go.Figure(go.Heatmap(
-                z=dist,
-                text=[[f"{dist[i,j]:.3f}" for j in range(2)] for i in range(2)],
-                texttemplate="%{text}",
-                colorscale="Teal", showscale=True,
-                x=["B: Współpraca","B: Zdrada"],
-                y=["A: Współpraca","A: Zdrada"],
-            ))
-            fig_ce.update_layout(title="Rozkład sygnałów CE p(i,j)",
-                template="plotly_dark", height=350)
-            fig_ce.update_yaxes(autorange="reversed")
-            st.plotly_chart(fig_ce, use_container_width=True)
-            # Porównanie CE vs NE
-            ne_list = find_all_nash(ce_pr, ce_pc)
-            ne_welfares = [ne['payoff_r']+ne['payoff_c'] for ne in ne_list]
-            best_ne_w = max(ne_welfares) if ne_welfares else 0
-            delta_w = ce_res['social_welfare'] - best_ne_w
-            st.metric("Zysk z koordynacji (CE − najlepsza NE)",
-                f"{delta_w:+.3f}", delta_color="normal")
+        if st.button("▶ Rozwiąż Równowagę Korelatywną (LP)", type="primary", key="ce_run"):
+            with st.spinner("Rozwiązuję LP (linprog)..."):
+                ce_res = find_correlated_equilibrium(ce_pr, ce_pc, objective=obj)
+            if ce_res["success"]:
+                dist = ce_res["distribution"]
+                st.success(f"✅ CE znalezione! Dobrobyt: **{ce_res['social_welfare']:.3f}** | A: {ce_res['payoff_r']:.3f} | B: {ce_res['payoff_c']:.3f}")
+                fig_ce = go.Figure(go.Heatmap(
+                    z=dist,
+                    text=[[f"{dist[i,j]:.3f}" for j in range(2)] for i in range(2)],
+                    texttemplate="%{text}",
+                    colorscale="Teal", showscale=True,
+                    x=["B: Współpraca","B: Zdrada"],
+                    y=["A: Współpraca","A: Zdrada"],
+                ))
+                fig_ce.update_layout(title="Rozkład sygnałów CE p(i,j)",
+                    template="plotly_dark", height=350)
+                fig_ce.update_yaxes(autorange="reversed")
+                st.plotly_chart(fig_ce, use_container_width=True)
+                ne_list = find_all_nash(ce_pr, ce_pc)
+                ne_welfares = [ne['payoff_r']+ne['payoff_c'] for ne in ne_list]
+                best_ne_w = max(ne_welfares) if ne_welfares else 0
+                delta_w = ce_res['social_welfare'] - best_ne_w
+                st.metric("Zysk z koordynacji (CE − najlepsza NE)",
+                    f"{delta_w:+.3f}", delta_color="normal")
+            else:
+                st.error("LP nie znalazł rozwiązania.")
         else:
-            st.error("LP nie znalazł rozwiązania.")
+            st.info("⚡ Ustaw macierz i cel optymalizacji, następnie kliknij ▶ Rozwiąż.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 11: Bayesian NE
@@ -880,34 +883,38 @@ with tabs[12]:
         mf_x0 = st.slider("x₀ — startowy poziom portfela", 0.5, 2.0, 1.3)
         st.info("Agent startuje z x₀ > 1.0 (przeważony). MFG wyznacza optymalną ścieżkę powrotu do środka.")
     with mf2:
-        mfg = lq_mean_field_game(T=mf_T, n_steps=300, alpha=mf_alpha,
-                                  beta=mf_beta, sigma=mf_sigma, x0=mf_x0)
-        t = mfg["t"]
-        fig_mf = go.Figure()
-        fig_mf.add_trace(go.Scatter(
-            x=t, y=mfg["mean_field"], mode='lines',
-            name='Mean Field m(t) — śr. portfel rynku',
-            line=dict(color='#00e676', width=3)))
-        fig_mf.add_trace(go.Scatter(
-            x=t, y=mfg["agent_path"], mode='lines',
-            name='Trajektoria agenta x(t)',
-            line=dict(color='#ff6d00', width=2, dash='dot')))
-        fig_mf.update_layout(
-            title="LQ Mean-Field Game: Optymalny Tracking Portfela",
-            xaxis_title="Czas", yaxis_title="Poziom portfela",
-            template="plotly_dark", height=360,
-            legend=dict(x=0.01, y=0.99))
-        st.plotly_chart(fig_mf, use_container_width=True)
-        fig_ctrl = go.Figure(go.Scatter(
-            x=t[:-1], y=mfg["optimal_control"], mode='lines',
-            name='u*(t) — optymalne sterowanie',
-            line=dict(color='#e040fb', width=2)))
-        fig_ctrl.add_hline(y=0, line_dash='dash', line_color='gray')
-        fig_ctrl.update_layout(
-            title="Optymalny Sygnał Transakcji u*(t)",
-            xaxis_title="Czas", yaxis_title="Intensywność transakcji",
-            template="plotly_dark", height=250)
-        st.plotly_chart(fig_ctrl, use_container_width=True)
-        avg_tracking_error = float(np.mean((mfg["agent_path"] - mfg["mean_field"])**2))
-        st.metric("Średni Błąd Śledzenia (MSE)", f"{avg_tracking_error:.4f}",
-                  help="Jak daleko agent był od mean field przez cały horyzont")
+        if st.button("▶ Symuluj Mean-Field Game (ODE)", type="primary", key="mfg_run"):
+            with st.spinner("Rozwiązuję układ ODE (odeint, 300 kroków)..."):
+                mfg = lq_mean_field_game(T=mf_T, n_steps=300, alpha=mf_alpha,
+                                          beta=mf_beta, sigma=mf_sigma, x0=mf_x0)
+            t_mf = mfg["t"]
+            fig_mf = go.Figure()
+            fig_mf.add_trace(go.Scatter(
+                x=t_mf, y=mfg["mean_field"], mode='lines',
+                name='Mean Field m(t) — śr. portfel rynku',
+                line=dict(color='#00e676', width=3)))
+            fig_mf.add_trace(go.Scatter(
+                x=t_mf, y=mfg["agent_path"], mode='lines',
+                name='Trajektoria agenta x(t)',
+                line=dict(color='#ff6d00', width=2, dash='dot')))
+            fig_mf.update_layout(
+                title="LQ Mean-Field Game: Optymalny Tracking Portfela",
+                xaxis_title="Czas", yaxis_title="Poziom portfela",
+                template="plotly_dark", height=360,
+                legend=dict(x=0.01, y=0.99))
+            st.plotly_chart(fig_mf, use_container_width=True)
+            fig_ctrl = go.Figure(go.Scatter(
+                x=t_mf[:-1], y=mfg["optimal_control"], mode='lines',
+                name='u*(t) — optymalne sterowanie',
+                line=dict(color='#e040fb', width=2)))
+            fig_ctrl.add_hline(y=0, line_dash='dash', line_color='gray')
+            fig_ctrl.update_layout(
+                title="Optymalny Sygnał Transakcji u*(t)",
+                xaxis_title="Czas", yaxis_title="Intensywność transakcji",
+                template="plotly_dark", height=250)
+            st.plotly_chart(fig_ctrl, use_container_width=True)
+            avg_tracking_error = float(np.mean((mfg["agent_path"] - mfg["mean_field"])**2))
+            st.metric("Średni Błąd Śledzenia (MSE)", f"{avg_tracking_error:.4f}",
+                      help="Jak daleko agent był od mean field przez cały horyzont")
+        else:
+            st.info("⚡ Ustaw parametry modelu po lewej, następnie kliknij ▶ Symuluj.")
