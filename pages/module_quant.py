@@ -11,16 +11,17 @@ st.markdown(module_header(
     badge="Quant Research"
 ), unsafe_allow_html=True)
 
-options = ["Black-Litterman AI", "HERC Portfolio", "DCC — Korelacje", "Factor Zoo & PCA", "Sieci Przyczynowe"]
+options = ["Black-Litterman AI", "HERC Portfolio", "DCC — Korelacje", "Factor Zoo & PCA", "Sieci Przyczynowe", "Błędy Stochastyczne"]
 sel = st.pills("Wybierz model:", options, default=options[0])
 st.divider()
 
 _MAP = {
-    "Black-Litterman AI": "pages/6_BL_Dashboard.py",
-    "HERC Portfolio":     "pages/24_HERC_Portfolio.py",
-    "DCC — Korelacje":    "pages/7_DCC_Dashboard.py",
-    "Factor Zoo & PCA":   "pages/22_Factor_Analysis.py",
-    "Sieci Przyczynowe":  "pages/33_Sieci_Przyczynowe.py",
+    "Black-Litterman AI":   "pages/6_BL_Dashboard.py",
+    "HERC Portfolio":       "pages/24_HERC_Portfolio.py",
+    "DCC — Korelacje":      "pages/7_DCC_Dashboard.py",
+    "Factor Zoo & PCA":     "pages/22_Factor_Analysis.py",
+    "Sieci Przyczynowe":    "pages/33_Sieci_Przyczynowe.py",
+    "Błędy Stochastyczne":  "pages/48_Stochastic_Errors.py",
 }
 if sel in _MAP:
     runpy.run_path(_MAP[sel], run_name="__main__")
