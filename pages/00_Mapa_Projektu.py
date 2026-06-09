@@ -2,22 +2,25 @@ import streamlit as st
 
 st.markdown("""
     <style>
+        /* Zerowe paddingi pionowe — graf wypelnia cala dostepna wysokosc */
         .block-container {
-            padding-top: 0rem !important;
-            padding-bottom: 2rem !important;
-            padding-left: 2rem !important;
-            padding-right: 2rem !important;
+            padding-top: 0.5rem !important;
+            padding-bottom: 0 !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
             max-width: 100% !important;
         }
-        h1 {
-            margin-top: -1.5rem !important;
-            padding-top: 0 !important;
+        /* Ukryj toolbary i stopki Streamlit */
+        footer, .stDeployButton { display: none !important; }
+        /* Graf (iframe agraph) wypelnia reszte wysokosci */
+        iframe[title="streamlit_agraph.agraph"] {
+            width: 100% !important;
+            display: block !important;
+            border: none !important;
         }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🗺️ Mapa Projektu (Drzewo Architektury)")
-st.markdown("Graficzna wizualizacja całej architektury projektu Barbell. **Kliknij dowolny kafelek, aby do niego przejść.**")
 
 # ==========================================
 # 1. STRUKTURA MENU — ZGODNA Z module_xxx.py
@@ -242,7 +245,7 @@ for section_name, section_data in MENU_STRUCTURE.items():
 # ==========================================
 config = Config(
     width="100%",
-    height=860,
+    height=1200,   # Wewnetrzna wielkosc canvas dla vis.js (musi byc int)
     directed=True,
     physics=False,
     hierarchical=True,
@@ -260,7 +263,7 @@ config = Config(
         "hover": True,
         "zoomView": True,
         "dragView": True,
-        "navigationButtons": True,
+        "navigationButtons": False,  # wlasne przyciski ukryte bo jestesmy fullscreen
     }
 )
 
@@ -271,9 +274,50 @@ clicked_node = agraph(nodes=nodes, edges=edges, config=config)
 # ==========================================
 if clicked_node:
     if clicked_node == "root" or clicked_node in MENU_STRUCTURE:
-        st.info("To jest kategoria menu. Kliknij na węzeł podrzędny, aby tam przejść.")
+        pass
     elif clicked_node and clicked_node.endswith(".py"):
         if clicked_node == "app.py":
             st.switch_page("app.py")
         else:
             st.switch_page(clicked_node)
+
+# ==========================================
+# 5. JS: DOSTOSUJ WYSOKOSC GRAFU DO EKRANU
+# ==========================================
+import streamlit.components.v1 as components
+components.html("""
+<script>
+(function() {
+    var doc = window.parent.document;
+
+    function resizeGraph() {
+        var iframes = doc.querySelectorAll('iframe[title="streamlit_agraph.agraph"]');
+        if (!iframes.length) return;
+        
+        // Czyste obliczenie dostepnego miejsca bez paska nawigacji glownej
+        var header = doc.querySelector('header[data-testid="stHeader"]');
+        var headerH = header ? header.offsetHeight : 0;
+        var availH = window.parent.innerHeight - headerH - 8; // mały zapas
+        
+        iframes.forEach(function(f) {
+            f.style.height = availH + 'px';
+            f.style.minHeight = availH + 'px';
+            f.style.border = 'none';
+            f.style.overflow = 'hidden';
+            
+            // Opcjonalnie wejdz wgłąb (jakby streamlit wrapper przeszkadzał)
+            var parentDiv = f.closest('.element-container');
+            if(parentDiv) {
+                parentDiv.style.height = availH + 'px';
+                parentDiv.style.overflow = 'hidden';
+            }
+        });
+    }
+
+    resizeGraph();
+    setTimeout(resizeGraph, 300);
+    setTimeout(resizeGraph, 800);
+    window.parent.addEventListener('resize', resizeGraph);
+}());
+</script>
+""", height=0)

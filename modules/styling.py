@@ -414,6 +414,31 @@ def inject_spotlight_js(search_index_json: str = "[]"):
                     font-size: 10px;
                     font-family: monospace;
                 }}
+                #mapa-trigger-btn {{
+                    position: fixed;
+                    bottom: 24px;
+                    right: 176px;
+                    z-index: 99998;
+                    background: rgba(13,15,28,0.92);
+                    border: 1px solid rgba(41,121,255,0.35);
+                    border-radius: 12px;
+                    padding: 8px 14px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-family: 'Inter', sans-serif;
+                    font-size: 12px;
+                    color: #6b7591;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+                    transition: all 0.2s ease;
+                    backdrop-filter: blur(8px);
+                }}
+                #mapa-trigger-btn:hover {{
+                    border-color: rgba(41,121,255,0.8);
+                    color: #2979ff;
+                    box-shadow: 0 4px 24px rgba(41,121,255,0.18);
+                }}
             `;
             doc.head.appendChild(styleEl);
         }}
@@ -491,13 +516,52 @@ def inject_spotlight_js(search_index_json: str = "[]"):
         overlay.appendChild(modal);
         doc.body.appendChild(overlay);
 
-        // — Floating trigger button —
+        // — Floating trigger button — SZUKAJ
         var triggerBtn = doc.createElement("button");
         triggerBtn.id = "spotlight-trigger-btn";
         triggerBtn.innerHTML = `🔍 Szukaj &nbsp; <kbd>Ctrl+K</kbd>`;
         triggerBtn.title = "Otwórz Spotlight (Ctrl+K)";
         doc.body.appendChild(triggerBtn);
         triggerBtn.addEventListener("click", openModal);
+
+        // — Floating button — MAPA PROJEKTU
+        if (doc.getElementById("mapa-trigger-btn")) doc.getElementById("mapa-trigger-btn").remove();
+        var mapaBtn = doc.createElement("button");
+        mapaBtn.id = "mapa-trigger-btn";
+        mapaBtn.innerHTML = `🗺️ Mapa`;
+        mapaBtn.title = "Otwórz Mapę Projektu";
+        doc.body.appendChild(mapaBtn);
+        mapaBtn.addEventListener("click", function() {{
+            // Kliknij link Mapy Projektu w sidebarze jeśli istnieje
+            var navLinks = doc.querySelectorAll('[data-testid="stSidebarNavLink"]');
+            var found = false;
+            navLinks.forEach(function(el) {{
+                var txt = (el.textContent || el.innerText || '').toLowerCase();
+                if (txt.includes('mapa')) {{ el.click(); found = true; }}
+            }});
+            if (!found) {{
+                // Fallback: nawiguj przez URL
+                var base = window.parent.location.origin;
+                window.parent.location.href = base + '/Mapa_Projektu';
+            }}
+        }});
+
+        // — Ukryj "Mapa Projektu" z sidebara (widoczna tylko przez floating button) —
+        function hideMapa() {{
+            var navLinks = doc.querySelectorAll('[data-testid="stSidebarNavLink"]');
+            navLinks.forEach(function(el) {{
+                var txt = (el.textContent || el.innerText || '').toLowerCase();
+                if (txt.includes('mapa')) {{
+                    var li = el.closest('li');
+                    if (li) li.style.display = 'none';
+                    else el.parentElement.style.display = 'none';
+                }}
+            }});
+        }}
+        // Uruchom od razu i po małym opóźnieniu (Streamlit może renderować async)
+        hideMapa();
+        setTimeout(hideMapa, 500);
+        setTimeout(hideMapa, 1500);
 
         // ═══════════════════════════════════════════════════════
         //  STATE
@@ -1210,8 +1274,9 @@ def apply_styling() -> str:
     }
     /* Padding top dla opcji sidebara */
     [data-testid="stSidebar"] > div:first-child {
-        padding-top: 2rem !important;
+        padding-top: 0 !important;
     }
+
 
     /* ── UJEDNOLICENIE CZCIONEK SIDEBARA (v10) ─────────────────────
        Bazowy rozmiar: 13.5px — identyczny z linkami nawigacyjnymi.
