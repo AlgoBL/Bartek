@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html, inject_accordion_js, inject_command_palette_js
+from modules.styling import apply_styling, alert_badge_html, math_explainer, ticker_bar_html, inject_accordion_js, inject_command_palette_js, inject_spotlight_js
 from modules.global_settings import get_gs
 from modules.i18n import t
 import datetime
@@ -17,7 +17,15 @@ st.set_page_config(
 
 # Wstrzykuje JavaScript kontrolera accordion
 inject_accordion_js()
-inject_command_palette_js()
+
+# Wstrzykuje Spotlight v2 — pełna wyszukiwarka projektu z indeksem
+try:
+    from modules.search_index import get_search_index_json
+    _search_index_json = get_search_index_json()
+except Exception as _e:
+    _search_index_json = "[]"
+inject_spotlight_js(_search_index_json)
+
 from modules.styling import inject_aos_js
 inject_aos_js()
 

@@ -125,237 +125,877 @@ def inject_aos_js():
 
 
 def inject_command_palette_js():
-    import streamlit.components.v1 as components
-    js_code = """
-    <script>
-    (function() {
-        var doc = window.parent.document;
-        if (doc.getElementById("cmd-palette-overlay")) return;
+    """Legacy stub — zastąpiona przez inject_spotlight_js(). Zachowana dla kompatybilności."""
+    pass  # inject_spotlight_js() jest teraz wywoływana bezpośrednio w app.py
 
+
+def inject_spotlight_js(search_index_json: str = "[]"):
+    """
+    Wstrzykuje Spotlight v2 — pełna wyszukiwarka projektu Barbell Dashboard.
+
+    Funkcje:
+    - Fuzzy search (wszystkie znaki query w kolejności w target)
+    - Score ranking (exact > prefix > fuzzy > fallback)
+    - Kategorie wyników (Moduły, Wskaźniki, Metody Quant, Akcje)
+    - Panel podglądu po prawej stronie (dwukolumnowy layout Spotlight)
+    - Pełna obsługa klawiatury (↑↓ Enter Esc, Tab kategorii)
+    - Podświetlanie dopasowanych znaków (<mark>)
+    - MRU — ostatnio używane (localStorage)
+    - Indeks z search_index_json — pełne metadane projektu
+    - Fallback na linki nawigacyjne gdy indeks pusty
+
+    Args:
+        search_index_json: JSON string z wynikiem build_search_index()
+    """
+    import streamlit.components.v1 as components
+
+    # Escapuj backtick'i w JSON żeby nie psuf template literal JS
+    safe_json = search_index_json.replace("\\", "\\\\").replace("`", "\\`")
+
+    js_code = f"""
+    <script>
+    (function() {{
+        var doc = window.parent.document;
+        
+        // CLEANUP PREVIOUS INJECTIONS TO PREVENT DEAD EVENT LISTENERS
+        if (doc.getElementById("spotlight-overlay-v2")) doc.getElementById("spotlight-overlay-v2").remove();
+        if (doc.getElementById("spotlight-trigger-btn")) doc.getElementById("spotlight-trigger-btn").remove();
+        if (doc.getElementById("spotlight-styles-v2")) doc.getElementById("spotlight-styles-v2").remove();
+        if (doc._spotlightKeydownV2) doc.removeEventListener('keydown', doc._spotlightKeydownV2, true);
+
+        // ═══════════════════════════════════════════════════════
+        //  SEARCH INDEX — wstrzykiwany z Pythona
+        // ═══════════════════════════════════════════════════════
+        var SEARCH_INDEX = [];
+        try {{
+            SEARCH_INDEX = JSON.parse(`{safe_json}`);
+        }} catch(e) {{
+            console.warn("Spotlight: błąd parsowania indeksu", e);
+        }}
+
+        // ═══════════════════════════════════════════════════════
+        //  CSS STYLES
+        // ═══════════════════════════════════════════════════════
+        if (!doc.getElementById("spotlight-styles-v2")) {{
+            var styleEl = doc.createElement("style");
+            styleEl.id = "spotlight-styles-v2";
+            styleEl.textContent = `
+                #spotlight-overlay-v2 {{
+                    position: fixed; top: 0; left: 0;
+                    width: 100vw; height: 100vh;
+                    background: rgba(5, 6, 13, 0.75);
+                    backdrop-filter: blur(8px);
+                    -webkit-backdrop-filter: blur(8px);
+                    z-index: 9999999;
+                    display: none;
+                    align-items: flex-start;
+                    justify-content: center;
+                    padding-top: 12vh;
+                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                }}
+                #spotlight-modal-v2 {{
+                    width: 780px; max-width: 94vw;
+                    background: #0d0f1c;
+                    border: 1px solid rgba(0, 230, 118, 0.35);
+                    border-radius: 16px;
+                    box-shadow: 0 24px 80px rgba(0,0,0,0.7),
+                                0 0 0 1px rgba(0,230,118,0.08),
+                                0 0 40px rgba(0,230,118,0.10);
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    max-height: 70vh;
+                    animation: spotlightIn 0.18s cubic-bezier(0.16,1,0.3,1);
+                }}
+                @keyframes spotlightIn {{
+                    from {{ opacity: 0; transform: scale(0.96) translateY(-8px); }}
+                    to   {{ opacity: 1; transform: scale(1) translateY(0); }}
+                }}
+                #spotlight-input-row {{
+                    display: flex;
+                    align-items: center;
+                    padding: 0 18px;
+                    border-bottom: 1px solid rgba(255,255,255,0.06);
+                    flex-shrink: 0;
+                }}
+                #spotlight-search-icon {{
+                    font-size: 18px; margin-right: 12px; opacity: 0.6;
+                    flex-shrink: 0;
+                }}
+                #spotlight-input {{
+                    flex: 1; padding: 18px 0; font-size: 17px;
+                    background: transparent; border: none;
+                    color: #e2e4f0; outline: none; font-family: inherit;
+                }}
+                #spotlight-input::placeholder {{ color: #4a5068; }}
+                #spotlight-shortcut-hint {{
+                    font-size: 11px; color: #3a3f5a;
+                    background: rgba(255,255,255,0.04);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    border-radius: 5px; padding: 3px 8px;
+                    flex-shrink: 0; font-family: monospace;
+                }}
+                #spotlight-body {{
+                    display: flex;
+                    flex: 1;
+                    overflow: hidden;
+                    min-height: 0;
+                }}
+                #spotlight-results {{
+                    flex: 0 0 55%;
+                    overflow-y: auto;
+                    padding: 6px 0 12px;
+                    border-right: 1px solid rgba(255,255,255,0.05);
+                }}
+                #spotlight-results::-webkit-scrollbar {{ width: 4px; }}
+                #spotlight-results::-webkit-scrollbar-thumb {{
+                    background: rgba(0,230,118,0.2); border-radius: 2px;
+                }}
+                #spotlight-preview {{
+                    flex: 0 0 45%;
+                    padding: 24px 20px;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: space-between;
+                    overflow-y: auto;
+                    min-width: 0;
+                }}
+                .spotlight-group-header {{
+                    padding: 10px 16px 4px;
+                    font-size: 10px;
+                    color: #4a5068;
+                    text-transform: uppercase;
+                    letter-spacing: 1.5px;
+                    font-weight: 700;
+                }}
+                .spotlight-item {{
+                    display: flex;
+                    align-items: center;
+                    padding: 9px 14px;
+                    margin: 1px 8px;
+                    cursor: pointer;
+                    border-radius: 8px;
+                    border-left: 3px solid transparent;
+                    transition: background 0.08s ease, border-color 0.08s ease;
+                }}
+                .spotlight-item:hover, .spotlight-item.active {{
+                    background: rgba(0,230,118,0.08);
+                    border-left-color: #00e676;
+                }}
+                .spotlight-item.active .spotlight-item-title {{
+                    color: #00e676;
+                }}
+                .spotlight-item-icon {{
+                    font-size: 16px;
+                    margin-right: 10px;
+                    flex-shrink: 0;
+                    width: 22px;
+                    text-align: center;
+                }}
+                .spotlight-item-text {{ flex: 1; min-width: 0; }}
+                .spotlight-item-title {{
+                    font-size: 13.5px;
+                    color: #d4d8ef;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    font-weight: 500;
+                }}
+                .spotlight-item-cat {{
+                    font-size: 10.5px;
+                    color: #4a5068;
+                    margin-top: 1px;
+                }}
+                .spotlight-item-title mark {{
+                    background: rgba(0,230,118,0.25);
+                    color: #00e676;
+                    border-radius: 2px;
+                    padding: 0 1px;
+                }}
+                #spotlight-preview-icon {{
+                    font-size: 42px;
+                    margin-bottom: 12px;
+                    line-height: 1;
+                }}
+                #spotlight-preview-title {{
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: #e2e4f0;
+                    margin-bottom: 6px;
+                    line-height: 1.3;
+                }}
+                #spotlight-preview-subtitle {{
+                    font-size: 12px;
+                    color: #6b7591;
+                    line-height: 1.55;
+                    flex: 1;
+                }}
+                #spotlight-preview-open {{
+                    margin-top: 16px;
+                    padding: 8px 16px;
+                    background: rgba(0,230,118,0.12);
+                    border: 1px solid rgba(0,230,118,0.3);
+                    border-radius: 8px;
+                    color: #00e676;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-family: inherit;
+                    transition: background 0.15s, border-color 0.15s;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    width: fit-content;
+                }}
+                #spotlight-preview-open:hover {{
+                    background: rgba(0,230,118,0.2);
+                    border-color: rgba(0,230,118,0.5);
+                }}
+                #spotlight-footer {{
+                    display: flex;
+                    align-items: center;
+                    gap: 16px;
+                    padding: 8px 16px;
+                    border-top: 1px solid rgba(255,255,255,0.05);
+                    flex-shrink: 0;
+                }}
+                .spotlight-kb {{
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    font-size: 10px;
+                    color: #3a3f5a;
+                }}
+                .spotlight-kb kbd {{
+                    background: rgba(255,255,255,0.06);
+                    border: 1px solid rgba(255,255,255,0.10);
+                    border-radius: 4px;
+                    padding: 2px 6px;
+                    font-family: monospace;
+                    font-size: 10px;
+                    color: #6b7591;
+                }}
+                #spotlight-no-results {{
+                    padding: 30px 20px;
+                    text-align: center;
+                    color: #3a3f5a;
+                    font-size: 13px;
+                }}
+                #spotlight-trigger-btn {{
+                    position: fixed;
+                    bottom: 24px;
+                    right: 24px;
+                    z-index: 99998;
+                    background: rgba(13,15,28,0.92);
+                    border: 1px solid rgba(0,230,118,0.35);
+                    border-radius: 12px;
+                    padding: 8px 14px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-family: 'Inter', sans-serif;
+                    font-size: 12px;
+                    color: #6b7591;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+                    transition: all 0.2s ease;
+                    backdrop-filter: blur(8px);
+                }}
+                #spotlight-trigger-btn:hover {{
+                    border-color: rgba(0,230,118,0.7);
+                    color: #00e676;
+                    box-shadow: 0 4px 24px rgba(0,230,118,0.15);
+                }}
+                #spotlight-trigger-btn kbd {{
+                    background: rgba(255,255,255,0.06);
+                    border: 1px solid rgba(255,255,255,0.12);
+                    border-radius: 4px;
+                    padding: 1px 5px;
+                    font-size: 10px;
+                    font-family: monospace;
+                }}
+            `;
+            doc.head.appendChild(styleEl);
+        }}
+
+        // ═══════════════════════════════════════════════════════
+        //  DOM STRUCTURE
+        // ═══════════════════════════════════════════════════════
         var overlay = doc.createElement("div");
-        overlay.id = "cmd-palette-overlay";
-        Object.assign(overlay.style, {
-            position: "fixed", top: "0", left: "0", width: "100vw", height: "100vh",
-            backgroundColor: "rgba(5, 6, 13, 0.7)", backdropFilter: "blur(5px)",
-            zIndex: "999999", display: "none", alignItems: "flex-start",
-            justifyContent: "center", paddingTop: "15vh"
-        });
+        overlay.id = "spotlight-overlay-v2";
 
         var modal = doc.createElement("div");
-        Object.assign(modal.style, {
-            width: "600px", maxWidth: "90vw", backgroundColor: "#0f111a",
-            border: "1px solid rgba(0, 230, 118, 0.4)", borderRadius: "12px",
-            boxShadow: "0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 230, 118, 0.15)",
-            overflow: "hidden", display: "flex", flexDirection: "column"
-        });
+        modal.id = "spotlight-modal-v2";
 
-        var inputWrapper = doc.createElement("div");
-        Object.assign(inputWrapper.style, {
-            display: "flex", alignItems: "center", borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
-            padding: "0 20px"
-        });
-        
+        // — Input row —
+        var inputRow = doc.createElement("div");
+        inputRow.id = "spotlight-input-row";
+
         var searchIcon = doc.createElement("span");
-        searchIcon.innerHTML = "⚡";
-        Object.assign(searchIcon.style, { fontSize: "20px", marginRight: "10px", opacity: "0.8" });
+        searchIcon.id = "spotlight-search-icon";
+        searchIcon.textContent = "🔍";
 
-        var input = doc.createElement("input");
-        input.type = "text";
-        input.placeholder = "Wpisz nazwę modułu... (np. Skaner, Symulator)";
-        Object.assign(input.style, {
-            width: "100%", padding: "20px 0", fontSize: "18px", backgroundColor: "transparent",
-            border: "none", color: "#e2e4f0", outline: "none"
-        });
-        
-        inputWrapper.appendChild(searchIcon);
-        inputWrapper.appendChild(input);
+        var inputEl = doc.createElement("input");
+        inputEl.id = "spotlight-input";
+        inputEl.type = "text";
+        inputEl.placeholder = "Szukaj modułów, wskaźników, metod... (Ctrl+K)";
+        inputEl.autocomplete = "off";
+        inputEl.spellcheck = false;
 
-        var listWrapper = doc.createElement("div");
-        Object.assign(listWrapper.style, { maxHeight: "400px", overflowY: "auto", paddingBottom: "10px" });
+        var hintEl = doc.createElement("span");
+        hintEl.id = "spotlight-shortcut-hint";
+        hintEl.textContent = "Ctrl+K";
 
-        modal.appendChild(inputWrapper);
-        modal.appendChild(listWrapper);
+        inputRow.appendChild(searchIcon);
+        inputRow.appendChild(inputEl);
+        inputRow.appendChild(hintEl);
+
+        // — Body (results + preview) —
+        var body = doc.createElement("div");
+        body.id = "spotlight-body";
+
+        var resultsPane = doc.createElement("div");
+        resultsPane.id = "spotlight-results";
+
+        var previewPane = doc.createElement("div");
+        previewPane.id = "spotlight-preview";
+        previewPane.innerHTML = `
+            <div>
+                <div id="spotlight-preview-icon">🔦</div>
+                <div id="spotlight-preview-title">Barbell Spotlight</div>
+                <div id="spotlight-preview-subtitle">
+                    Wyszukaj moduły, wskaźniki makro, metody quantitative, ustawienia portfela i więcej.<br><br>
+                    Indeks zawiera <strong style="color:#00e676">${{SEARCH_INDEX.length}}</strong> elementów projektu.
+                </div>
+            </div>
+            <div></div>
+        `;
+
+        body.appendChild(resultsPane);
+        body.appendChild(previewPane);
+
+        // — Footer —
+        var footer = doc.createElement("div");
+        footer.id = "spotlight-footer";
+        footer.innerHTML = `
+            <span class="spotlight-kb"><kbd>↑</kbd><kbd>↓</kbd> nawigacja</span>
+            <span class="spotlight-kb"><kbd>Enter</kbd> otwórz</span>
+            <span class="spotlight-kb"><kbd>Esc</kbd> zamknij</span>
+            <span style="flex:1"></span>
+            <span style="font-size:10px;color:#2a2f45;">Barbell Spotlight v2</span>
+        `;
+
+        modal.appendChild(inputRow);
+        modal.appendChild(body);
+        modal.appendChild(footer);
         overlay.appendChild(modal);
         doc.body.appendChild(overlay);
 
-        var links = [];
+        // — Floating trigger button —
+        var triggerBtn = doc.createElement("button");
+        triggerBtn.id = "spotlight-trigger-btn";
+        triggerBtn.innerHTML = `🔍 Szukaj &nbsp; <kbd>Ctrl+K</kbd>`;
+        triggerBtn.title = "Otwórz Spotlight (Ctrl+K)";
+        doc.body.appendChild(triggerBtn);
+        triggerBtn.addEventListener("click", openModal);
+
+        // ═══════════════════════════════════════════════════════
+        //  STATE
+        // ═══════════════════════════════════════════════════════
         var activeIndex = 0;
-        var flatList = []; // Flattened list for keyboard navigation
-        
-        // ── MRU (Most Recently Used) Logic ──
-        function getMRU() {
-            try {
-                return JSON.parse(localStorage.getItem('barbell_mru_v1')) || [];
-            } catch (e) { return []; }
-        }
-        function saveMRU(text) {
-            var mru = getMRU();
-            mru = mru.filter(function(item) { return item !== text; });
-            mru.unshift(text);
-            if (mru.length > 5) mru = mru.slice(0, 5); // Keep up to 5
-            localStorage.setItem('barbell_mru_v1', JSON.stringify(mru));
-        }
+        var flatList = [];
+        var currentSelected = null;
 
-        // ── Group Categories ──
-        function getCategory(text) {
-            var t = text.toLowerCase();
-            if (t.includes('skaner') || t.includes('factor') || t.includes('day trading') || t.includes('cykliczność')) return '📊 Analiza Rynkowa';
-            if (t.includes('symulator') || t.includes('stress test') || t.includes('health') || t.includes('emerytura')) return '🛡️ Portfel i Ochrona';
-            if (t.includes('life os')) return '🧬 Osobiste';
-            if (t.includes('ustawienia') || t.includes('dashboard')) return '⚙️ System';
-            return '📁 Inne';
-        }
+        // ═══════════════════════════════════════════════════════
+        //  MRU (Most Recently Used)
+        // ═══════════════════════════════════════════════════════
+        function getMRU() {{
+            try {{ return JSON.parse(localStorage.getItem('barbell_spotlight_mru_v2')) || []; }}
+            catch(e) {{ return []; }}
+        }}
+        function saveMRU(id) {{
+            var mru = getMRU().filter(function(x) {{ return x !== id; }});
+            mru.unshift(id);
+            if (mru.length > 8) mru = mru.slice(0, 8);
+            localStorage.setItem('barbell_spotlight_mru_v2', JSON.stringify(mru));
+        }}
 
-        function getNavLinks() {
+        // ═══════════════════════════════════════════════════════
+        //  FUZZY SEARCH ENGINE
+        // ═══════════════════════════════════════════════════════
+        function fuzzyScore(query, target) {{
+            if (!query) return 50;
+            var q = query.toLowerCase();
+            var t = target.toLowerCase();
+
+            // Exact match
+            if (t === q) return 100;
+            // Starts with
+            if (t.startsWith(q)) return 90;
+            // Contains substring
+            if (t.includes(q)) return 75;
+
+            // Fuzzy: all chars in order
+            var qi = 0;
+            var score = 0;
+            var lastMatchPos = -1;
+            for (var ti = 0; ti < t.length && qi < q.length; ti++) {{
+                if (t[ti] === q[qi]) {{
+                    // Bonus for consecutive chars
+                    score += (lastMatchPos === ti - 1) ? 3 : 1;
+                    lastMatchPos = ti;
+                    qi++;
+                }}
+            }}
+            if (qi < q.length) return 0; // not all chars found
+            // Scale to 40-70 range
+            return Math.min(70, 40 + score * 2);
+        }}
+
+        function scoreItem(item, query) {{
+            if (!query) return 50 * (item.score_boost || 1.0);
+
+            var q = query.toLowerCase();
+            var maxScore = 0;
+
+            // Score title
+            var titleScore = fuzzyScore(q, item.title);
+            if (titleScore > maxScore) maxScore = titleScore;
+
+            // Score subtitle
+            if (item.subtitle) {{
+                var subScore = fuzzyScore(q, item.subtitle) * 0.7;
+                if (subScore > maxScore) maxScore = subScore;
+            }}
+
+            // Score tags
+            if (item.tags) {{
+                for (var i = 0; i < item.tags.length; i++) {{
+                    var tagScore = fuzzyScore(q, item.tags[i]) * 0.85;
+                    if (tagScore > maxScore) maxScore = tagScore;
+                }}
+            }}
+
+            // Score category
+            if (item.category) {{
+                var catScore = fuzzyScore(q, item.category) * 0.5;
+                if (catScore > maxScore) maxScore = catScore;
+            }}
+
+            return maxScore * (item.score_boost || 1.0);
+        }}
+
+        function highlightMatches(text, query) {{
+            if (!query) return escapeHtml(text);
+            var q = query.toLowerCase();
+            var t = text;
+
+            // Try exact substring highlight first
+            var lowerT = t.toLowerCase();
+            var idx = lowerT.indexOf(q);
+            if (idx >= 0) {{
+                return escapeHtml(t.slice(0, idx))
+                     + '<mark>' + escapeHtml(t.slice(idx, idx + q.length)) + '</mark>'
+                     + escapeHtml(t.slice(idx + q.length));
+            }}
+
+            // Fuzzy char-by-char highlight
+            var result = '';
+            var qi = 0;
+            var chars = t.split('');
+            for (var i = 0; i < chars.length; i++) {{
+                if (qi < q.length && chars[i].toLowerCase() === q[qi]) {{
+                    result += '<mark>' + escapeHtml(chars[i]) + '</mark>';
+                    qi++;
+                }} else {{
+                    result += escapeHtml(chars[i]);
+                }}
+            }}
+            return result;
+        }}
+
+        function escapeHtml(str) {{
+            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }}
+
+        // ═══════════════════════════════════════════════════════
+        //  NAV LINKS (Streamlit sidebar)
+        // ═══════════════════════════════════════════════════════
+        function getNavLinks() {{
             var items = doc.querySelectorAll('[data-testid="stSidebarNavLink"]');
             var result = [];
-            items.forEach(function(item) {
-                var rawText = item.textContent || item.innerText;
-                result.push({ element: item, text: rawText.trim() });
-            });
+            items.forEach(function(el) {{
+                var text = (el.textContent || el.innerText || '').trim();
+                result.push({{ element: el, text: text, _isNav: true }});
+            }});
             return result;
-        }
+        }}
 
-        function renderList(query) {
-            listWrapper.innerHTML = "";
-            var q = query.trim().toLowerCase();
-            var filtered = links.filter(function(l) { return l.text.toLowerCase().includes(q); });
-            
-            flatList = []; // reset
-            var isSearch = q.length > 0;
-            
-            var groups = {};
+        // Znajdź element nawigacyjny dla danej strony
+        function findNavElement(pagePath) {{
+            var navLinks = getNavLinks();
+            // Próba dopasowania po tytule lub końcówce ścieżki
+            var pageName = pagePath.split('/').pop().replace('.py','').replace(/_/g,' ');
+            for (var i = 0; i < navLinks.length; i++) {{
+                var navText = navLinks[i].text.toLowerCase();
+                if (navText.includes(pageName.toLowerCase()) ||
+                    pageName.toLowerCase().includes(navText.replace(/[^a-z0-9]/g, ''))) {{
+                    return navLinks[i].element;
+                }}
+            }}
+            // Fallback: szukaj po słowach
+            var words = pageName.toLowerCase().split(' ').filter(function(w) {{ return w.length > 2; }});
+            for (var i = 0; i < navLinks.length; i++) {{
+                var navText = navLinks[i].text.toLowerCase();
+                var matches = words.filter(function(w) {{ return navText.includes(w); }});
+                if (matches.length >= Math.max(1, Math.floor(words.length * 0.4))) {{
+                    return navLinks[i].element;
+                }}
+            }}
+            return null;
+        }}
+
+        // ═══════════════════════════════════════════════════════
+        //  SEARCH & RENDER
+        // ═══════════════════════════════════════════════════════
+        function buildResults(query) {{
+            var q = (query || '').trim();
             var mru = getMRU();
-            
-            if (isSearch) {
-                // If searching, group by category
-                filtered.forEach(function(l) {
-                    var cat = getCategory(l.text);
-                    if (!groups[cat]) groups[cat] = [];
-                    groups[cat].push(l);
-                });
-            } else {
-                // If empty search, show MRU and default grouping
-                if (mru.length > 0) {
-                    groups['🕒 Ostatnio używane'] = [];
-                    mru.forEach(function(mText) {
-                        var found = links.find(function(l) { return l.text === mText; });
-                        if (found) groups['🕒 Ostatnio używane'].push(found);
-                    });
-                }
-                groups['⭐ Wszystkie Moduły'] = links; // show all
-            }
-            
-            var groupNames = Object.keys(groups);
-            if (groupNames.length === 0 || (groupNames.length === 1 && groups[groupNames[0]].length === 0)) {
-                listWrapper.innerHTML = "<div style='padding:15px 20px;color:#666;font-family:sans-serif;'>Brak modułu pasującego do wyszukiwania...</div>";
-                return;
-            }
-            
-            groupNames.forEach(function(groupName) {
-                var items = groups[groupName];
-                if (items.length === 0) return;
-                
-                var header = doc.createElement("div");
-                header.textContent = groupName;
-                Object.assign(header.style, {
-                    padding: "10px 20px 5px", fontSize: "12px", color: "#888",
-                    textTransform: "uppercase", letterSpacing: "1px", fontWeight: "bold"
-                });
-                listWrapper.appendChild(header);
-                
-                items.forEach(function(l) {
-                    // Avoid duplicating MRU items in the "All" list if empty search
-                    if (!isSearch && groupName === '⭐ Wszystkie Moduły' && mru.includes(l.text)) return;
-                    
-                    var indexInFlat = flatList.length;
-                    flatList.push(l);
-                    
-                    var item = doc.createElement("div");
-                    item.textContent = l.text;
-                    
-                    var isActive = (indexInFlat === activeIndex);
-                    
-                    Object.assign(item.style, {
-                        padding: "12px 20px", cursor: "pointer", fontFamily: "sans-serif",
-                        color: isActive ? "#00e676" : "#e2e4f0",
-                        backgroundColor: isActive ? "rgba(0, 230, 118, 0.1)" : "transparent",
-                        borderLeft: isActive ? "3px solid #00e676" : "3px solid transparent",
-                        transition: "all 0.1s ease",
-                        margin: "2px 8px", borderRadius: "4px"
-                    });
 
-                    item.onmouseenter = function() { activeIndex = indexInFlat; renderList(query); };
-                    item.onclick = function() { saveMRU(l.text); closeModal(); l.element.click(); };
-                    listWrapper.appendChild(item);
-                });
-            });
-            
-            // Adjust bounds
-            if (flatList.length > 0) {
-                if (activeIndex < 0) activeIndex = 0;
-                if (activeIndex >= flatList.length) activeIndex = flatList.length - 1;
-            }
-            
-            // Auto scroll to active element
-            var activeEl = listWrapper.children[activeIndex + groupNames.length]; // rough approx for scroll
-            if (activeEl && activeEl.scrollIntoView) {
-                activeEl.scrollIntoView({ block: "nearest" });
-            }
-        }
+            if (q.length === 0) {{
+                // Empty query: show MRU + all grouped
+                var results = [];
 
-        function openModal() {
-            links = getNavLinks();
-            overlay.style.display = "flex";
-            input.value = "";
+                // MRU items first
+                var mruItems = mru.map(function(id) {{
+                    return SEARCH_INDEX.find(function(item) {{ return item.id === id; }});
+                }}).filter(Boolean);
+
+                if (mruItems.length > 0) {{
+                    results.push({{ _isHeader: true, text: '🕒 Ostatnio używane' }});
+                    mruItems.forEach(function(item) {{ results.push(item); }});
+                }}
+
+                // All by category
+                var categories = {{}};
+                SEARCH_INDEX.forEach(function(item) {{
+                    var cat = item.category || '📁 Inne';
+                    if (!categories[cat]) categories[cat] = [];
+                    if (!mru.includes(item.id)) {{
+                        categories[cat].push(item);
+                    }}
+                }});
+
+                // Also include nav links not in index
+                var navLinks = getNavLinks();
+                var existingTitles = SEARCH_INDEX.map(function(i) {{ return i.title.toLowerCase(); }});
+                navLinks.forEach(function(nl) {{
+                    var t = nl.text.toLowerCase();
+                    var inIndex = existingTitles.some(function(et) {{ return et.includes(t) || t.includes(et.substring(0,8)); }});
+                    if (!inIndex && !mru.includes('nav_' + t)) {{
+                        if (!categories['📄 Nawigacja']) categories['📄 Nawigacja'] = [];
+                        categories['📄 Nawigacja'].push({{
+                            id: 'nav_' + t, title: nl.text, subtitle: 'Link nawigacyjny',
+                            category: '📄 Nawigacja', icon: '📄', tags: [t],
+                            _navElement: nl.element
+                        }});
+                    }}
+                }});
+
+                var catOrder = ['⚡ Akcja', '📄 Nawigacja', '🛡️ Portfel i Ochrona', '📊 Analiza Rynkowa', '🧬 Osobiste', '⚙️ System', '📊 Wskaźnik Makro', '🔬 Metoda Quant', '📁 Inne'];
+                catOrder.forEach(function(cat) {{
+                    if (categories[cat] && categories[cat].length > 0) {{
+                        results.push({{ _isHeader: true, text: cat }});
+                        categories[cat].forEach(function(item) {{ results.push(item); }});
+                    }}
+                }});
+
+                return results;
+            }}
+
+            // Search mode: score all items
+            var scored = [];
+            SEARCH_INDEX.forEach(function(item) {{
+                var s = scoreItem(item, q);
+                if (s > 0) scored.push({{ item: item, score: s }});
+            }});
+
+            // Also score nav links
+            var navLinks = getNavLinks();
+            navLinks.forEach(function(nl) {{
+                var titleScore = fuzzyScore(q, nl.text);
+                if (titleScore > 0) {{
+                    scored.push({{
+                        item: {{
+                            id: 'nav_' + nl.text.toLowerCase(),
+                            title: nl.text,
+                            subtitle: 'Link nawigacyjny',
+                            category: '📄 Nawigacja',
+                            icon: '📄',
+                            tags: [nl.text.toLowerCase()],
+                            _navElement: nl.element
+                        }},
+                        score: titleScore * 0.8
+                    }});
+                }}
+            }});
+
+            // Sort by score desc
+            scored.sort(function(a, b) {{ return b.score - a.score; }});
+
+            // Group by category (preserving score order)
+            var groups = {{}};
+            scored.forEach(function(s) {{
+                var cat = s.item.category || '📁 Inne';
+                if (!groups[cat]) groups[cat] = [];
+                groups[cat].push(s.item);
+            }});
+
+            var results = [];
+            var catOrder = ['⚡ Akcja', '📄 Nawigacja', '🛡️ Portfel i Ochrona', '📊 Analiza Rynkowa', '🧬 Osobiste', '⚙️ System', '📊 Wskaźnik Makro', '🔬 Metoda Quant', '📁 Inne'];
+
+            // First pass: categories in order
+            catOrder.forEach(function(cat) {{
+                if (groups[cat] && groups[cat].length > 0) {{
+                    results.push({{ _isHeader: true, text: cat }});
+                    groups[cat].forEach(function(item) {{ results.push(item); }});
+                    delete groups[cat];
+                }}
+            }});
+            // Remaining categories
+            Object.keys(groups).forEach(function(cat) {{
+                if (groups[cat].length > 0) {{
+                    results.push({{ _isHeader: true, text: cat }});
+                    groups[cat].forEach(function(item) {{ results.push(item); }});
+                }}
+            }});
+
+            return results;
+        }}
+
+        function renderResults(query) {{
+            resultsPane.innerHTML = '';
+            flatList = [];
             activeIndex = 0;
-            renderList("");
-            setTimeout(function() { input.focus(); }, 100);
-        }
 
-        function closeModal() {
-            overlay.style.display = "none";
-            input.blur();
-        }
+            var results = buildResults(query);
 
-        doc.addEventListener("keydown", function(e) {
-            if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+            if (results.length === 0 || (results.length === 1 && results[0]._isHeader)) {{
+                resultsPane.innerHTML = `<div id="spotlight-no-results">
+                    <div style="font-size:28px;margin-bottom:8px">🔍</div>
+                    Brak wyników dla "<strong style="color:#6b7591">${{escapeHtml(query)}}</strong>"<br>
+                    <span style="font-size:11px;color:#2a2f45;margin-top:6px;display:block">Spróbuj innej frazy lub przeglądaj kategorie</span>
+                </div>`;
+                updatePreview(null, query);
+                return;
+            }}
+
+            results.forEach(function(row, idx) {{
+                if (row._isHeader) {{
+                    var hdr = doc.createElement('div');
+                    hdr.className = 'spotlight-group-header';
+                    hdr.textContent = row.text;
+                    resultsPane.appendChild(hdr);
+                    return;
+                }}
+
+                var flatIdx = flatList.length;
+                flatList.push(row);
+
+                var el = doc.createElement('div');
+                el.className = 'spotlight-item';
+                if (flatIdx === 0) el.classList.add('active');
+                el.setAttribute('data-flat-idx', flatIdx);
+
+                var iconEl = doc.createElement('span');
+                iconEl.className = 'spotlight-item-icon';
+                iconEl.textContent = row.icon || '📄';
+
+                var textEl = doc.createElement('div');
+                textEl.className = 'spotlight-item-text';
+
+                var titleEl = doc.createElement('div');
+                titleEl.className = 'spotlight-item-title';
+                titleEl.innerHTML = highlightMatches(row.title, query);
+
+                var catEl = doc.createElement('div');
+                catEl.className = 'spotlight-item-cat';
+                catEl.textContent = row.category || '';
+
+                textEl.appendChild(titleEl);
+                textEl.appendChild(catEl);
+                el.appendChild(iconEl);
+                el.appendChild(textEl);
+
+                el.addEventListener('mouseenter', function() {{
+                    setActive(flatIdx);
+                }});
+                el.addEventListener('click', function() {{
+                    activateItem(row);
+                }});
+
+                resultsPane.appendChild(el);
+            }});
+
+            if (flatList.length > 0) {{
+                updatePreview(flatList[0], query);
+            }}
+        }}
+
+        function setActive(idx) {{
+            if (idx < 0) idx = 0;
+            if (idx >= flatList.length) idx = flatList.length - 1;
+            activeIndex = idx;
+
+            var items = resultsPane.querySelectorAll('.spotlight-item');
+            items.forEach(function(el) {{ el.classList.remove('active'); }});
+            var activeEl = resultsPane.querySelector('[data-flat-idx="' + idx + '"]');
+            if (activeEl) {{
+                activeEl.classList.add('active');
+                activeEl.scrollIntoView({{ block: 'nearest' }});
+            }}
+
+            updatePreview(flatList[idx], inputEl.value);
+        }}
+
+        function updatePreview(item, query) {{
+            if (!item) {{
+                doc.getElementById('spotlight-preview-icon').textContent = '🔦';
+                doc.getElementById('spotlight-preview-title').textContent = 'Barbell Spotlight';
+                doc.getElementById('spotlight-preview-subtitle').innerHTML =
+                    'Zacznij pisać, aby wyszukać moduły, wskaźniki, metody i więcej.<br><br>' +
+                    '<span style="color:#2a2f45">Indeks: <strong style="color:#00e676">' + SEARCH_INDEX.length + '</strong> elementów</span>';
+                var oldBtn = doc.getElementById('spotlight-preview-open');
+                if (oldBtn) oldBtn.remove();
+                return;
+            }}
+
+            doc.getElementById('spotlight-preview-icon').textContent = item.icon || '📄';
+            doc.getElementById('spotlight-preview-title').innerHTML = highlightMatches(item.title, query);
+            doc.getElementById('spotlight-preview-subtitle').textContent = item.subtitle || item.category || '';
+
+            // Remove old button
+            var oldBtn = doc.getElementById('spotlight-preview-open');
+            if (oldBtn) oldBtn.remove();
+
+            // Add open button
+            var btn = doc.createElement('button');
+            btn.id = 'spotlight-preview-open';
+            btn.innerHTML = '↗ Otwórz ' + escapeHtml(item.icon || '') + ' ' + escapeHtml(item.title.split('—')[0].split('–')[0].trim().substring(0,30));
+            btn.addEventListener('click', function() {{ activateItem(item); }});
+            previewPane.appendChild(btn);
+        }}
+
+        function activateItem(item) {{
+            if (!item) return;
+            saveMRU(item.id);
+            closeModal();
+
+            // 1. Bezposredni element nawigacyjny (linki z sidebara)
+            if (item._navElement) {{
+                item._navElement.click();
+                return;
+            }}
+
+            // 2. Kliknij link w sidebarze po href = nav_url (bezpieczne w iframe)
+            if (item.nav_url) {{
+                var navLinks = getNavLinks();
+                for (var i = 0; i < navLinks.length; i++) {{
+                    var el = navLinks[i].element;
+                    var elHref = el.getAttribute('href') || '';
+                    // porownaj koniec href z nav_url
+                    var navPath = item.nav_url.replace(/^\//, '');
+                    if (elHref === item.nav_url ||
+                        elHref.endsWith(item.nav_url) ||
+                        elHref.endsWith('/' + navPath)) {{
+                        el.click();
+                        return;
+                    }}
+                }}
+            }}
+
+            // 3. Fallback: szukaj po tekscie w linkach sidebara
+            var navLinks2 = getNavLinks();
+            if (navLinks2.length === 0) return;
+            var titleWords = (item.title || '').toLowerCase()
+                .split(/[\s\-\/]+/).filter(function(w) {{ return w.length > 2; }});
+            var bestMatch = null;
+            var bestScore = 0;
+            navLinks2.forEach(function(nl) {{
+                var nlLower = nl.text.toLowerCase();
+                var s = titleWords.filter(function(w) {{ return nlLower.includes(w); }}).length;
+                if (s > bestScore) {{ bestScore = s; bestMatch = nl; }}
+            }});
+            if (bestMatch && bestScore > 0) {{
+                bestMatch.element.click();
+            }}
+        }}
+
+        // ═══════════════════════════════════════════════════════
+        //  OPEN / CLOSE
+        // ═══════════════════════════════════════════════════════
+        function openModal() {{
+            overlay.style.display = 'flex';
+            inputEl.value = '';
+            activeIndex = 0;
+            renderResults('');
+            setTimeout(function() {{ inputEl.focus(); }}, 60);
+        }}
+
+        function closeModal() {{
+            overlay.style.display = 'none';
+            inputEl.blur();
+        }}
+
+        // ═══════════════════════════════════════════════════════
+        //  KEYBOARD EVENTS
+        // ═══════════════════════════════════════════════════════
+        doc._spotlightKeydownV2 = function(e) {{
+            // Ctrl+K / Cmd+K — toggle
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {{
                 e.preventDefault();
-                overlay.style.display === "none" ? openModal() : closeModal();
-            } else if (e.key === "Escape" && overlay.style.display !== "none") {
+                e.stopPropagation();
+                overlay.style.display === 'none' ? openModal() : closeModal();
+                return;
+            }}
+            // Esc
+            if (e.key === 'Escape' && overlay.style.display !== 'none') {{
                 e.preventDefault();
                 closeModal();
-            }
-        });
+                return;
+            }}
+            // Arrow keys (only when modal open)
+            if (overlay.style.display === 'none') return;
+            if (e.key === 'ArrowDown') {{
+                e.preventDefault();
+                setActive(activeIndex + 1);
+            }} else if (e.key === 'ArrowUp') {{
+                e.preventDefault();
+                setActive(activeIndex - 1);
+            }} else if (e.key === 'Enter') {{
+                e.preventDefault();
+                if (flatList[activeIndex]) activateItem(flatList[activeIndex]);
+            }}
+        }};
+        doc.addEventListener('keydown', doc._spotlightKeydownV2, true);
 
-        input.addEventListener("input", function(e) {
+        inputEl.addEventListener('input', function() {{
             activeIndex = 0;
-            renderList(e.target.value);
-        });
+            renderResults(inputEl.value);
+        }});
 
-        input.addEventListener("keydown", function(e) {
-            if (e.key === "ArrowDown") {
-                e.preventDefault();
-                if (activeIndex < flatList.length - 1) activeIndex++;
-                renderList(input.value);
-            } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                if (activeIndex > 0) activeIndex--;
-                renderList(input.value);
-            } else if (e.key === "Enter") {
-                e.preventDefault();
-                if (flatList.length > 0) {
-                    saveMRU(flatList[activeIndex].text);
-                    closeModal();
-                    flatList[activeIndex].element.click();
-                }
-            }
-        });
-
-        overlay.addEventListener("click", function(e) {
+        overlay.addEventListener('click', function(e) {{
             if (e.target === overlay) closeModal();
-        });
-    })();
+        }});
+
+        // ═══════════════════════════════════════════════════════
+        //  EXPOSE for external triggering
+        // ═══════════════════════════════════════════════════════
+        doc.getElementById('spotlight-overlay-v2')._openSpotlight = openModal;
+        doc.getElementById('spotlight-overlay-v2')._closeSpotlight = closeModal;
+
+    }})();
     </script>
     """
     components.html(js_code, height=0, width=0)
