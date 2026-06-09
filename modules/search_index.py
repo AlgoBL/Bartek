@@ -988,6 +988,7 @@ def _extract_i18n_tags() -> Dict[str, List[str]]:
                 # Usuń emoji, tagi HTML, {placeholders}
                 clean = re.sub(r'\{[^}]+\}', '', text)
                 clean = re.sub(r'[^\w\s\-/&]', ' ', clean, flags=re.UNICODE)
+
                 words = [w.lower().strip() for w in clean.split() if len(w) > 2]
 
                 # Przypisz do właściwej strony
@@ -1069,7 +1070,147 @@ def _extract_docstring_tags(pages_dir: str = "pages") -> Dict[str, List[str]]:
     return tags
 
 
+
+# Wywołania Streamlit, z których wyciągamy treść do indeksu
+_ST_TEXT_CALLS = frozenset({
+    "header", "subheader", "title", "markdown", "write",
+    "expander", "caption", "info", "success", "warning",
+    "error", "metric", "text", "latex", "code",
+    "columns",  # pomijamy — bez treści
+})
+
+# Minimalna długość słowa do zaindeksowania
+_MIN_WORD_LEN = 3
+
+# Stopwordy PL+EN do pominięcia (najczęstsze, bezużyteczne)
+_STOPWORDS = frozenset({
+    "the", "and", "for", "not", "are", "but", "this", "that", "with",
+    "from", "has", "was", "will", "its", "can", "all", "have", "more",
+    "they", "one", "two", "use", "used", "each", "also", "per", "new",
+    "jak", "jest", "się", "nie", "dla", "lub", "oraz", "ale", "też",
+    "być", "już", "gdy", "czy", "więc", "gdzie", "tego", "przez",
+    "przy", "która", "który", "które", "który", "tym", "ten", "tej",
+    "ile", "jego", "jej", "ich", "pod", "nad", "bez", "przed", "po",
+})
+
+
+def _words_from_text(text: str) -> List[str]:
+    """Tokenizuje tekst na małe słowa, pomijając krótkie i stopwordy."""
+    # Usuń LaTeX ($...$, $$...$$, \cmd)
+    clean = re.sub(r'\$[^$]*\$', ' ', text)
+    clean = re.sub(r'\\[a-zA-Z]+', ' ', clean)
+    # Usuń HTML tagi i encje (&nbsp; &amp; itp.)
+    clean = re.sub(r'<[^>]+>', ' ', clean)
+    clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
+    # Usuń {placeholders}
+    clean = re.sub(r'\{[^}]+\}', ' ', clean)
+    # Usuń Markdown formatowanie (**, *, #, `, ~, [], >, |)
+    clean = re.sub(r'[*_#`~\[\]()>|\\]', ' ', clean)
+    # Usuń URL-e
+    clean = re.sub(r'https?://\S+', ' ', clean)
+    # Tokenizuj po białych znakach i znakach interpunkcyjnych
+    words = re.split(r'[\s\-–—_,;:\.!?\'"=+/<>@&]+', clean)
+    result = []
+    for w in words:
+        w = w.lower().strip()
+        # Pomiń jeśli: za krótkie, zawiera cyfry lub symbole, jest stopwordem
+        if (len(w) >= _MIN_WORD_LEN
+                and w not in _STOPWORDS
+                and not re.search(r'[0-9$\\%^{}|@#]', w)
+                and re.search(r'[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]{3,}', w)):
+            result.append(w)
+    return result
+
+
+
+def _extract_streamlit_content_tags() -> Dict[str, List[str]]:
+    """
+    Parsuje pliki pages/*.py (i app.py) przez AST i wyciąga słowa
+    ze wszystkich wywołań Streamlit:
+      st.header("..."), st.markdown("..."), st.write("..."), itp.
+
+    Zwraca słownik: rel_path -> [słowa kluczowe]
+    """
+    tags: Dict[str, List[str]] = {}
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Pliki do przeskanowania
+    files_to_scan = []
+
+    pages_dir = os.path.join(root, "pages")
+    if os.path.exists(pages_dir):
+        for fname in os.listdir(pages_dir):
+            if fname.endswith(".py"):
+                files_to_scan.append(os.path.join(pages_dir, fname))
+
+    # app.py w root
+    app_py = os.path.join(root, "app.py")
+    if os.path.exists(app_py):
+        files_to_scan.append(app_py)
+
+    for fpath in files_to_scan:
+        rel_path = os.path.relpath(fpath, root).replace("\\", "/")
+        words: List[str] = []
+
+        try:
+            with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                source = f.read()
+
+            tree = ast.parse(source)
+
+            for node in ast.walk(tree):
+                # Szukamy wywołań: st.xxx(...) lub st.sidebar.xxx(...)
+                if not isinstance(node, ast.Call):
+                    continue
+
+                func = node.func
+                # Rozpoznaj st.X lub st.sidebar.X
+                func_name = None
+                if isinstance(func, ast.Attribute):
+                    if isinstance(func.value, ast.Name) and func.value.id == "st":
+                        func_name = func.attr
+                    elif (isinstance(func.value, ast.Attribute)
+                          and func.value.attr in ("sidebar", "columns")
+                          and isinstance(func.value.value, ast.Name)
+                          and func.value.value.id == "st"):
+                        func_name = func.attr
+
+                if func_name not in _ST_TEXT_CALLS:
+                    continue
+
+                # Zbierz stringi z pozycyjnych i keyword argumentów
+                for arg in node.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        words.extend(_words_from_text(arg.value))
+                    elif isinstance(arg, ast.JoinedStr):
+                        # f-string — zbierz stałe fragmenty
+                        for val in arg.values:
+                            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                                words.extend(_words_from_text(val.value))
+
+                for kw in node.keywords:
+                    if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                        words.extend(_words_from_text(kw.value.value))
+
+        except (SyntaxError, OSError):
+            continue
+        except Exception:
+            continue
+
+        if words:
+            existing = tags.get(rel_path, [])
+            existing.extend(words)
+            tags[rel_path] = existing
+
+    # Deduplikacja
+    for path in tags:
+        tags[path] = list(set(tags[path]))
+
+    return tags
+
+
 def build_search_index() -> List[Dict[str, Any]]:
+
     """
     Buduje pełny indeks wyszukiwania projektu.
     Zwraca listę elementów gotową do JSON serialization.
@@ -1094,12 +1235,16 @@ def build_search_index() -> List[Dict[str, Any]]:
     # ── 2. Tagi z docstringów i komentarzy ────────────────────────────────────
     docstring_tags = _extract_docstring_tags()
 
+    # ── 2b. Tagi z treści Streamlit (st.header, st.markdown, st.write, ...) ───
+    streamlit_tags = _extract_streamlit_content_tags()
+
     # ── 3. Strony ────────────────────────────────────────────────────────────
     for (page_path, title_pl, title_en, icon, category, static_tags) in PAGES_MAP:
-        # Złącz tagi: statyczne + i18n + docstringi
+        # Złącz tagi: statyczne + i18n + docstringi + treści Streamlit
         all_tags = list(static_tags)
         all_tags.extend(i18n_tags.get(page_path, []))
         all_tags.extend(docstring_tags.get(page_path, []))
+        all_tags.extend(streamlit_tags.get(page_path, []))
 
         # Tytuły też jako tagi
         for word in re.split(r'[\s\-/&]+', title_pl.lower()):
@@ -1111,6 +1256,7 @@ def build_search_index() -> List[Dict[str, Any]]:
 
         # Deduplikacja i filtracja
         all_tags = list(set(t.lower().strip() for t in all_tags if t and len(t) > 1))
+
 
         index.append({
             "id": f"page_{page_path.replace('/', '_').replace('.', '_')}",

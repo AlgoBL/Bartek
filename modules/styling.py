@@ -1147,13 +1147,15 @@ def apply_styling() -> str:
        LAYOUT — Odpowiedni padding aby treść nie była za wysoko
     ═══════════════════════════════════════════════════════════════ */
     div.block-container {
-        padding-top: 2.5rem !important;
+        padding-top: 0rem !important; /* Maksymalnie do góry, brak wolnego miejsca */
         padding-bottom: 2rem !important;
         padding-left: 2rem !important;
         padding-right: 2rem !important;
         max-width: 100% !important;
     }
     h4 { margin-bottom: 4px !important; margin-top: 4px !important; }
+    h1 { margin-top: -1.5rem !important; padding-top: 0 !important; }
+    div[data-testid="stMarkdownContainer"] > h1 { margin-top: -1.5rem !important; }
 
     /* Ukrycie okruszków nawigacji i górnego paska Streamlit */
     header[data-testid="stHeader"], 

@@ -1316,6 +1316,7 @@ pages = {
         st.Page(home, title="Control Center", icon="📡", default=True),
         st.Page("pages/0_Globalne_Ustawienia.py", title="Globalne Ustawienia", icon="🌐"),
         st.Page("pages/28_Doradca.py", title="Doradca AI", icon="🧭"),
+        st.Page("pages/00_Mapa_Projektu.py", title="Mapa Projektu", icon="🗺️"),
     ],
     "📉  Środowisko Makro i Reżimy": [
         st.Page("pages/module_makro.py", title="Makro i Reżimy", icon="📉"),

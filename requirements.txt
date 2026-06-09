@@ -27,6 +27,8 @@ numba              # JIT Compiler dla pętli Monte Carlo
 # --- 3.2 FinBERT — NLP finansowy (zastępuje VADER) ---------------------------
 # Wymagane: pip install torch transformers
 # VADER zostaje jako fallback gdy transformers niedostępny
+XlsxWriter==3.2.0
+streamlit-echarts==0.4.0
 transformers>=4.38.0       # FinBERT / distilroberta-financial-sentiment
 torch>=2.2.0               # PyTorch backend dla transformers + TCN + AE
 # Opcja lżejsza (CPU-only):
