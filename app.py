@@ -1332,6 +1332,7 @@ pages = {
     ],
     "💰  Planowanie Majątku (FIRE)": [
         st.Page("pages/module_majatku.py", title="Emerytura i FIRE", icon="💰"),
+        st.Page("pages/50_Obligacje_Skarbowe.py", title="Obligacje Skarbowe", icon="🏦"),
     ],
     "♟️  Meta-Decyzje i Teoria": [
         st.Page("pages/module_meta.py", title="Teoria Decyzji", icon="♟️"),

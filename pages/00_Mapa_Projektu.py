@@ -29,94 +29,11 @@ st.markdown("""
 #   "hub": plik module_xxx.py (Level 2) — lub None dla Centrum Dowodzenia
 #   "subpages": lista podstron widocznych w danym module (Level 3)
 
-MENU_STRUCTURE = {
-    "🌐 Centrum Dowodzenia": {
-        "color": ("#2979ff", "#fff"),
-        "hub": None,
-        "subpages": [
-            {"title": "Control Center",     "page_file": "app.py"},
-            {"title": "Globalne Ustawienia","page_file": "pages/0_Globalne_Ustawienia.py"},
-            {"title": "Doradca AI",         "page_file": "pages/28_Doradca.py"},
-            {"title": "Mapa Projektu",      "page_file": "pages/00_Mapa_Projektu.py"},
-        ]
-    },
-    "📉 Środowisko Makro i Reżimy": {
-        "color": ("#ff9100", "#000"),
-        "hub": {"title": "Makro i Reżimy", "page_file": "pages/module_makro.py"},
-        "subpages": [
-            {"title": "Skaner Rynku",        "page_file": "pages/2_Skaner.py"},
-            {"title": "Zegar Inwestycyjny",  "page_file": "pages/11_Regime_Clock.py"},
-            {"title": "Alokacja Reżimowa",   "page_file": "pages/12_Regime_Allocation.py"},
-            {"title": "Recession Nowcasting","page_file": "pages/26_Recession_Nowcasting.py"},
-        ]
-    },
-    "⚖️ Zarządzanie Portfelem": {
-        "color": ("#ffea00", "#000"),
-        "hub": {"title": "Zarządzanie Portfelem", "page_file": "pages/module_portfel.py"},
-        "subpages": [
-            {"title": "Portfolio Health Monitor","page_file": "pages/8_Health_Monitor.py"},
-            {"title": "Smart Rebalancing",       "page_file": "pages/16_Rebalancing.py"},
-            {"title": "Tax Optimizer PL",        "page_file": "pages/15_Tax_Optimizer.py"},
-            {"title": "Wealth Optimizer",        "page_file": "pages/19_Wealth_Optimizer.py"},
-        ]
-    },
-    "🛡️ Centrum Ryzyka": {
-        "color": ("#00e676", "#000"),
-        "hub": {"title": "Centrum Ryzyka", "page_file": "pages/module_ryzyko.py"},
-        "subpages": [
-            {"title": "Stress Test",         "page_file": "pages/3_Stress_Test.py"},
-            {"title": "Concentration Risk",  "page_file": "pages/9_Concentration_Risk.py"},
-            {"title": "Liquidity Risk",      "page_file": "pages/13_Liquidity_Risk.py"},
-            {"title": "EVT — Tail Risk",     "page_file": "pages/5_EVT_Analysis.py"},
-            {"title": "Systemic Risk",       "page_file": "pages/27_Systemic_Risk.py"},
-            {"title": "Drawdown Recovery",   "page_file": "pages/10_Drawdown_Recovery.py"},
-            {"title": "Tail Risk Hedging",   "page_file": "pages/14_Tail_Hedging.py"},
-            {"title": "Inzynieria Opcji",    "page_file": "pages/32_Inzynieria_Opcji.py"},
-        ]
-    },
-    "🧬 Laboratorium Quant i AI": {
-        "color": ("#d500f9", "#fff"),
-        "hub": {"title": "Laboratorium Quant", "page_file": "pages/module_quant.py"},
-        "subpages": [
-            {"title": "Black-Litterman AI",  "page_file": "pages/6_BL_Dashboard.py"},
-            {"title": "HERC Portfolio",      "page_file": "pages/24_HERC_Portfolio.py"},
-            {"title": "DCC — Korelacje",     "page_file": "pages/7_DCC_Dashboard.py"},
-            {"title": "Factor Zoo & PCA",    "page_file": "pages/22_Factor_Analysis.py"},
-            {"title": "Sieci Przyczynowe",   "page_file": "pages/33_Sieci_Przyczynowe.py"},
-            {"title": "Bledy Stochastyczne", "page_file": "pages/48_Stochastic_Errors.py"},
-        ]
-    },
-    "💰 Planowanie Majatku (FIRE)": {
-        "color": ("#ff1744", "#fff"),
-        "hub": {"title": "Planowanie Majatku", "page_file": "pages/module_majatku.py"},
-        "subpages": [
-            {"title": "Emerytura / FIRE",    "page_file": "pages/4_Emerytura.py"},
-            {"title": "Decumulation / SWR",  "page_file": "pages/4_Emerytura.py"},
-        ]
-    },
-    "♟️ Meta-Decyzje i Teoria": {
-        "color": ("#00e5ff", "#000"),
-        "hub": {"title": "Meta-Decyzje", "page_file": "pages/module_meta.py"},
-        "subpages": [
-            {"title": "Przewaga Informacyjna","page_file": "pages/34_Przewaga_Informacyjna.py"},
-            {"title": "Kalkulator Bayesa",    "page_file": "pages/29_Kalkulator_Bayesa.py"},
-            {"title": "Asymetria Informacji", "page_file": "pages/31_Asymetria_Informacji.py"},
-            {"title": "Teoria Gier",          "page_file": "pages/30_Teoria_Gier.py"},
-            {"title": "Chaos Deterministyczny","page_file": "pages/49_Chaos_Deterministyczny.py"},
-        ]
-    },
-    "🎯 Moduly Aktywne i Trening": {
-        "color": ("#ff6d00", "#fff"),
-        "hub": {"title": "Moduly Aktywne", "page_file": "pages/module_aktywne.py"},
-        "subpages": [
-            {"title": "Symulator Barbell",   "page_file": "pages/1_Symulator.py"},
-            {"title": "Day Trading",         "page_file": "pages/21_Day_Trading.py"},
-            {"title": "Sentiment & Flow",    "page_file": "pages/17_Sentiment_Flow.py"},
-            {"title": "Walk-Forward CPCV",   "page_file": "pages/23_Walk_Forward.py"},
-            {"title": "Life OS",             "page_file": "pages/20_Life_OS.py"},
-        ]
-    },
-}
+from modules.module_registry import build_menu_structure
+
+# ── AUTO-GENERATED: module_registry — DO NOT EDIT BELOW ──────────────
+MENU_STRUCTURE = build_menu_structure()
+# ── END AUTO-GENERATED ───────────────────────────────────────────────
 
 # ==========================================
 # 2. BUDOWA GRAFU

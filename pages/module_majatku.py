@@ -15,7 +15,7 @@ st.markdown(module_header(
     badge="Financial Independence"
 ), unsafe_allow_html=True)
 
-options = ["Emerytura / FIRE", "Decumulation / SWR"]
+options = ["Emerytura / FIRE", "Decumulation / SWR", "Obligacje Skarbowe"]
 sel = st.pills("Wybierz moduł:", options, default=options[0])
 st.divider()
 
@@ -35,5 +35,9 @@ if sel == "Emerytura / FIRE":
 elif sel == "Decumulation / SWR":
     with st.container(key="decumulation_wrapper"):
         render_decumulation_module()
+elif sel == "Obligacje Skarbowe":
+    with st.container(key="obligacje_wrapper"):
+        from modules.obligacje_skarbowe import render_obligacje_module
+        render_obligacje_module()
 
 gs_sidebar_badge()
