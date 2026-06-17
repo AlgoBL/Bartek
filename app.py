@@ -15,19 +15,26 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Wstrzykuje JavaScript kontrolera accordion
-inject_accordion_js()
+# ── JavaScript injecty — wykonywane RAZ per sesja (nie przy każdym rerun) ───
+# inject_accordion_js, inject_spotlight_js, inject_aos_js są kosztowne
+# (Spotlight to 800+ linii JS). Guard session_state eliminuje zbędne re-injecty.
+if "_js_injected" not in st.session_state:
+    # Wstrzykuje JavaScript kontrolera accordion
+    inject_accordion_js()
 
-# Wstrzykuje Spotlight v2 — pełna wyszukiwarka projektu z indeksem
-try:
-    from modules.search_index import get_search_index_json
-    _search_index_json = get_search_index_json()
-except Exception as _e:
-    _search_index_json = "[]"
-inject_spotlight_js(_search_index_json)
+    # Wstrzykuje Spotlight v2 — pełna wyszukiwarka projektu z indeksem
+    try:
+        from modules.search_index import get_search_index_json
+        _search_index_json = get_search_index_json()  # @st.cache_resource — szybkie
+    except Exception as _e:
+        _search_index_json = "[]"
+    inject_spotlight_js(_search_index_json)
 
-from modules.styling import inject_aos_js
-inject_aos_js()
+    from modules.styling import inject_aos_js
+    inject_aos_js()
+
+    st.session_state["_js_injected"] = True
+
 
 from modules.background_updater import bg_engine, CACHE_FILE
 import json
@@ -43,13 +50,20 @@ def init_background_engine(enabled: bool, interval: int):
     return bg_engine
 
 def fetch_control_center_data_from_cache():
-    """Błyskawicznie czyta z JSON. Fallback do pobrania w locie jeśli pliku brak."""
+    """Błyskawicznie czyta z JSON. Zwraca (macro, geo_report, timestamp_str).
+    Fallback do pobrania w locie jeśli pliku brak.
+    PERF: jedno otwarcie pliku zamiast dwóch (eliminuje podwójny disk I/O).
+    """
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 packet = json.load(f)
             if packet.get("status") == "success":
-                return packet.get("macro", {}), packet.get("geo_report", {})
+                return (
+                    packet.get("macro", {}),
+                    packet.get("geo_report", {}),
+                    packet.get("timestamp", "Nieznany"),
+                )
         except Exception as e:
             st.warning(f"Błąd odczytu Heartbeat Cache: {e}")
             
@@ -59,13 +73,17 @@ def fetch_control_center_data_from_cache():
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 packet = json.load(f)
-            return packet.get("macro", {}), packet.get("geo_report", {})
+            return (
+                packet.get("macro", {}),
+                packet.get("geo_report", {}),
+                packet.get("timestamp", "Nieznany"),
+            )
         except Exception as e:
             from modules.logger import setup_logger
             setup_logger(__name__).error(f"Fallback Heartbeat Cache read failed: {e}")
             pass
             
-    return {}, {}
+    return {}, {}, "Brak danych"
 
 def calculate_regime_score(macro, geo_report):
     """Bayesian-inspired Weighted Regime Score (0-100)"""
@@ -611,9 +629,10 @@ def get_vanguard_report(score, macro, geo_report):
 #  STRONA GŁÓWNA
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.fragment(run_every="10s")
+@st.fragment(run_every="60s")  # PERF: zwiększono z 10s → 60s (bg engine pobiera co 15min)
 def check_for_updates():
     import os
+    import time
     from modules.background_updater import CACHE_FILE
     if not os.path.exists(CACHE_FILE):
         return
@@ -621,8 +640,13 @@ def check_for_updates():
     if "last_cache_mtime" not in st.session_state:
         st.session_state["last_cache_mtime"] = current_mtime
     elif current_mtime > st.session_state["last_cache_mtime"]:
-        st.session_state["last_cache_mtime"] = current_mtime
-        st.rerun()
+        # Cooldown: nie rerunnuj częściej niż 1x/minutę by uniknąć kaskady
+        last_rerun = st.session_state.get("_last_rerun_ts", 0)
+        if time.time() - last_rerun > 60:
+            st.session_state["last_cache_mtime"] = current_mtime
+            st.session_state["_last_rerun_ts"] = time.time()
+            st.rerun()
+
 
 def get_action_recommendations(score: float, macro: dict, alerts: list) -> list:
     """Generuje listę rekomendowanych akcji na podstawie obecnego stanu."""
@@ -679,24 +703,19 @@ def home():
         _prog = st.progress(0, text=t("cc_sync_text"))
         try:
             _prog.progress(70, text=t("cc_sync_fetch"))
-            macro, geo_report = fetch_control_center_data_from_cache()
+            # PERF: fetch_control_center_data_from_cache zwraca teraz 3 wartości
+            # eliminując drugi otwarcie CACHE_FILE poniżej
+            macro, geo_report, last_ts = fetch_control_center_data_from_cache()
             _prog.progress(100, text=t("cc_sync_done"))
         except Exception as e:
             _prog.empty()
             st.error(f"{t('cc_sync_err')}: {e}")
-            macro, geo_report = {}, {}
+            macro, geo_report, last_ts = {}, {}, "Błąd"
         finally:
             _prog.empty()
 
-    # Opcjonalny wskaźnik aktywności
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            try:
-                 pack = json.load(f)
-                 last_ts = pack.get("timestamp", "Nieznany")
-            except:
-                 last_ts = "Błąd"
-
+    # Opcjonalny wskaźnik aktywności — używa last_ts zwroconego wyżej (bez ponownego otwierania pliku)
+    if last_ts and last_ts != "Brak danych":
         status_color = "#00e676" if gs.bg_refresh_enabled else "#aaa"
         status_text = t("cc_engine_active") if gs.bg_refresh_enabled else t("cc_engine_inactive")
 
@@ -705,13 +724,12 @@ def home():
         try:
             import datetime as _dt
             ts_str = last_ts
-            # Próbuj sparsować timestamp (format ISO lub YYYY-MM-DD HH:MM:SS)
             for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
                 try:
                     ts_dt = _dt.datetime.strptime(ts_str[:19], fmt[:len(fmt)])
                     age_h = (_dt.datetime.now() - ts_dt).total_seconds() / 3600
                     if age_h > 2:
-                        stale_badge = f"<span class='stale-badge'>⚠ STALE {age_h:.0f}h</span>"
+                        stale_badge = f"<span class='stale-badge'>&#9888; STALE {age_h:.0f}h</span>"
                     break
                 except ValueError:
                     continue

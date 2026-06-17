@@ -20,6 +20,7 @@ import re
 import os
 import ast
 from typing import List, Dict, Any
+import streamlit as st
 
 
 # -- Mapa: page_file -> URL nawigacyjny w Streamlit
@@ -806,10 +807,12 @@ def build_search_index() -> List[Dict[str, Any]]:
     return index
 
 
+@st.cache_resource(show_spinner=False)
 def get_search_index_json() -> str:
     """
     Zwraca indeks jako JSON string gotowy do wstrzyknięcia do JavaScript.
-    Używa cache by nie przebudowywać przy każdym rerunie.
+    Używa @st.cache_resource by nie przebudowywać przy każdym rerunie.
+    Budowanie indeksu (AST scan 60+ plików) wykonuje się RAZ na czas życia serwera.
     """
     import json
     index = build_search_index()

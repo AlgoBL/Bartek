@@ -102,12 +102,66 @@ class TheOracle:
         _, val, pct = await fetch_ticker_async(ticker, period="5d")
         return name, val, pct
 
+    async def _fetch_all_macro_tickers_batch(self) -> list[tuple[str, float | None, float | None]]:
+        """
+        PERF: Pobiera wszystkie makro tickery w jednym batch request yf.download()
+        zamiast N osobnych calls. Redukuje cold-start z ~20s do ~3s.
+        Fallback na per-ticker jeśli batch się nie powiedzie.
+        """
+        from modules.data_provider import _fetch_from_yfinance_sync
+        name_to_ticker = self.macro_tickers  # dict {name: yahoo_ticker}
+        tickers_list = list(name_to_ticker.values())
+        names_list   = list(name_to_ticker.keys())
+
+        try:
+            df = await asyncio.to_thread(_fetch_from_yfinance_sync, tickers_list, period="5d")
+            if df.empty:
+                raise ValueError("Batch download zwrócił pusty DataFrame")
+
+            results = []
+            import pandas as pd
+            for name, ticker in zip(names_list, tickers_list):
+                try:
+                    if isinstance(df.columns, pd.MultiIndex):
+                        lvl0 = df.columns.get_level_values(0).unique()
+                        if "Close" not in lvl0:
+                            results.append((name, None, None))
+                            continue
+                        series = df["Close"][ticker].dropna()
+                    elif "Close" in df.columns:
+                        series = df["Close"].dropna()
+                    else:
+                        results.append((name, None, None))
+                        continue
+
+                    if series.empty:
+                        results.append((name, None, None))
+                        continue
+
+                    val = round(float(series.iloc[-1]), 4)
+                    pct = 0.0
+                    if len(series) > 1:
+                        prev = float(series.iloc[-2])
+                        if prev != 0:
+                            pct = round(((val / prev) - 1) * 100, 2)
+                    results.append((name, val, pct))
+                except Exception as e_inner:
+                    logger.debug(f"Batch extract failed for {name}/{ticker}: {e_inner}")
+                    results.append((name, None, None))
+            return results
+
+        except Exception as e:
+            logger.warning(f"Batch YFinance failed ({e}), falling back to per-ticker async")
+            # Fallback: stary mechanizm per-ticker
+            ticker_tasks = [self._fetch_ticker_async(name, ticker) for name, ticker in self.macro_tickers.items()]
+            return list(await asyncio.gather(*ticker_tasks, return_exceptions=False))
+
     async def get_macro_snapshot_async(self) -> dict:
         """Asynchroniczne pobieranie wskaźników makro (YFinance + FRED)."""
         snapshot = {}
         async with aiohttp.ClientSession() as session:
-            # 1. YFinance Tasks
-            ticker_tasks = [self._fetch_ticker_async(name, ticker) for name, ticker in self.macro_tickers.items()]
+            # 1. YFinance — PERF: jeden batch download zamiast N osobnych calls
+            ticker_batch_task = asyncio.create_task(self._fetch_all_macro_tickers_batch())
             
             # 5. FRED Tasks
             fred_tasks = [_fetch_fred_series_async(session, sid) for sid in FRED_SERIES.values()]
@@ -191,8 +245,8 @@ class TheOracle:
                 
             bond_vol_task = asyncio.create_task(fetch_bond_vol())
             
-            # Await all fetches concurrently
-            results_tickers = await asyncio.gather(*ticker_tasks)
+            # Await all fetches concurrently — ticker_batch_task to batch YFinance (N→1 request)
+            results_tickers = await ticker_batch_task
             results_fred = await asyncio.gather(*fred_tasks)
             res_crypto = await crypto_task
             res_options = await options_task
@@ -204,6 +258,7 @@ class TheOracle:
                 if val is not None:
                     snapshot[name] = val
                     snapshot[f"{name}_change"] = pct if pct is not None else 0.0
+
                 
             inv_fred = {v: k for k, v in FRED_SERIES.items()}
             for sid, val, pct in results_fred:
