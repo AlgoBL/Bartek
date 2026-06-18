@@ -841,3 +841,126 @@ def calculate_antifragility_score(port_returns, bench_returns, crisis_threshold_
     # Jesli zarabia w trakcie kryzysu -> score > 0 (Prawdziwy Antifragile)
     
     return float(score)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BOOTSTRAP CONFIDENCE INTERVALS (L4 FIX)
+# Ref: Efron & Tibshirani (1993) "An Introduction to the Bootstrap"
+#      Bailey & de Prado (2012) "Sharpe Ratio" — PSR uses bootstrap
+# ══════════════════════════════════════════════════════════════════════════════
+
+def bootstrap_confidence_interval(
+    returns: np.ndarray,
+    metric_fn,
+    n_bootstrap: int = 1000,
+    alpha: float = 0.05,
+    seed: int = 42,
+) -> tuple[float, float, float]:
+    """
+    Percentile Bootstrap CI dla dowolnej metryki portfelowej.
+
+    Parameters
+    ----------
+    returns     : array dziennych zwrotów
+    metric_fn   : callable(returns) -> float (np. calculate_sharpe)
+    n_bootstrap : liczba próbek bootstrap (default: 1000)
+    alpha       : poziom ufności (0.05 = 95% CI)
+    seed        : ziarno RNG dla reprodukowalności
+
+    Returns
+    -------
+    (estimate, lower_ci, upper_ci)
+    Gdzie CI = percentile bootstrap [alpha/2, 1-alpha/2]
+
+    Ref: Efron & Tibshirani (1993) "An Introduction to the Bootstrap"
+         Hall (1992) "The Bootstrap and Edgeworth Expansion"
+    """
+    r = np.asarray(returns, dtype=float)
+    r = r[~np.isnan(r)]
+    n = len(r)
+
+    if n < 10:
+        est = float(metric_fn(r)) if n > 0 else 0.0
+        return est, est, est
+
+    rng = np.random.default_rng(seed)
+
+    # Punkt estymacji
+    try:
+        estimate = float(metric_fn(r))
+    except Exception:
+        return 0.0, 0.0, 0.0
+
+    # Bootstrap próbkowanie z powtórzeniami
+    boot_estimates = np.zeros(n_bootstrap)
+    for i in range(n_bootstrap):
+        r_boot = rng.choice(r, size=n, replace=True)
+        try:
+            boot_estimates[i] = float(metric_fn(r_boot))
+        except Exception:
+            boot_estimates[i] = estimate  # fallback
+
+    lo_pct = alpha / 2 * 100
+    hi_pct = (1.0 - alpha / 2) * 100
+    lower = float(np.percentile(boot_estimates, lo_pct))
+    upper = float(np.percentile(boot_estimates, hi_pct))
+
+    return estimate, lower, upper
+
+
+def metrics_with_ci(
+    returns: np.ndarray,
+    rf: float = 0.0324,
+    n_bootstrap: int = 500,
+    alpha: float = 0.05,
+    seed: int = 42,
+) -> dict:
+    """
+    Oblicza kluczowe metryki z 95% bootstrap confidence intervals.
+
+    Returns dict z kluczami:
+      {metric_name: {'estimate': float, 'ci_low': float, 'ci_high': float}}
+
+    Referencje:
+      Efron & Tibshirani (1993) — Bootstrap CI
+      Lo (2002) — Sharpe Ratio Statistics
+      Bailey & de Prado (2012) — Probabilistic Sharpe Ratio
+    """
+    r = np.asarray(returns, dtype=float)
+    r = r[~np.isnan(r)]
+
+    metrics_config = {
+        "sharpe":  lambda x: calculate_sharpe(x, rf=rf),
+        "sortino": lambda x: calculate_sortino(x, rf=rf),
+        "calmar":  lambda x: calculate_calmar(
+            float(np.exp(np.log(1 + x).mean() * 252) - 1),
+            float(calculate_max_drawdown(np.cumprod(1 + x)))
+        ),
+        "omega":   lambda x: calculate_omega_ratio(x, threshold=rf / 252),
+        "rachev":  lambda x: calculate_rachev_ratio(x),
+    }
+
+    results = {}
+    for name, fn in metrics_config.items():
+        try:
+            est, lo, hi = bootstrap_confidence_interval(r, fn, n_bootstrap, alpha, seed + hash(name) % 1000)
+            results[name] = {
+                "estimate": est,
+                "ci_low":   lo,
+                "ci_high":  hi,
+                "ci_width": hi - lo,
+                "significant": not (lo <= 0 <= hi),  # Czy istotnie różny od 0?
+            }
+        except Exception:
+            results[name] = {"estimate": 0.0, "ci_low": 0.0, "ci_high": 0.0, "ci_width": 0.0, "significant": False}
+
+    return results
+
+
+def format_metric_with_ci(name: str, est: float, lo: float, hi: float, significant: bool = False) -> str:
+    """
+    Formatuje metrykę z CI jako string gotowy do wyświetlenia w Streamlit.
+    Przykład: "Sharpe: 0.82 [0.65 – 1.01]*"
+    """
+    sig_marker = "✅" if significant else "⚠️"
+    return f"{name}: **{est:.3f}** [{lo:.3f} – {hi:.3f}] {sig_marker}"

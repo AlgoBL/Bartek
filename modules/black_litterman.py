@@ -5,12 +5,14 @@ Implementuje kompletny model B-L łączący:
   1. CAPM Prior (market-implied returns Π = λΣw_mkt)
   2. AI Views (P, Q, Ω) generowane przez agentów LocalCIO / LocalEconomist
   3. Posterior (μ_BL): bayesowskie połączenie prioirytu z views
+  4. Bayes-Stein shrinkage prioru (Jorion 1986) — NOWY
 
 Referencje:
   Black & Litterman (1992) — "Global Portfolio Optimization"
   He & Litterman (1999) — "The Intuition Behind Black-Litterman Model Portfolios"
   Idzorek (2005) — "A Step-by-Step Guide to the Black-Litterman Model"
   Meucci (2010) — "The Black-Litterman Approach: Original Model and Extensions"
+  Jorion (1986) — "Bayes-Stein Estimation for Portfolio Analysis", JFQA  ← NOWY
 """
 
 from __future__ import annotations
@@ -63,6 +65,62 @@ class BlackLittermanEngine:
           w_mkt = wagi rynkowe (np. kapitalizacja / równoważne)
         """
         return self.risk_aversion * sigma @ w_mkt
+
+    @staticmethod
+    def compute_bayes_stein_prior(
+        returns_df: "pd.DataFrame",
+        sigma: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Bayes-Stein shrinkage estimator dla expected returns.
+
+        Redukuje błąd estymacji oczekiwanych stóp zwrotu przez shrinkage
+        w kierunku globalnej (rynkowej) średniej. Zastępuje naiwne równe
+        wagi gdy brak kapitalizacji rynkowej.
+
+        Wzór (Jorion 1986, JFQA):
+          μ_BS = (1 - φ) · μ_sample + φ · μ_global · 1
+
+          φ = (n + 2) / [(n + 2) + T · (μ_s - μ_g·1)' Σ⁻¹ (μ_s - μ_g·1)]
+
+        Gdzie:
+          n = liczba aktywów
+          T = liczba obserwacji
+          μ_s = próbkowe oczekiwane zwroty
+          μ_g = globalna średnia (scalar)
+
+        Wyniki:
+          - φ → 1: silny shrinkage (mało danych, duże niepewności)
+          - φ → 0: próbkowe estymaty dominują (dużo danych)
+
+        Ref: Jorion (1986) "Bayes-Stein Estimation for Portfolio Analysis"
+             Journal of Financial and Quantitative Analysis, 21(3).
+        """
+        r = returns_df.values * 252  # annualizacja
+        T, n = r.shape
+
+        mu_sample = r.mean(axis=0)       # (n,) — próbkowe
+        mu_global = float(mu_sample.mean())  # scalar — globalna średnia
+
+        # Oblicz φ (intensity shrinkage)
+        diff = mu_sample - mu_global
+        try:
+            sigma_inv = np.linalg.inv(sigma + np.eye(n) * 1e-8)
+            mahalanobis_sq = float(diff @ sigma_inv @ diff)
+        except np.linalg.LinAlgError:
+            mahalanobis_sq = float(np.dot(diff, diff) / (np.var(r) + 1e-8))
+
+        phi = (n + 2) / ((n + 2) + T * mahalanobis_sq)
+        phi = float(np.clip(phi, 0.0, 1.0))
+
+        # Bayes-Stein estimate
+        mu_bs = (1.0 - phi) * mu_sample + phi * mu_global
+
+        logger.info(
+            f"Bayes-Stein: φ={phi:.3f} | "
+            f"μ_sample={mu_sample.round(3)} → μ_BS={mu_bs.round(3)}"
+        )
+        return mu_bs, phi
 
     # ─── 2. AI VIEWS → (P, Q, Ω) ──────────────────────────────────────────────
 
@@ -301,6 +359,7 @@ class BlackLittermanEngine:
         cio_thesis: dict,
         econ_analysis: dict,
         market_cap_weights: np.ndarray | None = None,
+        use_bayes_stein: bool = True,
     ) -> dict:
         """
         Kompletny pipeline Black-Litterman od danych do wag portfela.
@@ -310,12 +369,13 @@ class BlackLittermanEngine:
         returns_df           : pd.DataFrame z dziennymi zwrotami aktywów
         cio_thesis           : wynik LocalCIO.synthesize_thesis()
         econ_analysis        : wynik LocalEconomist.analyze_macro()
-        market_cap_weights   : wagi rynkowe; jeśli None → równe
+        market_cap_weights   : wagi rynkowe; jeśli None → Bayes-Stein prior
+        use_bayes_stein      : jeśli True i brak market_cap_weights → Jorion (1986) prior
 
         Returns
         -------
         dict z kluczami: pi, mu_bl, sigma_bl, weights_bl, weights_mkt,
-                         views_count, regime, views_Q
+                         views_count, regime, views_Q, bayes_stein_phi
         """
         asset_names = list(returns_df.columns)
         n           = len(asset_names)
@@ -334,8 +394,19 @@ class BlackLittermanEngine:
             else np.ones(n) / n
         )
 
-        # Prior
-        pi = self.compute_implied_returns(sigma, w_mkt)
+        # Prior (CAPM lub Bayes-Stein)
+        bayes_stein_phi = None
+        if market_cap_weights is not None:
+            # Mamy kapitalizację — standardowy CAPM prior
+            pi = self.compute_implied_returns(sigma, w_mkt)
+        elif use_bayes_stein and len(returns_df) >= 20:
+            # Brak kapitalizacji — użyj Bayes-Stein shrinkage (Jorion 1986)
+            mu_bs, phi = self.compute_bayes_stein_prior(returns_df, sigma)
+            bayes_stein_phi = phi
+            pi = mu_bs  # Bayes-Stein jako prior zamiast równych wag
+            logger.info(f"Użyto Bayes-Stein prior: φ={phi:.3f}")
+        else:
+            pi = self.compute_implied_returns(sigma, w_mkt)
 
         # Views z agentów
         P, Q, omega = self.build_views_from_agents_with_sigma(
@@ -350,15 +421,18 @@ class BlackLittermanEngine:
         w_mkt_opt = self.optimize_portfolio(pi, sigma)
 
         return {
-            "asset_names":    asset_names,
-            "pi":             pi,
-            "mu_bl":          mu_bl,
-            "sigma":          sigma,
-            "sigma_bl":       sigma_bl,
-            "weights_bl":     w_bl,
-            "weights_mkt":    w_mkt_opt,
-            "views_count":    P.shape[0],
-            "regime":         cio_thesis.get("regime", "neutral"),
-            "views_Q":        Q.tolist() if len(Q) > 0 else [],
-            "views_P":        P.tolist() if P.shape[0] > 0 else [],
+            "asset_names":       asset_names,
+            "pi":                pi,
+            "mu_bl":             mu_bl,
+            "sigma":             sigma,
+            "sigma_bl":          sigma_bl,
+            "weights_bl":        w_bl,
+            "weights_mkt":       w_mkt_opt,
+            "views_count":       P.shape[0],
+            "regime":            cio_thesis.get("regime", "neutral"),
+            "views_Q":           Q.tolist() if len(Q) > 0 else [],
+            "views_P":           P.tolist() if P.shape[0] > 0 else [],
+            "bayes_stein_phi":   bayes_stein_phi,
+            "prior_method":      "Bayes-Stein (Jorion 1986)" if bayes_stein_phi is not None else "CAPM",
         }
+

@@ -40,13 +40,19 @@ class DCCGARCHModel:
         self,
         alpha_g: float = 0.10,
         beta_g:  float = 0.85,
-        a_dcc:   float = 0.04,
-        b_dcc:   float = 0.92,
+        a_dcc:   float | None = None,   # None → estymowane przez Stage 2 MLE
+        b_dcc:   float | None = None,   # None → estymowane przez Stage 2 MLE
+        fit_dcc_params: bool = True,    # Czy estymować a/b DCC z danych?
     ):
         self.alpha_g = alpha_g
         self.beta_g  = beta_g
-        self.a_dcc   = a_dcc
-        self.b_dcc   = b_dcc
+        # Parametry DCC — None oznacza że będą wyestymowane przez fit()
+        # Engle & Sheppard (2001): domyślne a=0.04, b=0.92 to tylko starting point
+        self.a_dcc = a_dcc if a_dcc is not None else 0.04   # startowe
+        self.b_dcc = b_dcc if b_dcc is not None else 0.92   # startowe
+        self._a_dcc_init = a_dcc   # None = użyj Stage 2 MLE
+        self._b_dcc_init = b_dcc
+        self._fit_dcc_from_data = fit_dcc_params
 
         # Estymowane przez fit()
         self._Q_bar: np.ndarray | None = None  # długookresowa macierz korelacji
@@ -54,6 +60,9 @@ class DCCGARCHModel:
         self._garch_omegas: np.ndarray | None = None   # GARCH omega per asset
         self._unconditional_vars: np.ndarray | None = None
         self._fitted = False
+        # Stage 2 MLE diagnostics
+        self._dcc_ll: float = -np.inf       # DCC log-likelihood
+        self._dcc_mle_converged: bool = False
 
     # ─── 1. UNIVARIATE GARCH ─────────────────────────────────────────────────
 
@@ -162,11 +171,107 @@ class DCCGARCHModel:
             h[t] = omega + alpha * returns[t-1]**2 + beta * h[t-1]
         return np.maximum(h, 1e-10)
 
-    # ─── 2. FIT ───────────────────────────────────────────────────────────────
+    # ─── 2. DCC STAGE 2 MLE (Engle & Sheppard 2001) ─────────────────────────
+
+    def _fit_dcc_params(
+        self,
+        std_residuals: np.ndarray,
+        Q_bar: np.ndarray,
+    ) -> tuple[float, float]:
+        """
+        Stage 2 DCC MLE — estymuje a_dcc i b_dcc ze standaryzowanych residuów.
+
+        Maksymalizuje warunkową log-likelihood DCC:
+          L_DCC = -0.5 Σ_t [ log|R_t| + z_t' R_t⁻¹ z_t - z_t' z_t ]
+
+        Gdzie R_t = diag(Q_t)^{-1/2} Q_t diag(Q_t)^{-1/2}
+              Q_t = (1-a-b)Q̄ + a z_{t-1}z'_{t-1} + b Q_{t-1}
+
+        Ref: Engle & Sheppard (2001) Eq. 8, 10; Engle (2002) JBES.
+
+        Parameters
+        ----------
+        std_residuals : (T, n) standaryzowane residua z GARCH Stage 1
+        Q_bar         : (n, n) długookresowa macierz korelacji
+
+        Returns
+        -------
+        (a_dcc, b_dcc) — wyestymowane parametry DCC
+        """
+        T, n = std_residuals.shape
+
+        def dcc_neg_ll(params: np.ndarray) -> float:
+            a, b = float(params[0]), float(params[1])
+            # Warunek stacjonarności
+            if a <= 1e-6 or b <= 1e-6 or a + b >= 0.9999:
+                return 1e12
+
+            Q_t = Q_bar.copy()
+            ll = 0.0
+
+            for t in range(1, T):
+                z_prev = std_residuals[t - 1]  # (n,)
+                # DCC update
+                Q_t = (1.0 - a - b) * Q_bar + a * np.outer(z_prev, z_prev) + b * Q_t
+
+                # Korelacja warunkowa R_t
+                q_diag = np.sqrt(np.maximum(np.diag(Q_t), 1e-10))
+                R_t = Q_t / np.outer(q_diag, q_diag)
+                np.fill_diagonal(R_t, 1.0)
+                R_t = np.clip(R_t, -0.999, 0.999)
+
+                # DCC log-likelihood (Engle 2002, Eq. 7)
+                z_t = std_residuals[t]  # (n,)
+                try:
+                    sign, logdet_R = np.linalg.slogdet(R_t)
+                    if sign <= 0:
+                        continue
+                    R_inv_z = np.linalg.solve(R_t + np.eye(n) * 1e-8, z_t)
+                    # L_t = logdet(R_t) + z_t' R_t^{-1} z_t - z_t' z_t
+                    ll += -(logdet_R + float(z_t @ R_inv_z) - float(z_t @ z_t))
+                except np.linalg.LinAlgError:
+                    continue
+
+            return -ll  # minimalizujemy neg-ll
+
+        # Optymalizacja — startujemy od standardowych wartości (Engle 2002)
+        x0 = np.array([0.04, 0.92])
+        bounds = [(1e-5, 0.30), (0.50, 0.999)]
+
+        try:
+            result = minimize(
+                dcc_neg_ll, x0,
+                method="L-BFGS-B",
+                bounds=bounds,
+                options={"maxiter": 200, "ftol": 1e-8},
+            )
+            if result.success and result.fun < 1e11:
+                a_opt, b_opt = float(result.x[0]), float(result.x[1])
+                # Sanity check: a+b < 1 (stacjonarność)
+                if a_opt + b_opt < 0.9999:
+                    self._dcc_mle_converged = True
+                    self._dcc_ll = float(-result.fun)
+                    logger.info(
+                        f"DCC Stage 2 MLE sukces: a_dcc={a_opt:.4f}, b_dcc={b_opt:.4f} "
+                        f"| LL={self._dcc_ll:.2f} | persistence={a_opt+b_opt:.4f}"
+                    )
+                    return a_opt, b_opt
+        except Exception as e:
+            logger.warning(f"DCC Stage 2 MLE failed: {e}. Używam wartości domyślnych.")
+
+        # Fallback — domyślne wartości Engle (2002)
+        logger.warning("DCC Stage 2 MLE nie skonwergował — używam a=0.04, b=0.92")
+        return 0.04, 0.92
+
+    # ─── 3. FIT ───────────────────────────────────────────────────────────────
 
     def fit(self, returns_df: pd.DataFrame) -> "DCCGARCHModel":
         """
-        Estymacja parametrów univariate GARCH i macierzy Q̄ z danych historycznych.
+        Estymacja parametrów DCC-GARCH z danych historycznych.
+
+        Procedura dwuetapowa (Engle & Sheppard 2001):
+        Stage 1: Estymacja univariate GARCH(1,1) per aktywo
+        Stage 2: MLE dla parametrów DCC (a_dcc, b_dcc) — NOWOŚĆ L2 FIX
 
         Parameters
         ----------
@@ -176,7 +281,7 @@ class DCCGARCHModel:
         self._n_assets = n
         rets = returns_df.values  # (T, n)
 
-        # 1. Univariate GARCH dla każdego aktywa
+        # Stage 1: Univariate GARCH dla każdego aktywa
         garch_params = []
         std_residuals = np.zeros_like(rets)  # standaryzowane residua z_t
 
@@ -184,24 +289,34 @@ class DCCGARCHModel:
             r_i = rets[:, i]
             omega_i, alpha_i, beta_i, _ = self._fit_garch_series(r_i)
             h_i = self._compute_garch_variance(r_i, omega_i, alpha_i, beta_i)
-            std_residuals[:, i] = r_i / np.sqrt(h_i)
+            std_residuals[:, i] = r_i / np.sqrt(np.maximum(h_i, 1e-10))
             garch_params.append((omega_i, alpha_i, beta_i))
 
         self._garch_params = garch_params
 
-        # 2. Q̄ = długookresowa korelacja standaryzowanych residuów
+        # Q̄ = długookresowa korelacja standaryzowanych residuów
         self._Q_bar = np.corrcoef(std_residuals.T)
         np.fill_diagonal(self._Q_bar, 1.0)
-        self._Q_bar += np.eye(n) * 1e-6  # regularyzacja
+        self._Q_bar += np.eye(n) * 1e-6  # regularyzacja numeryczna
 
-        # 3. Unconditional variances per asset
+        # Stage 2 MLE: estymuj a_dcc i b_dcc z danych (L2 FIX)
+        if self._fit_dcc_from_data and self._a_dcc_init is None:
+            if rets.shape[0] >= 100:  # potrzeba min 100 obserwacji
+                a_opt, b_opt = self._fit_dcc_params(std_residuals, self._Q_bar)
+                self.a_dcc = a_opt
+                self.b_dcc = b_opt
+            else:
+                logger.warning("DCC Stage 2: za mało obs (<100) — używam domyślnych a=0.04, b=0.92")
+
+        # Unconditional variances per asset
         self._unconditional_vars = np.var(rets, axis=0)
         self._std_residuals_hist = std_residuals
         self._fitted = True
 
         logger.info(
-            f"DCC-GARCH fit: {n} aktywów, "
-            f"a_dcc={self.a_dcc}, b_dcc={self.b_dcc}"
+            f"DCC-GARCH fit: {n} aktywów | "
+            f"a_dcc={self.a_dcc:.4f} (MLE={'tak' if self._dcc_mle_converged else 'nie'}), "
+            f"b_dcc={self.b_dcc:.4f} | persistence={self.a_dcc+self.b_dcc:.4f}"
         )
         return self
 
